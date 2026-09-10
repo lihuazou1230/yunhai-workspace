@@ -52,6 +52,12 @@ export interface UseReminderOptions {
   autoScan?: boolean
   /** 覆盖默认通道实现（测试用） */
   channels?: Partial<ReminderChannels>
+  /**
+   * 点击系统通知后如何跳到那条任务。
+   * 必须由调用方注入：通知的点击回调发生在组件树之外，而项目用的是 history 路由
+   * （写 `location.hash` 不会真的导航，只会往地址栏粘一个没用的片段）。
+   */
+  onOpenTodo?: (todoId: string) => void
   /** 微信推送失败时的提示回调（UI 弹 Toast） */
   onWxPusherError?: (message: string) => void
 }
@@ -97,8 +103,8 @@ export function useReminder(options: UseReminderOptions): UseReminderReturn {
       })
       notification.onclick = () => {
         window.focus()
-        // 深链回任务页（用 hash 而不是 router：通知点击发生在组件树之外）
-        window.location.hash = `#/todos?focus=${encodeURIComponent(reminder.todoId)}`
+        // 交给调用方导航（history 路由下不能靠改 hash 跳转，见 onOpenTodo 的说明）
+        options.onOpenTodo?.(reminder.todoId)
         notification.close()
       }
     } catch {

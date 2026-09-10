@@ -56,6 +56,11 @@ const props = withDefaults(
     todoTags?: Tag[]
     /** 当前所在视图：决定操作菜单里是「归档 / 恢复 / 召回」哪一组动作 */
     view?: TodoListView
+    /**
+     * 是否为「刚从提醒通知跳过来」的那条任务。
+     * 高亮一下，否则用户到了任务页还得自己找是哪一条。
+     */
+    highlighted?: boolean
   }>(),
   {
     showDue: false,
@@ -68,6 +73,7 @@ const props = withDefaults(
     draggable: false,
     todoTags: () => [],
     view: 'main',
+    highlighted: false,
   },
 )
 
@@ -332,11 +338,16 @@ function onPurge() {
     :class="[
       overdue ? 'border-rose-300 dark:border-rose-700' : '',
       isDone ? 'opacity-[0.65]' : '',
+      highlighted
+        ? 'border-[var(--el-color-primary)] ring-2 ring-[var(--el-color-primary)] ring-offset-1 dark:ring-offset-slate-900'
+        : '',
       anim === 'complete' ? 'anim-slide-left' : '',
       anim === 'remove' ? 'anim-slide-right' : '',
       revealing ? 'anim-reveal-right' : '',
       entering ? 'anim-enter-left' : '',
     ]"
+    :data-highlighted="highlighted ? 'true' : undefined"
+    :data-testid="`todo-item-${todo.id}`"
   >
     <!-- 拖拽把手（SortableJS 的 handle；移动端没有 hover，所以小屏常显） -->
     <span

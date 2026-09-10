@@ -7,7 +7,8 @@
  * - **拖拽排序走 SortableJS（VueUse `useSortable`）**：同一套方案也用于仪表板卡片排序
  */
 
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 
 import { useSortable } from '@vueuse/integrations/useSortable'
 import type { SortableEvent } from 'sortablejs'
@@ -26,6 +27,7 @@ import BaseButton from '@/components/atoms/BaseButton.vue'
 
 const store = useTodoStore()
 const tagStore = useTagStore()
+const route = useRoute()
 
 /** 任务行的标签解析（分子层不碰 store，标签在这里解析好传下去） */
 function tagsOf(todo: { tags: string[] }) {
@@ -177,6 +179,43 @@ const breakdownOpen = computed({
 function onAiBreakdown(id: string) {
   breakdownTodoId.value = id
 }
+
+// ---- 从提醒通知跳过来：高亮并滚动到那条任务（第六阶段 6.5） ----
+// 通知点击后由 DefaultLayout 跳到 /todos?focus=<id>；这里消费这个参数。
+// 用查询参数而不是 store 状态：刷新/分享链接也能复现同一个定位。
+const focusId = ref<string | null>(null)
+
+watch(
+  () => route.query.focus,
+  (value) => {
+    focusId.value = typeof value === 'string' && value ? value : null
+  },
+  { immediate: true },
+)
+
+/**
+ * 定位到目标任务。
+ *
+ * 一律把筛选放宽到「全部」并清掉关键字：点提醒通知的意图就是「带我去看这条」，
+ * 如果目标恰好被当前筛选挡住（最常见的是「进行中」筛选 + 一条已完成的任务），
+ * 用户会以为点了没反应。宁可多切一次筛选，也不要让定位落空。
+ */
+watch(
+  focusId,
+  async (id) => {
+    if (!id) return
+
+    store.setFilter('all')
+    store.setKeyword('')
+    await nextTick()
+
+    listRef.value?.querySelector<HTMLElement>(`[data-testid="todo-item-${id}"]`)?.scrollIntoView({
+      block: 'center',
+      behavior: 'smooth',
+    })
+  },
+  { immediate: true },
+)
 
 /** 确认写入子任务（用户已在预览里勾选/编辑/删减过） */
 function onBreakdownConfirm(todoId: string, titles: string[]) {
@@ -473,6 +512,7 @@ watch(
         :draggable="!store.selectionMode && store.listView === 'main'"
         :todo-tags="tagsOf(todo)"
         :view="store.listView"
+        :highlighted="todo.id === focusId"
         @toggle="toggle"
         @remove="remove"
         @toggle-subtask="onToggleSubtask"

@@ -1,17 +1,52 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { mount } from '@vue/test-utils'
 
 import { useTodoStore } from '@/stores/todoStore'
 import { toDateKey, todayKey } from '@/utils/dateFormatter'
 import TodoList from './TodoList.vue'
 
-function mountWithStore() {
+/**
+ * 组件要读 `route.query.focus`（从提醒通知跳过来时高亮那条任务），
+ * 所以必须装一个 router —— 真实使用里它总是挂在 DefaultLayout 之下。
+ */
+async function mountWithStore() {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/todos', name: 'todos', component: { template: '<div />' } }],
+  })
+  await router.push('/todos')
+  await router.isReady()
+
+  const store = useTodoStore()
+  const wrapper = mount(TodoList, { global: { plugins: [pinia, router] } })
+  return { wrapper, store, router }
+}
+
+/**
+ * 需要断言「从提醒跳过来的定位行为」时用：先建 pinia 并塞数据，再带 focus 查询参数挂载。
+ * 关键点：**数据必须塞给组件真正用的那个 pinia**，否则测试断言的 store 与组件读的 store
+ * 是两套（localStorage 会让它们看起来像共享数据，一旦涉及运行时状态如 filter 就会露馅）。
+ */
+async function mountFocusWith(seed: (store: ReturnType<typeof useTodoStore>) => string) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const store = useTodoStore()
-  const wrapper = mount(TodoList, { global: { plugins: [pinia] } })
+  const focusId = seed(store)
+
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/todos', name: 'todos', component: { template: '<div />' } }],
+  })
+  await router.push({ path: '/todos', query: { focus: focusId } })
+  await router.isReady()
+
+  const wrapper = mount(TodoList, { global: { plugins: [pinia, router] } })
+  await nextTick()
   return { wrapper, store }
 }
 
@@ -25,7 +60,7 @@ describe('TodoList', () => {
   })
 
   it('渲染 store 中的任务', async () => {
-    const { wrapper, store } = mountWithStore()
+    const { wrapper, store } = await mountWithStore()
     store.addTodo({ title: '任务甲', priority: 'high' })
     store.addTodo({ title: '任务乙', priority: 'low' })
     await nextTick()
@@ -39,20 +74,20 @@ describe('TodoList', () => {
   })
 
   it('新建任务从左滑入（anim-enter-left）', async () => {
-    const { wrapper, store } = mountWithStore()
+    const { wrapper, store } = await mountWithStore()
     store.addTodo({ title: '新任务', priority: 'high' })
     await nextTick()
     const li = wrapper.find('li')
     expect(li.classes()).toContain('anim-enter-left')
   })
 
-  it('空状态提示', () => {
-    const { wrapper } = mountWithStore()
+  it('空状态提示', async () => {
+    const { wrapper } = await mountWithStore()
     expect(wrapper.text()).toContain('暂无任务')
   })
 
   it('切换筛选 tab 过滤列表', async () => {
-    const { wrapper, store } = mountWithStore()
+    const { wrapper, store } = await mountWithStore()
     store.addTodo({ title: '未完成甲', priority: 'medium' })
     const b = store.addTodo({ title: '已完成乙', priority: 'medium' })
     store.toggleComplete(b.id)
@@ -73,7 +108,7 @@ describe('TodoList', () => {
   })
 
   it('点击本周筛选只显示本周截止的任务', async () => {
-    const { wrapper, store } = mountWithStore()
+    const { wrapper, store } = await mountWithStore()
     const today = todayKey()
     // 本周内（用今天作为本周代表）
     store.addTodo({ title: '本周内任务', priority: 'medium', dueDate: today })
@@ -98,7 +133,7 @@ describe('TodoList', () => {
   })
 
   it('搜索关键字过滤', async () => {
-    const { wrapper, store } = mountWithStore()
+    const { wrapper, store } = await mountWithStore()
     store.addTodo({ title: '写周报', priority: 'medium' })
     store.addTodo({ title: '健身', priority: 'low' })
     await nextTick()
@@ -114,7 +149,7 @@ describe('TodoList', () => {
   })
 
   it('优先级按钮可多选，三者全选自动回到全部', async () => {
-    const { wrapper, store } = mountWithStore()
+    const { wrapper, store } = await mountWithStore()
     store.addTodo({ title: '高优甲', priority: 'high' })
     store.addTodo({ title: '低优乙', priority: 'low' })
     await nextTick()
@@ -146,7 +181,7 @@ describe('TodoList', () => {
   })
 
   it('点击行尾圆钮调用 toggleComplete', async () => {
-    const { wrapper, store } = mountWithStore()
+    const { wrapper, store } = await mountWithStore()
     const a = store.addTodo({ title: '任务', priority: 'medium' })
     await nextTick()
     await wrapper.find('li button[aria-label="标记为已完成"]').trigger('click')
@@ -156,7 +191,7 @@ describe('TodoList', () => {
   })
 
   it('删除后出现撤销 Toast，点击撤销恢复', async () => {
-    const { wrapper, store } = mountWithStore()
+    const { wrapper, store } = await mountWithStore()
     const a = store.addTodo({ title: '待删除', priority: 'medium' })
     await nextTick()
 
@@ -180,7 +215,7 @@ describe('TodoList', () => {
   })
 
   it('删除软隐藏、撤销条出现并可恢复（1 分钟窗口）', async () => {
-    const { wrapper, store } = mountWithStore()
+    const { wrapper, store } = await mountWithStore()
     const a = store.addTodo({ title: '将被删除', priority: 'medium' })
     await nextTick()
     store.removeTodo(a.id)
@@ -197,5 +232,44 @@ describe('TodoList', () => {
     await nextTick()
     expect(store.visibleTodos.some((t) => t.id === a.id)).toBe(true)
     expect(wrapper.text()).not.toContain('已删除')
+  })
+
+  // ---- 从提醒通知跳过来（第六阶段 6.5） ----
+
+  it('带 focus 查询参数时高亮目标任务', async () => {
+    const { wrapper, store } = await mountFocusWith((s) => {
+      s.addTodo({ title: '被提醒的任务', priority: 'high' })
+      return s.todos[0].id
+    })
+    const id = store.todos[0].id
+
+    const li = wrapper.find(`[data-testid="todo-item-${id}"]`)
+    expect(li.exists()).toBe(true)
+    expect(li.attributes('data-highlighted')).toBe('true')
+  })
+
+  it('目标任务被当前筛选挡住时自动放宽到「全部」并高亮（否则用户会以为点了没反应）', async () => {
+    const { wrapper, store } = await mountFocusWith((s) => {
+      const done = s.addTodo({ title: '已经做完的任务', priority: 'low' })
+      s.toggleComplete(done.id)
+      // 默认筛选是「进行中」，这条已完成的任务本来不在列表里
+      expect(s.filter).toBe('active')
+      expect(s.filteredTodos.some((t) => t.id === done.id)).toBe(false)
+      return done.id
+    })
+
+    const id = store.todos[0].id
+    expect(store.filter).toBe('all')
+    const li = wrapper.find(`[data-testid="todo-item-${id}"]`)
+    expect(li.exists()).toBe(true)
+    expect(li.attributes('data-highlighted')).toBe('true')
+  })
+
+  it('没有 focus 参数时不改动用户的筛选条件', async () => {
+    const { store } = await mountWithStore()
+    store.setFilter('completed')
+    await nextTick()
+
+    expect(store.filter).toBe('completed')
   })
 })

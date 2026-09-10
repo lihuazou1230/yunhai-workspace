@@ -76,14 +76,17 @@ const {
   clearMissed,
 } = useReminder({
   todos: () => todoStore.visibleTodos,
+  onOpenTodo: openTodo,
   onWxPusherError: (message) => ElMessage.warning(message),
 })
 
-/** 跳转到某条任务：关键字清掉，否则列表可能把它过滤没了 */
+/**
+ * 跳到某条任务：带上 focus 查询参数，任务页会把它高亮出来。
+ * 关键字清掉——否则列表可能正好把这条过滤没了，用户会觉得"点了没反应"。
+ */
 function openTodo(todoId: string) {
   todoStore.setKeyword('')
-  if (route.name !== 'todos') void router.push({ name: 'todos' })
-  void todoId
+  void router.push({ name: 'todos', query: { focus: todoId } })
 }
 
 /**
