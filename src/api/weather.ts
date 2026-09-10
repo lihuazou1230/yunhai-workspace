@@ -110,10 +110,14 @@ export const CITY_ADCODE: Record<string, string> = {
   成都: '510100',
 }
 
-/** 读取高德 Key，未配置或为空返回 undefined */
+/**
+ * 读取高德 Key，未配置或为空返回 undefined。
+ * 兼容两个变量名：`VITE_AMAP_KEY`（项目一直在用）与 `VITE_WEATHER_KEY`（规划文档里的写法），
+ * 两者取其一即可，避免用户照着文档配了却读不到。
+ */
 export function getWeatherKey(): string | undefined {
-  const key = import.meta.env.VITE_AMAP_KEY
-  return typeof key === 'string' && key.trim() !== '' ? key.trim() : undefined
+  const raw = import.meta.env.VITE_AMAP_KEY ?? import.meta.env.VITE_WEATHER_KEY
+  return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : undefined
 }
 
 function requireKey(): string {

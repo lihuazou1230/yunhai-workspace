@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 页面：统计（可视化集中展示）
- * 优先级分布饼图 + 近 30 天完成趋势折线 + 近 90 天生产力热力图
+ * 优先级分布饼图 + 近 30 天完成趋势圆角柱状图 + 近 90 天生产力热力图
  */
 
 import ProductivityHeatmap from '@/components/organisms/ProductivityHeatmap.vue'

@@ -120,4 +120,82 @@ describe('TodoItem', () => {
     await nextTick()
     expect(wrapper.find('li').classes()).toContain('anim-enter-left')
   })
+
+  // ---- 视觉规范「方案 A · 行式极简」结构约束 ----
+
+  it('主操作居左：完成圆圈排在标题之前，置顶/删除操作区排在标题之后', () => {
+    const todo = makeTodo({ id: '1', title: '写周报' })
+    const html = mount(TodoItem, { props: { todo } }).html()
+    const toggleIdx = html.indexOf('标记为已完成')
+    const titleIdx = html.indexOf('写周报')
+    const pinIdx = html.indexOf('置顶到今日聚焦')
+    const removeIdx = html.indexOf('删除任务')
+
+    expect(toggleIdx).toBeGreaterThanOrEqual(0)
+    expect(toggleIdx).toBeLessThan(titleIdx)
+    expect(pinIdx).toBeGreaterThan(titleIdx)
+    expect(removeIdx).toBeGreaterThan(titleIdx)
+  })
+
+  it('元信息行用小图标 + 灰字，不再使用徽章 chip', () => {
+    const todo = makeTodo({ id: '1', title: '开会', dueDate: today, priority: 'high' })
+    const wrapper = mount(TodoItem, { props: { todo, showDue: true } })
+
+    // 今日到期 = 琥珀字（异常状态才发声），普通日期为灰字
+    const due = wrapper.find('[title*="今日到期"]')
+    expect(due.exists()).toBe(true)
+    expect(due.classes()).toContain('text-amber-600')
+
+    // 优先级为彩色小旗（svg + aria-label），不是文字徽章
+    const flag = wrapper.find('[aria-label="高优先级"]')
+    expect(flag.exists()).toBe(true)
+    expect(flag.find('svg').exists()).toBe(true)
+    expect(flag.classes()).toContain('text-rose-500')
+  })
+
+  it('普通日期用灰字（不滥用颜色）', () => {
+    const todo = makeTodo({ id: '1', title: '看文档', dueDate: addDays(today, 5) })
+    const wrapper = mount(TodoItem, { props: { todo, showDue: true } })
+    const due = wrapper.find('[title]')
+    expect(due.classes()).toContain('text-slate-400')
+  })
+
+  it('完成态：标题划线 + 整卡 65% 透明度', () => {
+    const todo = makeTodo({ id: '1', title: '健身', status: 'completed' })
+    const wrapper = mount(TodoItem, { props: { todo } })
+    expect(wrapper.find('p').classes()).toContain('line-through')
+    expect(wrapper.find('li').classes()).toContain('opacity-[0.65]')
+  })
+
+  it('子任务默认折叠为「+ 添加子任务」小字，点击后才出现输入框', async () => {
+    const todo = makeTodo({ id: '1', title: '写周报' })
+    const wrapper = mount(TodoItem, { props: { todo } })
+
+    expect(wrapper.text()).toContain('添加子任务')
+    expect(wrapper.find('input[placeholder*="添加子任务"]').exists()).toBe(false)
+
+    const addButton = wrapper.findAll('button').find((b) => b.text().includes('添加子任务'))
+    expect(addButton).toBeTruthy()
+    await addButton!.trigger('click')
+
+    expect(wrapper.find('input[placeholder*="添加子任务"]').exists()).toBe(true)
+  })
+
+  it('已有子任务时展示灰字进度，点击进度展开清单', async () => {
+    const todo = makeTodo({
+      id: '1',
+      title: '写周报',
+      subtasks: [
+        { id: 's1', title: '收集数据', completed: true },
+        { id: 's2', title: '写正文', completed: false },
+      ],
+    })
+    const wrapper = mount(TodoItem, { props: { todo } })
+
+    expect(wrapper.text()).toContain('1/2')
+    expect(wrapper.text()).not.toContain('收集数据')
+
+    await wrapper.find('button[aria-label="展开子任务"]').trigger('click')
+    expect(wrapper.text()).toContain('收集数据')
+  })
 })

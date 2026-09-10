@@ -1,21 +1,23 @@
 <script setup lang="ts">
 /**
- * 有机体组件：桌面端左侧边栏
+ * 有机体组件：桌面端左侧边栏（规格见规划「侧边栏样式规格」）
  *
- * - 头像区：点击唤起 AvatarUpload（未登录时用姓名首字母 + 主题色兜底）
- * - 导航区：4 个路由项，激活态跟随当前路由（胶囊/高亮条样式）
+ * - 容器：240px（`w-60`），与页面同底、无阴影、右侧 1px 分割线，可折叠成 icon rail
+ * - 头像区：64px 圆形头像 + 姓名 + 一行小字（未登录时用姓名首字母 + 主题色兜底）
+ * - 导航项：行高 44px、px-4、rounded-xl，默认灰字 / 悬停极浅灰 /
+ *   **激活态为「主题色浅底 pill + 深色文字」，不是黑底反白**——底色跟随 themeStore 主题色
+ * - 分组：上组=主导航 4 项；细分割线；下组=帮助 / 退出登录
  * - 同步状态：离线/同步中的小提示（登录后才有意义）
- * - 底部：退出登录（未登录时换成「登录」入口）
- * - 折叠：收起成 64px 的 icon rail（状态由 DefaultLayout 持有，宽度要一起变）
  */
 
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import BaseBadge from '@/components/atoms/BaseBadge.vue'
 import BaseButton from '@/components/atoms/BaseButton.vue'
 import AvatarUpload from '@/components/organisms/AvatarUpload.vue'
-import { PRIMARY_NAV_ITEMS, SETTINGS_NAV_ITEM } from '@/components/organisms/navItems'
+import { PRIMARY_NAV_ITEMS } from '@/components/organisms/navItems'
+import type { NavRouteName } from '@/components/organisms/navItems'
 import { useAvatar } from '@/composables/useAvatar'
 import { useAuthStore } from '@/stores/authStore'
 import { useTodoStore } from '@/stores/todoStore'
@@ -25,16 +27,37 @@ const emit = defineEmits<{ (e: 'toggle-collapse'): void }>()
 
 const authStore = useAuthStore()
 const todoStore = useTodoStore()
+const route = useRoute()
 const router = useRouter()
 
 const avatarOpen = ref(false)
+const helpOpen = ref(false)
 const { displayUrl, fallbackInitial, markImageFailed, loadLocalAvatar } = useAvatar()
 
 // 未登录时本地头像也要能显示（IndexedDB 里可能存过一张）
 void loadLocalAvatar()
 
+/** 导航项公共样式：行高 44px、px-4、rounded-xl */
+const NAV_BASE_CLASS =
+  'flex min-h-[44px] items-center gap-3 rounded-xl px-4 text-sm transition-colors'
+/** 默认态 + 悬停态（极浅灰底） */
+const NAV_IDLE_CLASS =
+  'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
+/**
+ * 激活态：主题色**浅底 pill + 深色文字**（浅色 pill 高亮，不是黑底反白）。
+ * 底色走 CSS 变量，换主题色时高亮色自动联动。
+ */
 const NAV_ACTIVE_CLASS =
-  'bg-[var(--el-color-primary)] text-white hover:bg-[var(--el-color-primary)]'
+  'bg-[var(--el-color-primary-light-9)] font-medium text-[var(--el-color-primary-dark-2)]'
+
+/**
+ * 当前路由是否命中该项。
+ * 自己算而不用 router-link 的 active-class：`active-class` 与 `hover:` 类同时命中时，
+ * 谁生效取决于 Tailwind 输出顺序而非类名顺序，容易出现「悬停在激活项上底色被灰底盖掉」。
+ */
+function isActive(name: NavRouteName): boolean {
+  return route.name === name
+}
 
 /** 同步状态角标（只在登录后展示） */
 const syncBadge = computed<{ tone: 'info' | 'warning' | 'success'; text: string } | null>(() => {
@@ -64,7 +87,7 @@ async function handleSignOut() {
   >
     <!-- 品牌（折叠时只留 emoji） -->
     <div class="flex items-center gap-2 px-4 pt-4">
-      <span class="text-base leading-none">🧭</span>
+      <span class="w-5 shrink-0 text-center text-xl leading-none">🧭</span>
       <span
         v-if="!collapsed"
         class="truncate text-sm font-bold tracking-tight text-slate-800 dark:text-slate-100"
@@ -73,12 +96,13 @@ async function handleSignOut() {
       </span>
     </div>
 
-    <!-- 头像区 -->
+    <!-- 头像区：64px 圆形头像 + 姓名 + 一行小字 -->
     <div class="flex items-center gap-3 p-3">
       <button
         type="button"
         data-testid="sidebar-avatar"
-        class="relative h-10 w-10 shrink-0 overflow-hidden rounded-full ring-2 ring-[var(--el-color-primary)]/30 transition-transform hover:scale-105"
+        class="relative shrink-0 overflow-hidden rounded-full ring-2 ring-[var(--el-color-primary)]/30 transition-transform hover:scale-105"
+        :class="collapsed ? 'h-10 w-10' : 'h-16 w-16'"
         :title="authStore.isAuthed ? '更换头像' : '设置本地头像'"
         aria-label="更换头像"
         @click="avatarOpen = true"
@@ -92,7 +116,7 @@ async function handleSignOut() {
         />
         <span
           v-else
-          class="flex h-full w-full items-center justify-center bg-[var(--el-color-primary)] text-sm font-semibold text-white"
+          class="flex h-full w-full items-center justify-center bg-[var(--el-color-primary)] text-lg font-semibold text-white"
         >
           {{ fallbackInitial }}
         </span>
@@ -106,39 +130,37 @@ async function handleSignOut() {
       </div>
     </div>
 
-    <!-- 主导航（内容页） -->
+    <!-- 上组：主导航 4 项 -->
     <nav class="mt-2 flex-1 space-y-1 px-2" aria-label="主导航">
       <router-link
         v-for="item in PRIMARY_NAV_ITEMS"
         :key="item.name"
         :to="{ name: item.name }"
-        class="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-        :active-class="item.name === 'dashboard' ? '' : NAV_ACTIVE_CLASS"
-        :exact-active-class="NAV_ACTIVE_CLASS"
+        :class="[NAV_BASE_CLASS, isActive(item.name) ? NAV_ACTIVE_CLASS : NAV_IDLE_CLASS]"
+        :aria-current="isActive(item.name) ? 'page' : undefined"
         :title="item.label"
         :data-testid="`sidebar-nav-${item.name}`"
       >
-        <span class="text-base leading-none">{{ item.icon }}</span>
+        <span class="w-5 shrink-0 text-center text-xl leading-none">{{ item.icon }}</span>
         <span v-if="!collapsed" class="truncate">{{ item.label }}</span>
       </router-link>
     </nav>
 
-    <!-- 底部区：设置（配置类，不与内容页混在一起）/ 同步状态 / 退出 / 折叠 -->
+    <!-- 下组：帮助 / 账号 / 折叠（与主导航之间用细分割线隔开） -->
     <div
       data-testid="sidebar-footer"
       class="space-y-1 border-t border-slate-200 p-2 dark:border-slate-800"
     >
-      <router-link
-        :to="{ name: SETTINGS_NAV_ITEM.name }"
-        class="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-        :active-class="NAV_ACTIVE_CLASS"
-        :exact-active-class="NAV_ACTIVE_CLASS"
-        :title="SETTINGS_NAV_ITEM.label"
-        :data-testid="`sidebar-nav-${SETTINGS_NAV_ITEM.name}`"
+      <BaseButton
+        data-testid="sidebar-help"
+        variant="ghost"
+        size="sm"
+        class="min-h-[44px] w-full justify-start rounded-xl px-4"
+        @click="helpOpen = true"
       >
-        <span class="text-base leading-none">{{ SETTINGS_NAV_ITEM.icon }}</span>
-        <span v-if="!collapsed" class="truncate">{{ SETTINGS_NAV_ITEM.label }}</span>
-      </router-link>
+        <span class="w-5 shrink-0 text-center text-xl leading-none">❓</span>
+        <span v-if="!collapsed">帮助</span>
+      </BaseButton>
 
       <!-- 同步状态（折叠时隐藏，避免 icon rail 里塞文字） -->
       <div v-if="!collapsed && syncBadge" class="px-1 pb-0.5">
@@ -150,19 +172,19 @@ async function handleSignOut() {
         data-testid="sidebar-sign-out"
         variant="ghost"
         size="sm"
-        class="w-full justify-start"
+        class="min-h-[44px] w-full justify-start rounded-xl px-4"
         @click="handleSignOut"
       >
-        <span class="text-base leading-none">🚪</span>
+        <span class="w-5 shrink-0 text-center text-xl leading-none">🚪</span>
         <span v-if="!collapsed">退出登录</span>
       </BaseButton>
       <router-link
         v-else
         :to="{ name: 'login' }"
         data-testid="sidebar-sign-in"
-        class="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+        :class="[NAV_BASE_CLASS, NAV_IDLE_CLASS]"
       >
-        <span class="text-base leading-none">🔑</span>
+        <span class="w-5 shrink-0 text-center text-xl leading-none">🔑</span>
         <span v-if="!collapsed">登录 / 注册</span>
       </router-link>
 
@@ -170,11 +192,13 @@ async function handleSignOut() {
         data-testid="sidebar-collapse"
         variant="ghost"
         size="sm"
-        class="w-full justify-start"
+        class="min-h-[44px] w-full justify-start rounded-xl px-4"
         :aria-label="collapsed ? '展开侧边栏' : '收起侧边栏'"
         @click="emit('toggle-collapse')"
       >
-        <span class="text-base leading-none">{{ collapsed ? '»' : '«' }}</span>
+        <span class="w-5 shrink-0 text-center text-xl leading-none">{{
+          collapsed ? '»' : '«'
+        }}</span>
         <span v-if="!collapsed">收起</span>
       </BaseButton>
     </div>
@@ -188,6 +212,17 @@ async function handleSignOut() {
 
     （替代方案是给 el-dialog 加 append-to-body 把节点传送到 body，
     但那样弹窗内容会脱离组件树，测试里就查不到内部节点了。）
+    帮助弹窗同理，放在同一层。
   -->
   <AvatarUpload v-model="avatarOpen" />
+
+  <el-dialog v-model="helpOpen" title="使用帮助" width="460px">
+    <ul class="space-y-2 text-sm text-slate-600 dark:text-slate-300">
+      <li>· 顶栏搜索是全局入口：任何页面输入关键字都会带到任务页看结果</li>
+      <li>· 任务页支持筛选、优先级、子任务、拖拽排序与批量操作</li>
+      <li>· 仪表板「今日聚焦」自动收拢置顶与今日到期的任务</li>
+      <li>· 主题色 / 圆角 / 密度在「设置 → 外观自定义」里实时调整并持久化</li>
+      <li>· 断网时改动存在本地队列，恢复网络后自动同步到云端</li>
+    </ul>
+  </el-dialog>
 </template>

@@ -4,14 +4,19 @@
  * - 筛选 tab（全部/进行中/已完成/今日）+ 搜索
  * - 空状态 / 计数
  * - 1 分钟内可撤销的删除 Toast（展示剩余秒数，可点击恢复）
+ * - **拖拽排序走 SortableJS（VueUse `useSortable`）**：同一套方案也用于仪表板卡片排序
  */
 
 import { computed, onUnmounted, ref, watch } from 'vue'
+
+import { useSortable } from '@vueuse/integrations/useSortable'
+import type { SortableEvent } from 'sortablejs'
 
 import type { TodoFilter, TodoPriority } from '@/types/todo'
 import { useTodoStore } from '@/stores/todoStore'
 import { PRIORITY_ORDER } from '@/utils/priorityHelper'
 import { priorityLabel } from '@/utils/priorityHelper'
+import { resolveSortMove } from '@/utils/sortableMove'
 import SearchBar from '@/components/molecules/SearchBar.vue'
 import TodoItem from '@/components/molecules/TodoItem.vue'
 import BaseButton from '@/components/atoms/BaseButton.vue'
@@ -98,19 +103,40 @@ function onToggleSelect(id: string) {
 
 const selectedCount = computed(() => store.selectedIds.length)
 
-/** 拖拽排序 */
-const draggingId = ref<string | null>(null)
+/**
+ * 拖拽排序（SortableJS / VueUse useSortable）。
+ *
+ * 两处关键处理：
+ * 1. **自己还原 DOM**：SortableJS 拖完会直接改动真实 DOM，而列表的真源是 store。
+ *    若不还原，Vue 的 keyed diff 会基于「它以为的旧顺序」去打补丁，节点可能错乱。
+ *    做法是先把被拖的节点插回原位，再改 store，让 Vue 从一致状态重排。
+ * 2. **索引 → id 的换算**交给纯函数 `resolveSortMove`（可单测），组件里只做接线。
+ */
+const listRef = ref<HTMLElement | null>(null)
 
-function onDragStart(id: string) {
-  draggingId.value = id
-}
+function onSortUpdate(evt: SortableEvent) {
+  const move = resolveSortMove(store.filteredTodos, evt.oldIndex, evt.newIndex)
 
-function onDropOn(targetId: string) {
-  if (draggingId.value && draggingId.value !== targetId) {
-    store.moveTodo(draggingId.value, targetId)
+  // 还原 DOM 到拖拽前顺序（见上）
+  const item = evt.item
+  const from = evt.from
+  if (item && from && item.parentNode === from) {
+    from.removeChild(item)
+    from.insertBefore(item, from.children[evt.oldIndex ?? 0] ?? null)
   }
-  draggingId.value = null
+
+  if (move) store.moveTodo(move.movedId, move.targetId)
 }
+
+// list 只作为「当前顺序」的引用传给 useSortable；真正的重排由 onUpdate 里改 store 完成
+// （所以这里传只读的 computed 也不会触发它内部的默认数组改写逻辑）。
+useSortable(listRef, store.filteredTodos, {
+  animation: 150,
+  // 只有把手可拖，避免与行内按钮/子任务输入框的点击冲突
+  handle: '.drag-handle',
+  ghostClass: 'sortable-ghost',
+  onUpdate: onSortUpdate,
+})
 
 function batchComplete() {
   store.bulkSetStatus(store.selectedIds, true)
@@ -222,9 +248,9 @@ watch(
     <!-- 批量操作栏（多选模式） -->
     <div
       v-if="store.selectionMode"
-      class="flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 dark:border-indigo-800 dark:bg-indigo-900/30"
+      class="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--el-color-primary-light-7)] bg-[var(--el-color-primary-light-9)] px-3 py-2"
     >
-      <span class="text-sm text-indigo-700 dark:text-indigo-200">已选 {{ selectedCount }} 项</span>
+      <span class="text-sm text-[var(--el-color-primary-dark-2)]">已选 {{ selectedCount }} 项</span>
       <div class="flex flex-wrap gap-1">
         <BaseButton size="sm" variant="primary" @click="batchComplete">完成</BaseButton>
         <BaseButton size="sm" variant="secondary" @click="batchActive">取消完成</BaseButton>
@@ -258,8 +284,8 @@ watch(
       {{ filterLabel }} · {{ store.filteredTodos.length }} 项
     </p>
 
-    <!-- 列表 -->
-    <ul v-if="store.filteredTodos.length > 0" class="space-y-2">
+    <!-- 列表（SortableJS 接管拖拽排序，ref 挂载容器） -->
+    <ul v-if="store.filteredTodos.length > 0" ref="listRef" class="space-y-2">
       <TodoItem
         v-for="todo in store.filteredTodos"
         :key="todo.id"
@@ -279,8 +305,6 @@ watch(
         @remove-subtask="onRemoveSubtask"
         @toggle-pin="onTogglePin"
         @toggle-select="onToggleSelect"
-        @drag-start="onDragStart"
-        @drop-on="onDropOn"
       />
     </ul>
 

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { readRememberedPlace, useWeather } from './useWeather'
+import { WEATHER_CACHE_KEY } from '@/api/weatherCache'
 
 const DENIED_KEY = 'smart-workspace:geo-denied'
 const LAST_PLACE_KEY = 'smart-workspace:last-place'
@@ -383,5 +384,115 @@ describe('useWeather（降级链路：定位 → 上次的位置 → 默认城�
     await expect(w.init()).resolves.toBe(true)
     expect(w.state.value).toBe('success')
     expect(w.locateHint.value).toContain('已显示默认城市')
+  })
+})
+
+/** 地理编码响应（城市名 -> adcode） */
+const GEOCODE_OK = {
+  status: '1',
+  info: 'OK',
+  infocode: '10000',
+  geocodes: [
+    { formatted_address: '江西省南昌市', province: '江西省', city: '南昌市', adcode: '360100' },
+  ],
+}
+
+/** 路由式 fetch 替身：geocode/geo 返回地理编码，其余返回实况天气 */
+function stubRoutedFetch(recorder: string[]) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      const u = String(url)
+      recorder.push(u)
+      if (u.includes('geocode/geo')) return mockJson(GEOCODE_OK)
+      if (u.includes('regeo')) return mockJson(REGEO_OK)
+      return mockJson(WEATHER_OK)
+    }),
+  )
+}
+
+describe('useWeather · 手动切换城市（规划第三阶段要求保留的能力）', () => {
+  it('命中 adcode 快查表的城市直接查天气，不发地理编码请求', async () => {
+    const urls: string[] = []
+    stubRoutedFetch(urls)
+
+    const w = useWeather()
+    await expect(w.setCity('杭州')).resolves.toBe(true)
+
+    expect(w.state.value).toBe('success')
+    expect(w.locateHint.value).toBe('已切换到「杭州」')
+    // 杭州在快查表里 -> 直接用 330100 查天气，没有 geo 请求
+    expect(urls.some((u) => u.includes('city=330100'))).toBe(true)
+    expect(urls.some((u) => u.includes('geocode/geo'))).toBe(false)
+    // 当前展示的不再是"定位到的位置"
+    expect(w.located.value).toBe(false)
+  })
+
+  it('未命中快查表的城市走地理编码换 adcode', async () => {
+    const urls: string[] = []
+    stubRoutedFetch(urls)
+
+    const w = useWeather()
+    await expect(w.setCity('南昌')).resolves.toBe(true)
+
+    expect(urls.some((u) => u.includes('geocode/geo'))).toBe(true)
+    expect(urls.some((u) => u.includes('city=360100'))).toBe(true)
+    expect(w.locateHint.value).toBe('已切换到「南昌」')
+  })
+
+  it('切换成功后写入「上次的位置」记忆：下次定位失败会回落到它', async () => {
+    stubRoutedFetch([])
+    const w = useWeather()
+    await w.setCity('杭州')
+
+    expect(readRememberedPlace()).toEqual({ adcode: '330100', label: '杭州' })
+
+    // 只清掉天气缓存（保留位置记忆），让回落这次真的走网络，从而能验证请求的 adcode
+    localStorage.removeItem(WEATHER_CACHE_KEY)
+
+    // 换一个实例模拟下次进站：定位被拒 -> 回落到用户手选的城市
+    stubGeo('denied')
+    const urls: string[] = []
+    stubRoutedFetch(urls)
+    const next = useWeather()
+    await expect(next.init()).resolves.toBe(true)
+
+    expect(urls.some((u) => u.includes('city=330100'))).toBe(true)
+    expect(next.locateHint.value).toContain('已显示上次的位置')
+  })
+
+  it('空城市名不请求，返回 false', async () => {
+    const urls: string[] = []
+    stubRoutedFetch(urls)
+
+    const w = useWeather()
+    await expect(w.setCity('   ')).resolves.toBe(false)
+    expect(urls).toHaveLength(0)
+    expect(w.locateHint.value).toBe('')
+  })
+
+  it('未配置 API Key 时切换城市直接返回 false，不发请求', async () => {
+    vi.stubEnv('VITE_AMAP_KEY', '')
+    vi.stubEnv('VITE_WEATHER_KEY', '')
+    const urls: string[] = []
+    stubRoutedFetch(urls)
+
+    const w = useWeather()
+    await expect(w.setCity('杭州')).resolves.toBe(false)
+    expect(urls).toHaveLength(0)
+  })
+
+  it('切换失败时进入错误态并给出提示（不清空界面结构）', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('网络异常')
+      }),
+    )
+
+    const w = useWeather()
+    await expect(w.setCity('杭州')).resolves.toBe(false)
+    expect(w.state.value).toBe('error')
+    expect(w.error.value).toContain('网络错误')
   })
 })

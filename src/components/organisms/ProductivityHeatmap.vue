@@ -57,6 +57,13 @@ function cellClass(level: number): string {
 }
 
 const legendLevels = [0, 1, 2, 3, 4]
+
+/**
+ * 把「周 × 7 天」的二维结构摊平成一维。
+ * 配合容器的 `grid-auto-flow: column` + `grid-template-rows: repeat(7, …)`，
+ * 一维顺序会按**列优先**填充——正好还原成 GitHub 的「一周一列」。
+ */
+const flatCells = computed(() => heatmap.value.weeks.flat())
 </script>
 
 <template>
@@ -94,23 +101,19 @@ const legendLevels = [0, 1, 2, 3, 4]
             {{ m.text }}
           </span>
         </div>
-        <div class="flex gap-[3px]">
-          <div v-for="(week, wi) in heatmap.weeks" :key="wi" class="flex flex-col gap-[3px]">
-            <template v-for="(cell, ci) in week" :key="ci">
-              <span
-                v-if="cell"
-                class="rounded-[3px]"
-                :class="cellClass(cell.level)"
-                :style="{ width: `${CELL}px`, height: `${CELL}px` }"
-                :title="`${cell.date} 完成 ${cell.completed}`"
-              ></span>
-              <span
-                v-else
-                class="rounded-[3px]"
-                :style="{ width: `${CELL}px`, height: `${CELL}px` }"
-              ></span>
-            </template>
-          </div>
+        <!-- 单个 CSS Grid 容器：列优先填充 = 一周一列（规划要求用 CSS Grid 渲染） -->
+        <div
+          class="grid gap-[3px]"
+          :style="{ gridTemplateRows: `repeat(7, ${CELL}px)`, gridAutoFlow: 'column' }"
+        >
+          <span
+            v-for="(cell, i) in flatCells"
+            :key="i"
+            class="rounded-[3px]"
+            :class="cell ? cellClass(cell.level) : ''"
+            :style="{ width: `${CELL}px`, height: `${CELL}px` }"
+            :title="cell ? `${cell.date} 完成 ${cell.completed}` : undefined"
+          ></span>
         </div>
       </div>
     </div>

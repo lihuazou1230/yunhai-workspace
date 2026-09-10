@@ -114,12 +114,15 @@ describe('DefaultLayout', () => {
     expect(useTodoStore().keyword).toBe('')
   })
 
-  it('顶栏不再重复放设置入口（设置统一在侧边栏底部）', async () => {
+  it('顶栏右侧有主题切换与设置入口（视觉规范：搜索居左，右侧 ThemeToggle + 设置）', async () => {
     const { wrapper } = await mountLayout('/')
 
-    expect(wrapper.find('a[aria-label="打开设置"]').exists()).toBe(false)
-    // 主题切换仍在顶栏
-    expect(wrapper.find('header').text()).toBeDefined()
+    const header = wrapper.find('header')
+    const settingsEntry = header.find('[data-testid="header-settings"]')
+    expect(settingsEntry.exists()).toBe(true)
+    expect(settingsEntry.attributes('href')).toBe('/settings')
+    // 主题切换按钮仍在顶栏
+    expect(header.find('button[aria-label^="切换到"]').exists()).toBe(true)
   })
 
   it('折叠按钮切换侧边栏宽度并记住状态', async () => {

@@ -11,7 +11,7 @@ const { isDark, toggleDark } = useTheme()
 <template>
   <button
     type="button"
-    class="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white/60 text-slate-600 transition-colors hover:border-indigo-300 hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300 dark:hover:text-indigo-400"
+    class="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white/60 text-slate-600 transition-colors hover:border-[var(--el-color-primary-light-5)] hover:text-[var(--el-color-primary)] dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300"
     :aria-label="isDark ? '切换到浅色模式' : '切换到深色模式'"
     @click="toggleDark"
   >

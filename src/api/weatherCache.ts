@@ -4,15 +4,15 @@
  * 目的：省额度、二次查询秒开。
  * 免费高德 Key 限流较紧（实测需 ≥1s 间隔，否则 10021），缓存能显著减少请求：
  * - adcode 缓存：城市名 -> adcode，避免重复地理编码（「杭州」查过一次就不再请求地理编码）
- * - 天气缓存：adcode -> { 数据, 缓存时间 }，默认 10 分钟内视为新鲜，刷新页面依然有效
+ * - 天气缓存：adcode -> { 数据, 缓存时间 }，默认 30 分钟内视为新鲜，刷新页面依然有效
  */
 
 import type { WeatherData } from '@/types/weather'
 
 export const WEATHER_CACHE_KEY = 'smart-workspace:weather-cache'
 
-/** 缓存有效期：10 分钟（高德实况天气每小时更新多次，10 分钟足够新鲜） */
-export const WEATHER_CACHE_TTL = 10 * 60 * 1000
+/** 缓存有效期：30 分钟（规划口径；高德实况天气每小时更新多次，30 分钟足够新鲜） */
+export const WEATHER_CACHE_TTL = 30 * 60 * 1000
 
 export interface WeatherCacheEntry {
   data: WeatherData

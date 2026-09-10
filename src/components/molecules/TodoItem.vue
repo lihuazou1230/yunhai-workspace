@@ -1,9 +1,19 @@
 <script setup lang="ts">
 /**
- * 分子组件：单个任务行
- * - 勾选完成：向左滑出 + 礼花，再通知父级（toggle）
- * - 删除：向右滑出，再通知父级（remove）
- * - 逾期标红 + 今日到期/截止日期徽章（dateFormatter）
+ * 分子组件：单个任务行（视觉规范「方案 A · 行式极简」，Todoist 风）
+ *
+ * 结构（严格对齐规划里的 TodoItem 样式规格）：
+ * 左  完成圆圈 20px，**主操作居左**；hover 主题色边框 + 极浅主题底，勾选后主题色实底 + 白勾
+ * 中  内容列 = 标题行(14px/500，已置顶时标题旁小 📌)
+ *             → 元信息行(12px 小图标 + 灰字)：日期 / 优先级小旗 / 子任务进度
+ *             → 折叠的「+ 添加子任务」小字按钮
+ * 右  操作区（置顶 / 删除，28px 图标钮）：桌面端 hover 渐现，移动端常显
+ *
+ * 卡片：padding 12px 14px、rounded-xl、0.5px 边框、hover 边框加深；完成态标题划线 + 整卡 65% 透明。
+ * 设计理由：列表类 UI 留白显高级、操作渐现是现代效率工具通行做法；
+ * 元信息降级为小图标灰字，只有异常状态（今日到期 / 逾期）才用颜色发声。
+ *
+ * 拖拽、滑出动画与礼花沿用原有实现（TodoList / Todos 页依赖这些 emit）。
  */
 
 import { computed, onMounted, ref, watch } from 'vue'
@@ -11,14 +21,13 @@ import { computed, onMounted, ref, watch } from 'vue'
 import type { Todo } from '@/types/todo'
 import { formatDueLabel, isOverdue, isToday } from '@/utils/dateFormatter'
 import { isValidDateKey } from '@/utils/validation'
-import { priorityLabel, priorityTone } from '@/utils/priorityHelper'
-import BaseBadge from '@/components/atoms/BaseBadge.vue'
+import { priorityLabel } from '@/utils/priorityHelper'
 import BaseButton from '@/components/atoms/BaseButton.vue'
 
 const props = withDefaults(
   defineProps<{
     todo: Todo
-    /** 是否展示截止日期徽章与逾期标红 */
+    /** 是否展示截止日期与逾期标红 */
     showDue?: boolean
     /** 完成时是否向左滑出（进行中视图下完成任务会从列表消失；全部视图下不滑出仅礼花） */
     completeSlide?: boolean
@@ -55,8 +64,6 @@ const emit = defineEmits<{
   (e: 'remove-subtask', todoId: string, subtaskId: string): void
   (e: 'toggle-pin', id: string): void
   (e: 'toggle-select', id: string): void
-  (e: 'drag-start', id: string): void
-  (e: 'drop-on', id: string): void
 }>()
 
 const isDone = computed(() => props.todo.status === 'completed')
@@ -67,6 +74,35 @@ const hasValidDue = computed(
 const overdue = computed(() => hasValidDue.value && !isDone.value && isOverdue(props.todo.dueDate!))
 const dueToday = computed(() => hasValidDue.value && !isDone.value && isToday(props.todo.dueDate!))
 const dueLabel = computed(() => (hasValidDue.value ? formatDueLabel(props.todo.dueDate!) : ''))
+/**
+ * 日期文案（元信息行）：只有异常状态才发声——
+ * 逾期=红、今日到期=琥珀、其余=普通灰字。
+ */
+const dueText = computed(() => {
+  if (!hasValidDue.value) return ''
+  if (overdue.value) return `已逾期 · ${dueLabel.value}`
+  if (dueToday.value) return `今日到期 · ${dueLabel.value}`
+  return dueLabel.value
+})
+const dueClass = computed(() => {
+  if (overdue.value) return 'text-rose-600 dark:text-rose-400'
+  if (dueToday.value) return 'text-amber-600 dark:text-amber-400'
+  return 'text-slate-400 dark:text-slate-500'
+})
+
+/** 优先级小旗：高=红 / 中=橙 / 低=灰 */
+const priorityText = computed(() => `${priorityLabel(props.todo.priority)}优先级`)
+const priorityClass = computed(() => {
+  switch (props.todo.priority) {
+    case 'high':
+      return 'text-rose-500 dark:text-rose-400'
+    case 'medium':
+      return 'text-amber-500 dark:text-amber-400'
+    case 'low':
+    default:
+      return 'text-slate-400 dark:text-slate-500'
+  }
+})
 
 /** 动画状态：none | complete（左滑+礼花）| remove（右滑） */
 type Anim = 'none' | 'complete' | 'remove'
@@ -171,10 +207,11 @@ const particles = computed(() =>
 // ---- 子任务清单 ----
 const subtaskTotal = computed(() => props.todo.subtasks.length)
 const subtaskDone = computed(() => props.todo.subtasks.filter((s) => s.completed).length)
-const subtaskProgress = computed(() =>
-  subtaskTotal.value === 0 ? 0 : Math.round((subtaskDone.value / subtaskTotal.value) * 100),
-)
-/** 是否展开子任务列表（默认折叠，仅展示进度） */
+/**
+ * 子任务区是否展开。
+ * 规格要求「默认折叠为一行小字，不再每卡常驻」：无子任务时只露「+ 添加子任务」，
+ * 点击才展开输入框；已有子任务时点击进度可展开清单核对。
+ */
 const expandSubtasks = ref(false)
 const newSubtask = ref('')
 
@@ -198,40 +235,27 @@ function onAddSubtask() {
 }
 
 // ---- 拖拽排序 ----
-function onDragStart(ev: DragEvent) {
-  if (!props.draggable) return
-  ev.dataTransfer?.setData('text/plain', props.todo.id)
-  ev.dataTransfer!.effectAllowed = 'move'
-  emit('drag-start', props.todo.id)
-}
-
-function onDrop(ev: DragEvent) {
-  ev.preventDefault()
-  emit('drop-on', props.todo.id)
-}
+// 拖拽由父级 TodoList 的 SortableJS 实例接管（`handle: '.drag-handle'`），
+// 这里只负责渲染把手，不再走原生 HTML5 DnD。
 </script>
 
 <template>
   <li
-    class="group relative flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 transition-colors hover:border-indigo-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-indigo-600"
+    class="group relative flex items-start gap-3 rounded-xl border-[0.5px] border-slate-200 bg-white px-3.5 py-3 transition-colors hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600"
     :class="[
       overdue ? 'border-rose-300 dark:border-rose-700' : '',
+      isDone ? 'opacity-[0.65]' : '',
       anim === 'complete' ? 'anim-slide-left' : '',
       anim === 'remove' ? 'anim-slide-right' : '',
       revealing ? 'anim-reveal-right' : '',
       entering ? 'anim-enter-left' : '',
     ]"
-    :draggable="draggable"
-    @dragstart="onDragStart"
-    @dragover.prevent
-    @drop.prevent="onDrop"
   >
-    <!-- 拖拽把手（可拖拽时 hover 显示） -->
+    <!-- 拖拽把手（SortableJS 的 handle；移动端没有 hover，所以小屏常显） -->
     <span
       v-if="draggable"
-      class="drag-handle select-none text-slate-300 opacity-0 transition-opacity group-hover:opacity-100 dark:text-slate-600"
+      class="drag-handle mt-0.5 shrink-0 cursor-grab select-none text-slate-300 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 dark:text-slate-600"
       aria-hidden="true"
-      @dragstart.stop
     >
       ⠿
     </span>
@@ -254,11 +278,11 @@ function onDrop(ev: DragEvent) {
     <button
       v-if="selectable"
       type="button"
-      class="flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors"
+      class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors"
       :class="
         selected
-          ? 'border-indigo-500 bg-indigo-500 text-white'
-          : 'border-slate-300 text-transparent hover:border-indigo-400 dark:border-slate-600'
+          ? 'border-[var(--el-color-primary)] bg-[var(--el-color-primary)] text-white'
+          : 'border-slate-300 text-transparent hover:border-[var(--el-color-primary-light-3)] dark:border-slate-600'
       "
       :aria-label="selected ? '取消选中' : '选中'"
       @click="emit('toggle-select', todo.id)"
@@ -274,165 +298,209 @@ function onDrop(ev: DragEvent) {
       </svg>
     </button>
 
-    <div class="min-w-0 flex-1">
-      <p
-        class="truncate text-sm font-medium"
-        :class="[
-          isDone
-            ? 'text-slate-400 line-through dark:text-slate-500'
-            : 'text-slate-800 dark:text-slate-100',
-          overdue ? 'text-rose-600 dark:text-rose-400' : '',
-        ]"
-      >
-        {{ todo.title }}
-      </p>
-      <p v-if="hasValidDue" class="mt-0.5 flex items-center gap-1 text-xs">
-        <BaseBadge :tone="overdue ? 'danger' : dueToday ? 'warning' : 'info'" size="xs">
-          <template v-if="dueToday">📌 今日到期</template>
-          <template v-else-if="overdue">⏰ 已逾期（{{ dueLabel }}）</template>
-          <template v-else>{{ dueLabel }}</template>
-        </BaseBadge>
-      </p>
-
-      <!-- 子任务清单（可折叠） -->
-      <div v-if="showSubtasks" class="mt-1.5 space-y-1.5">
-        <button
-          v-if="subtaskTotal > 0"
-          type="button"
-          class="group flex items-center gap-1.5 text-xs text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400"
-          @click="toggleExpandSubtask"
-        >
-          <span class="transition-transform" :class="expandSubtasks ? 'rotate-90' : ''">▶</span>
-          <span>子任务 {{ subtaskDone }}/{{ subtaskTotal }}</span>
-        </button>
-
-        <!-- 进度条 -->
-        <template v-if="subtaskTotal > 0">
-          <div
-            class="h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700"
-            aria-hidden="true"
-          >
-            <div
-              class="h-full rounded-full bg-indigo-500 transition-all"
-              :style="{ width: `${subtaskProgress}%` }"
-            ></div>
-          </div>
-
-          <ul v-if="expandSubtasks" class="space-y-1">
-            <li v-for="st in todo.subtasks" :key="st.id" class="flex items-center gap-1.5 text-xs">
-              <button
-                type="button"
-                class="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border transition-colors"
-                :class="
-                  st.completed
-                    ? 'border-emerald-500 bg-emerald-500 text-white'
-                    : 'border-slate-300 hover:border-emerald-400 dark:border-slate-600'
-                "
-                :aria-label="st.completed ? '标记子任务未完成' : '标记子任务完成'"
-                @click="onToggleSubtask(st.id)"
-              >
-                <svg class="h-2.5 w-2.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <path
-                    d="M3.5 8.5l3 3 6-7"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  />
-                </svg>
-              </button>
-              <span
-                class="flex-1 truncate"
-                :class="st.completed ? 'text-slate-400 line-through dark:text-slate-500' : ''"
-                >{{ st.title }}</span
-              >
-              <button
-                type="button"
-                class="text-slate-300 hover:text-rose-500 dark:text-slate-600"
-                aria-label="删除子任务"
-                @click="onRemoveSubtask(st.id)"
-              >
-                ×
-              </button>
-            </li>
-          </ul>
-        </template>
-
-        <!-- 添加子任务 -->
-        <div class="flex items-center gap-1">
-          <input
-            v-if="expandSubtasks || subtaskTotal === 0"
-            v-model="newSubtask"
-            type="text"
-            placeholder="添加子任务，回车…"
-            class="w-full rounded-md border border-slate-200 bg-transparent px-2 py-1 text-xs outline-none placeholder:text-slate-400 focus:border-indigo-400 dark:border-slate-600"
-            @keydown.enter.prevent="onAddSubtask"
-          />
-          <button
-            v-else
-            type="button"
-            class="text-xs text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400"
-            @click="expandSubtasks = true"
-          >
-            + 子任务
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <BaseBadge :tone="priorityTone(todo.priority)" size="xs">
-      {{ priorityLabel(todo.priority) }}优先级
-    </BaseBadge>
-
-    <!-- 置顶（今日聚焦） -->
+    <!-- 左：完成圆圈 20px（主操作居左） -->
     <button
       type="button"
-      class="shrink-0 text-base leading-none transition-transform"
-      :class="
-        todo.pinned ? 'text-amber-500' : 'text-slate-300 hover:text-amber-500 dark:text-slate-600'
-      "
-      :aria-label="todo.pinned ? '取消置顶' : '置顶到今日聚焦'"
-      @click="emit('toggle-pin', todo.id)"
-    >
-      📌
-    </button>
-
-    <!-- 行尾圆形完成按钮：未完成空心圆，已完成实心对勾 -->
-    <button
-      type="button"
-      class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 transition-colors"
+      class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors"
       :class="
         isDone
-          ? 'border-emerald-500 bg-emerald-500 text-white'
-          : 'border-slate-300 text-transparent hover:border-emerald-400 hover:text-emerald-500 dark:border-slate-600'
+          ? 'border-[var(--el-color-primary)] bg-[var(--el-color-primary)] text-white'
+          : 'border-slate-300 text-transparent hover:border-[var(--el-color-primary)] hover:bg-[var(--el-color-primary-light-9)] hover:text-[var(--el-color-primary)] dark:border-slate-600'
       "
       :aria-label="isDone ? '标记为未完成' : '标记为已完成'"
       @click="onToggle"
     >
-      <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <svg class="h-3 w-3" viewBox="0 0 16 16" fill="none" aria-hidden="true">
         <path
           d="M3.5 8.5l3 3 6-7"
           stroke="currentColor"
-          stroke-width="2"
+          stroke-width="2.5"
           stroke-linecap="round"
           stroke-linejoin="round"
         />
       </svg>
     </button>
 
-    <BaseButton
-      variant="ghost"
-      size="sm"
-      class="opacity-0 transition-opacity group-hover:opacity-100"
-      aria-label="删除任务"
-      @click="onRemove"
+    <!-- 中：内容列 -->
+    <div class="min-w-0 flex-1">
+      <!-- 标题行（14px/500，已置顶时标题旁小 📌） -->
+      <p
+        class="flex items-center gap-1 truncate text-sm font-medium"
+        :class="
+          isDone
+            ? 'text-slate-400 line-through dark:text-slate-500'
+            : 'text-slate-800 dark:text-slate-100'
+        "
+      >
+        <span v-if="todo.pinned" class="shrink-0 text-xs" title="已置顶到今日聚焦">📌</span>
+        <span class="truncate">{{ todo.title }}</span>
+      </p>
+
+      <!-- 元信息行（12px 小图标 + 灰字） -->
+      <p class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+        <span
+          v-if="hasValidDue"
+          class="inline-flex items-center gap-1"
+          :class="dueClass"
+          :title="dueText"
+        >
+          <svg class="h-3 w-3 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <rect
+              x="2.5"
+              y="3.5"
+              width="11"
+              height="10"
+              rx="2"
+              stroke="currentColor"
+              stroke-width="1.5"
+            />
+            <path
+              d="M2.5 6.5h11M5.5 2v2.5M10.5 2v2.5"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
+          </svg>
+          {{ dueText }}
+        </span>
+
+        <span
+          class="inline-flex items-center gap-1"
+          :class="priorityClass"
+          :aria-label="priorityText"
+          :title="priorityText"
+        >
+          <svg class="h-3 w-3 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path
+              d="M4 14V2.5M4 3h7.5l-1.5 2.5 1.5 2.5H4"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          {{ priorityText }}
+        </span>
+
+        <button
+          v-if="subtaskTotal > 0"
+          type="button"
+          class="inline-flex items-center gap-1 text-slate-400 transition-colors hover:text-[var(--el-color-primary)] dark:text-slate-500"
+          :aria-label="expandSubtasks ? '收起子任务' : '展开子任务'"
+          @click="toggleExpandSubtask"
+        >
+          <span class="transition-transform" :class="expandSubtasks ? 'rotate-90' : ''">▶</span>
+          {{ subtaskDone }}/{{ subtaskTotal }}
+        </button>
+      </p>
+
+      <!-- 子任务清单（默认折叠，不再每卡常驻） -->
+      <div v-if="showSubtasks" class="mt-1.5 space-y-1.5">
+        <!-- 进度条（有子任务时才出现） -->
+        <div
+          v-if="subtaskTotal > 0"
+          class="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700"
+          aria-hidden="true"
+        >
+          <div
+            class="h-full rounded-full bg-[var(--el-color-primary)] transition-all"
+            :style="{
+              width: `${subtaskTotal === 0 ? 0 : Math.round((subtaskDone / subtaskTotal) * 100)}%`,
+            }"
+          ></div>
+        </div>
+
+        <ul v-if="expandSubtasks && subtaskTotal > 0" class="space-y-1">
+          <li v-for="st in todo.subtasks" :key="st.id" class="flex items-center gap-1.5 text-xs">
+            <button
+              type="button"
+              class="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border transition-colors"
+              :class="
+                st.completed
+                  ? 'border-[var(--el-color-primary)] bg-[var(--el-color-primary)] text-white'
+                  : 'border-slate-300 hover:border-[var(--el-color-primary)] dark:border-slate-600'
+              "
+              :aria-label="st.completed ? '标记子任务未完成' : '标记子任务完成'"
+              @click="onToggleSubtask(st.id)"
+            >
+              <svg class="h-2.5 w-2.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path
+                  d="M3.5 8.5l3 3 6-7"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+            <span
+              class="flex-1 truncate"
+              :class="st.completed ? 'text-slate-400 line-through dark:text-slate-500' : ''"
+              >{{ st.title }}</span
+            >
+            <button
+              type="button"
+              class="text-slate-300 hover:text-rose-500 dark:text-slate-600"
+              aria-label="删除子任务"
+              @click="onRemoveSubtask(st.id)"
+            >
+              ×
+            </button>
+          </li>
+        </ul>
+
+        <!-- 折叠态：一行「+ 添加子任务」小字；展开后变输入框 -->
+        <div class="flex items-center gap-1">
+          <input
+            v-if="expandSubtasks"
+            v-model="newSubtask"
+            type="text"
+            placeholder="添加子任务，回车…"
+            class="w-full max-w-xs rounded-md border border-slate-200 bg-transparent px-2 py-1 text-xs outline-none placeholder:text-slate-400 focus:border-[var(--el-color-primary)] dark:border-slate-600"
+            @keydown.enter.prevent="onAddSubtask"
+          />
+          <button
+            v-else
+            type="button"
+            class="text-xs text-slate-400 transition-colors hover:text-[var(--el-color-primary)] dark:text-slate-500"
+            @click="expandSubtasks = true"
+          >
+            + 添加子任务
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右：操作区（28px 图标钮；桌面 hover 渐现，移动端常显） -->
+    <div
+      class="flex shrink-0 items-center gap-0.5 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100"
     >
-      <svg class="h-4 w-4" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-        <path
-          d="M6 1.75h4a.25.25 0 0 1 .25.25v1h-4.5V2a.25.25 0 0 1 .25-.25zM4.25 3v-.75A1.75 1.75 0 0 1 6 .5h4a1.75 1.75 0 0 1 1.75 1.75V3h2.75a.75.75 0 0 1 0 1.5h-.583L13.4 13a1.75 1.75 0 0 1-1.744 1.6H4.344A1.75 1.75 0 0 1 2.6 13L2.333 4.5h-.583a.75.75 0 0 1 0-1.5h2.5zm.836 1.5-.292 8.5a.25.25 0 0 0 .25.266h6.312a.25.25 0 0 0 .25-.266l-.292-8.5H5.086z"
-        />
-      </svg>
-    </BaseButton>
+      <button
+        type="button"
+        class="flex h-7 w-7 items-center justify-center rounded-lg text-base leading-none transition-colors hover:bg-slate-100 dark:hover:bg-slate-700"
+        :class="
+          todo.pinned ? 'text-amber-500' : 'text-slate-300 hover:text-amber-500 dark:text-slate-600'
+        "
+        :aria-label="todo.pinned ? '取消置顶' : '置顶到今日聚焦'"
+        @click="emit('toggle-pin', todo.id)"
+      >
+        📌
+      </button>
+
+      <BaseButton
+        variant="ghost"
+        size="sm"
+        class="h-7 w-7 p-0"
+        aria-label="删除任务"
+        @click="onRemove"
+      >
+        <svg class="h-4 w-4" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path
+            d="M6 1.75h4a.25.25 0 0 1 .25.25v1h-4.5V2a.25.25 0 0 1 .25-.25zM4.25 3v-.75A1.75 1.75 0 0 1 6 .5h4a1.75 1.75 0 0 1 1.75 1.75V3h2.75a.75.75 0 0 1 0 1.5h-.583L13.4 13a1.75 1.75 0 0 1-1.744 1.6H4.344A1.75 1.75 0 0 1 2.6 13L2.333 4.5h-.583a.75.75 0 0 1 0-1.5h2.5zm.836 1.5-.292 8.5a.25.25 0 0 0 .25.266h6.312a.25.25 0 0 0 .25-.266l-.292-8.5H5.086z"
+          />
+        </svg>
+      </BaseButton>
+    </div>
   </li>
 </template>
 

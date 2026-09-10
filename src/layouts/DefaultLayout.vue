@@ -64,9 +64,18 @@ watch(
         >
           {{ pageTitle }}
         </h1>
-        <!-- 顶栏只留主题切换：设置入口统一在侧边栏底部的独立区（避免两处重复入口） -->
+        <!-- 顶栏右侧：主题切换 + 设置入口（视觉规范：顶部搜索居左，右侧 ThemeToggle + 设置） -->
         <div class="flex shrink-0 items-center gap-2">
           <ThemeToggle />
+          <router-link
+            :to="{ name: 'settings' }"
+            data-testid="header-settings"
+            class="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white/60 text-slate-600 transition-colors hover:border-[var(--el-color-primary-light-5)] hover:text-[var(--el-color-primary)] dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300"
+            title="设置"
+            aria-label="设置"
+          >
+            <span class="text-base leading-none">⚙</span>
+          </router-link>
         </div>
       </header>
 

@@ -14,17 +14,18 @@ export interface NavItem {
 }
 
 /**
- * 侧边栏主导航（内容页）：设置**不在其中**——
- * 它属于「配置」而不是「内容」，放在侧栏底部独立区，和退出登录在一起。
+ * 侧边栏主导航 **4 项**（视觉规范：上组=主导航 4 项）。
+ * 「设置」也在其中——顶栏另有 ⚙ 快捷入口，两处都指向同一个 `/settings`。
  */
 export const PRIMARY_NAV_ITEMS: readonly NavItem[] = [
   { name: 'dashboard', label: '仪表板', icon: '🏠' },
   { name: 'todos', label: '任务', icon: '✅' },
   { name: 'stats', label: '统计', icon: '📊' },
+  { name: 'settings', label: '设置', icon: '⚙️' },
 ]
 
-/** 设置项（侧栏底部独立区用） */
+/** 设置项（顶栏 ⚙ 入口复用同一份定义，避免文案/图标写两遍） */
 export const SETTINGS_NAV_ITEM: NavItem = { name: 'settings', label: '设置', icon: '⚙️' }
 
-/** 全部导航项（移动端底部导航用：手机上没有"底部独立区"的说法，4 个平铺更直观） */
-export const NAV_ITEMS: readonly NavItem[] = [...PRIMARY_NAV_ITEMS, SETTINGS_NAV_ITEM]
+/** 全部导航项（移动端底部导航用：手机上 4 个平铺更直观） */
+export const NAV_ITEMS: readonly NavItem[] = [...PRIMARY_NAV_ITEMS]

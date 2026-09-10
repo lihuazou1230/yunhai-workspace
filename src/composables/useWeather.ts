@@ -1,9 +1,10 @@
 /**
- * 天气数据组合式函数：自动定位 + 本地缓存 + 加载/错误三态。
+ * 天气数据组合式函数：自动定位 + 手动切换城市 + 本地缓存 + 加载/错误三态。
  *
- * 该卡片只展示「当前位置」的天气，因此没有手动选择城市的入口。
- * 进站策略（降级链路）：自动定位 → 上次定位到的位置（localStorage 记忆）→ 默认城市，
+ * 进站策略（降级链路）：自动定位 → 上次的位置（localStorage 记忆）→ 默认城市，
  * 每一级都会在卡片内说明当前展示的是哪一级的结果。
+ * 手动切换城市是阶段三要求保留的能力：城市名经地理编码（geo 接口）换成 adcode，
+ * 并记为「上次的位置」——下次定位不可用时直接回退到用户自己选的城市。
  */
 
 import { computed, ref } from 'vue'
@@ -12,6 +13,7 @@ import {
   fetchCurrentWeather,
   getWeatherKey,
   locatePlace,
+  resolveAdcode,
   WEATHER_KEY_MISSING_MESSAGE,
 } from '@/api/weather'
 import { GeoError, getCurrentCoords } from '@/composables/useGeolocation'
@@ -170,6 +172,33 @@ export function useWeather() {
   }
 
   /**
+   * 手动切换城市（阶段三要求保留的能力）。
+   * 城市名先用地理编码换成 adcode（命中本地快查表/缓存时不发请求），
+   * 查询成功后记为「上次的位置」，让下次定位失败时有更贴近用户的回落目标。
+   */
+  async function setCity(city: string): Promise<boolean> {
+    const name = city.trim()
+    if (!name || !configured.value) return false
+
+    located.value = false
+    locatedLabel.value = ''
+    locateHint.value = ''
+
+    const ok = await run(name)
+    if (!ok) return false
+
+    // 记住这次选择（拿不到 adcode 也不影响本次展示）
+    try {
+      const adcode = await resolveAdcode(name)
+      writeFlag(LAST_PLACE_KEY, JSON.stringify({ adcode, label: name }))
+    } catch {
+      // 忽略：记忆失败只是降级效果差一点
+    }
+    locateHint.value = `已切换到「${name}」`
+    return true
+  }
+
+  /**
    * 进站降级链路：自动定位 → 上次定位的位置 → 默认城市。
    * 每一级都保证「有东西可看」，并在卡片内说明当前展示的是哪一级结果。
    */
@@ -204,8 +233,10 @@ export function useWeather() {
     located,
     locateHint,
     placeLabel,
+    query,
     init,
     locate,
+    setCity,
     refresh,
     retry,
   }

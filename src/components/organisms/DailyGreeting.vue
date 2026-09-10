@@ -1,6 +1,10 @@
 <script setup lang="ts">
 /**
- * 有机体组件：每日格言 + 时段问候
+ * 有机体组件：每日格言 + 时段问候（**仪表板页头**，不是独立卡片）
+ *
+ * 视觉规范定稿：格言**合并进页头问候区，不再单独占一张卡**——
+ * 页头一行放「问候 + 日期 ｜ 格言」，把版面留给赚钱秒表/完成度/天气这些数据卡。
+ *
  * - 按时段显示问候语（凌晨好 / 早上好 / 中午好 / 下午好 / 晚上好）
  * - 每日一句：按日期哈希从本地 JSON 取句，同一天永远同一句
  * - 每分钟 + 切回标签页时校准，跨零点后自动换成新的一天
@@ -31,13 +35,16 @@ const quote = computed(() => quoteOfDay(todayKey(now.value)))
 </script>
 
 <template>
-  <section class="card p-5" aria-label="每日格言">
-    <p class="text-base font-semibold text-slate-800 dark:text-slate-100">
+  <!-- 页头问候区（非卡片）：桌面端一行「问候 ｜ 格言」，移动端换行叠放 -->
+  <header class="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:gap-3" aria-label="每日格言">
+    <p class="shrink-0 text-base font-semibold text-slate-800 dark:text-slate-100">
       {{ greeting }}，今天是 {{ dateLabel }}
     </p>
-    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
-      「{{ quote.text }}」
+    <p class="min-w-0 text-sm text-slate-500 dark:text-slate-400">
+      <span class="mr-2 hidden text-slate-300 sm:inline dark:text-slate-600">｜</span>「{{
+        quote.text
+      }}」
       <span class="ml-1 text-xs text-slate-400 dark:text-slate-500">—— {{ quote.author }}</span>
     </p>
-  </section>
+  </header>
 </template>

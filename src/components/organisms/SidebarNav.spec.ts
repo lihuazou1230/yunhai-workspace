@@ -115,34 +115,62 @@ describe('SidebarNav', () => {
     expect(sidebar.find('[data-testid="avatar-file-input"]').exists()).toBe(false)
   })
 
-  it('设置不在主导航里，而是放在底部独立区', async () => {
+  it('上组主导航是 4 项（含设置），下组是帮助与账号区', async () => {
     const { wrapper } = await mountSidebar()
 
+    // 视觉规范：上组 = 主导航 4 项
     const nav = wrapper.find('nav[aria-label="主导航"]')
-    expect(nav.find('[data-testid="sidebar-nav-dashboard"]').exists()).toBe(true)
-    expect(nav.find('[data-testid="sidebar-nav-todos"]').exists()).toBe(true)
-    expect(nav.find('[data-testid="sidebar-nav-stats"]').exists()).toBe(true)
-    // 设置属于"配置"，不与内容页混在一起
-    expect(nav.find('[data-testid="sidebar-nav-settings"]').exists()).toBe(false)
-
-    const footer = wrapper.find('[data-testid="sidebar-footer"]')
-    const settings = footer.find('[data-testid="sidebar-nav-settings"]')
-    expect(settings.exists()).toBe(true)
+    for (const name of ['dashboard', 'todos', 'stats', 'settings']) {
+      expect(nav.find(`[data-testid="sidebar-nav-${name}"]`).exists()).toBe(true)
+    }
+    const settings = nav.find('[data-testid="sidebar-nav-settings"]')
     expect(settings.attributes('href')).toBe('/settings')
     expect(settings.text()).toContain('设置')
+
+    // 下组：帮助 / 退出登录（未登录时为登录入口）
+    const footer = wrapper.find('[data-testid="sidebar-footer"]')
+    expect(footer.find('[data-testid="sidebar-help"]').exists()).toBe(true)
+    expect(footer.find('[data-testid="sidebar-sign-in"]').exists()).toBe(true)
+    // 设置不再重复出现在下组
+    expect(footer.find('[data-testid="sidebar-nav-settings"]').exists()).toBe(false)
   })
 
-  it('导航项指向对应路由，当前路由高亮', async () => {
+  it('导航项指向对应路由，当前路由用「主题色浅底 pill」高亮（不是黑底反白）', async () => {
     const { wrapper, router } = await mountSidebar({ path: '/stats' })
 
     const statsLink = wrapper.find('[data-testid="sidebar-nav-stats"]')
     expect(statsLink.attributes('href')).toBe('/stats')
-    expect(statsLink.classes().join(' ')).toContain('bg-[var(--el-color-primary)]')
+    const statsClasses = statsLink.classes().join(' ')
+    // 浅色 pill：主题色极浅底 + 深色文字
+    expect(statsClasses).toContain('bg-[var(--el-color-primary-light-9)]')
+    expect(statsClasses).toContain('text-[var(--el-color-primary-dark-2)]')
+    // 不再是实底白字
+    expect(statsClasses).not.toContain('text-white')
 
     // 非当前页不抢高亮
     const todosLink = wrapper.find('[data-testid="sidebar-nav-todos"]')
-    expect(todosLink.classes().join(' ')).not.toContain('bg-[var(--el-color-primary)]')
+    const todosClasses = todosLink.classes().join(' ')
+    expect(todosClasses).not.toContain('bg-[var(--el-color-primary-light-9)]')
+    expect(todosClasses).toContain('text-slate-500')
     expect(router.currentRoute.value.name).toBe('stats')
+  })
+
+  it('头像区按规格用 64px 圆形头像（折叠时收成 40px）', async () => {
+    const { wrapper } = await mountSidebar()
+    expect(wrapper.find('[data-testid="sidebar-avatar"]').classes()).toContain('h-16')
+  })
+
+  it('点帮助打开使用说明弹窗', async () => {
+    const { wrapper } = await mountSidebar()
+
+    // el-dialog 关闭时只有一层空遮罩节点，弹窗本体不在 DOM 里
+    expect(wrapper.find('.el-dialog').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="sidebar-help"]').trigger('click')
+    for (let i = 0; i < 3; i += 1) await nextTick()
+
+    expect(wrapper.find('.el-dialog').exists()).toBe(true)
+    expect(wrapper.text()).toContain('使用帮助')
   })
 
   it('折叠成 icon rail：只留图标与折叠按钮，品牌文案隐藏', async () => {

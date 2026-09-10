@@ -1,14 +1,17 @@
 <script setup lang="ts">
 /**
- * 有机体组件：当前位置天气卡片
- * - 进站自动定位，只展示当前位置的天气（无城市搜索 / 无城市快捷按钮）
+ * 有机体组件：天气卡片
+ * - 进站自动定位，展示当前位置的天气
+ * - **手动切换城市**：城市名经地理编码换 adcode（阶段三要求保留的能力），
+ *   输入框 + 六个常用城市快捷键；切换成功后记为「上次的位置」
  * - 定位不可用时按「上次的位置 → 默认城市」逐级回落，并在卡片内说明原因
- * - 本地缓存：10 分钟内命中缓存不请求接口（显示「缓存」标记，可手动刷新）
+ * - 本地缓存：30 分钟内命中缓存不请求接口（显示「缓存」标记，可手动刷新）
  * - 未配置 API Key 时给出配置指引
  */
 
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 
+import { CITY_ADCODE } from '@/api/weather'
 import { useWeather } from '@/composables/useWeather'
 import BaseButton from '@/components/atoms/BaseButton.vue'
 
@@ -24,6 +27,7 @@ const {
   placeLabel,
   init,
   locate,
+  setCity,
   refresh,
   retry,
 } = useWeather()
@@ -35,10 +39,38 @@ onMounted(() => {
 function formatTime(ms: number): string {
   return new Date(ms).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
+
+/** 常用城市快捷键（与 api/weather 的 adcode 快查表同源，避免两处各写一份） */
+const quickCities = Object.keys(CITY_ADCODE)
+
+const cityInput = ref('')
+const switching = ref(false)
+/** 城市切换面板是否展开 */
+const showCityPicker = ref(false)
+
+async function onSubmitCity() {
+  const name = cityInput.value.trim()
+  if (!name || switching.value) return
+  switching.value = true
+  const ok = await setCity(name)
+  switching.value = false
+  if (ok) {
+    cityInput.value = ''
+    showCityPicker.value = false
+  }
+}
+
+async function onQuickCity(name: string) {
+  if (switching.value) return
+  switching.value = true
+  await setCity(name)
+  switching.value = false
+  showCityPicker.value = false
+}
 </script>
 
 <template>
-  <section class="card p-5" aria-label="当前位置天气">
+  <section class="card p-5" aria-label="天气">
     <header class="mb-3 flex items-center justify-between gap-2">
       <h2
         class="flex items-center gap-1.5 text-sm font-semibold text-slate-700 dark:text-slate-200"
@@ -46,7 +78,7 @@ function formatTime(ms: number): string {
         ☀️ 天气
         <span
           v-if="located"
-          class="text-[10px] font-normal text-indigo-500 dark:text-indigo-400"
+          class="text-[10px] font-normal text-[var(--el-color-primary)]"
           title="当前展示的是定位到的位置"
           >📍 当前位置</span
         >
@@ -64,7 +96,7 @@ function formatTime(ms: number): string {
         <button
           v-if="configured"
           type="button"
-          class="rounded px-1 transition-colors hover:text-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+          class="rounded px-1 transition-colors hover:text-[var(--el-color-primary)] disabled:cursor-not-allowed disabled:opacity-50"
           :disabled="locating"
           title="重新定位到当前位置"
           aria-label="重新定位"
@@ -73,9 +105,19 @@ function formatTime(ms: number): string {
           {{ locating ? '定位中…' : '📍 定位' }}
         </button>
         <button
+          v-if="configured"
+          type="button"
+          class="rounded px-1 transition-colors hover:text-[var(--el-color-primary)]"
+          aria-label="切换城市"
+          title="手动切换城市"
+          @click="showCityPicker = !showCityPicker"
+        >
+          🏙 城市
+        </button>
+        <button
           v-if="weather && state === 'success'"
           type="button"
-          class="rounded px-1 transition-colors hover:text-indigo-500"
+          class="rounded px-1 transition-colors hover:text-[var(--el-color-primary)]"
           title="跳过缓存，重新获取"
           aria-label="刷新天气"
           @click="refresh"
@@ -84,6 +126,37 @@ function formatTime(ms: number): string {
         </button>
       </div>
     </header>
+
+    <!-- 手动切换城市：输入城市名（地理编码换 adcode）+ 常用城市快捷键 -->
+    <div
+      v-if="showCityPicker && configured"
+      class="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700"
+      data-testid="weather-city-picker"
+    >
+      <form class="flex items-center gap-1" @submit.prevent="onSubmitCity">
+        <input
+          v-model="cityInput"
+          type="text"
+          placeholder="输入城市名，如 杭州"
+          aria-label="输入城市名"
+          class="w-36 rounded-md border border-slate-200 bg-transparent px-2 py-1 text-xs outline-none placeholder:text-slate-400 focus:border-[var(--el-color-primary)] dark:border-slate-600"
+        />
+        <BaseButton size="sm" variant="secondary" :disabled="switching" @click="onSubmitCity">
+          {{ switching ? '切换中…' : '切换' }}
+        </BaseButton>
+      </form>
+      <div class="flex flex-wrap gap-1">
+        <button
+          v-for="name in quickCities"
+          :key="name"
+          type="button"
+          class="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 transition-colors hover:border-[var(--el-color-primary-light-5)] hover:text-[var(--el-color-primary)] dark:border-slate-700 dark:text-slate-400"
+          @click="onQuickCity(name)"
+        >
+          {{ name }}
+        </button>
+      </div>
+    </div>
 
     <!-- 定位提示：成功 / 失败原因 / 回落说明 -->
     <p v-if="configured && locateHint" class="mb-2 text-xs text-slate-400 dark:text-slate-500">
@@ -124,9 +197,12 @@ function formatTime(ms: number): string {
       <div v-else-if="weather" class="space-y-2">
         <div class="flex items-center gap-3">
           <span class="text-4xl leading-none" aria-hidden="true">{{ weather.icon }}</span>
-          <div>
-            <p class="text-2xl font-semibold text-slate-800 dark:text-slate-100">
-              {{ Math.round(weather.temperature) }}°C
+          <div class="min-w-0">
+            <p class="flex items-baseline gap-2">
+              <span
+                class="text-4xl font-bold tracking-tight tabular-nums text-slate-800 dark:text-slate-100"
+                >{{ Math.round(weather.temperature) }}°C</span
+              >
             </p>
             <p class="text-sm text-slate-500 dark:text-slate-400">{{ weather.description }}</p>
           </div>
