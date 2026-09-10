@@ -10,22 +10,26 @@
  * │ 🚪 退出   │   （keep-alive 保留各页状态）        │
  * └──────────┴──────────────────────────────────┘
  *
- * 两个实现要点：
+ * 三个实现要点：
  * - 顶栏搜索直接绑 todoStore.keyword：任务搜索全局可达，不用先进任务页
  * - 第六阶段 6.4 把顶栏搜索升级为**聚合搜索**：就地出任务结果 + 一键跳搜索引擎。
  *   因此去掉了原来「一输入就跳任务页」的行为——那不是用户要的（正打字就被搬走），
  *   而是当时「留在仪表板看不到结果」的权宜之计；有了结果弹层，问题从根上解决了
+ * - 第六阶段 6.5 顶栏加**提醒铃铛**（应用内兜底），并让 `document.title` 带上待处理条数：
+ *   标题是「切到别的标签页时唯一还看得见」的字样，所以它才是提醒的最后一层
  * - router-view 外套 keep-alive：切走再切回任务页，筛选条件与滚动位置都还在
  */
 
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import ThemeToggle from '@/components/molecules/ThemeToggle.vue'
 import AggregateSearch from '@/components/molecules/AggregateSearch.vue'
+import ReminderBell from '@/components/molecules/ReminderBell.vue'
 import MobileBottomNav from '@/components/organisms/MobileBottomNav.vue'
 import SidebarNav from '@/components/organisms/SidebarNav.vue'
 import { useLocalStorage } from '@/composables/useLocalStorage'
+import { useReminder } from '@/composables/useReminder'
 import { matchesKeyword } from '@/composables/useTodoFilter'
 import { useTodoStore } from '@/stores/todoStore'
 import { SEARCH_ENGINE_KEY, SEARCH_RESULT_LIMIT } from '@/types/search'
@@ -62,6 +66,40 @@ const searchResults = computed(() => {
 function onSelectTodo() {
   if (route.name !== 'todos') void router.push({ name: 'todos' })
 }
+
+// ---- 提醒（第六阶段 6.5）：应用内兜底 + 标题计数 ----
+const {
+  pending: pendingReminders,
+  missed: missedReminders,
+  pendingCount,
+  dismiss,
+  clearMissed,
+} = useReminder({
+  todos: () => todoStore.visibleTodos,
+  onWxPusherError: (message) => ElMessage.warning(message),
+})
+
+/** 跳转到某条任务：关键字清掉，否则列表可能把它过滤没了 */
+function openTodo(todoId: string) {
+  todoStore.setKeyword('')
+  if (route.name !== 'todos') void router.push({ name: 'todos' })
+  void todoId
+}
+
+/**
+ * 标题带待办计数。
+ * 路由的 afterEach 也会写标题，但两者都从 `route.meta.title` 推导，所以这里再写一次
+ * 只是把计数前缀补上（最终状态一致，不会互相打脸）。
+ */
+watch(
+  [pendingCount, pageTitle],
+  ([count, title]) => {
+    if (typeof document === 'undefined') return
+    const base = title ? `${title} · Vue 3 智能工作台` : 'Vue 3 智能工作台'
+    document.title = count > 0 ? `(${count}) 待办 · ${base}` : base
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -87,8 +125,15 @@ function onSelectTodo() {
         >
           {{ pageTitle }}
         </h1>
-        <!-- 顶栏右侧：主题切换 + 设置入口（视觉规范：顶部搜索居左，右侧 ThemeToggle + 设置） -->
+        <!-- 顶栏右侧：提醒铃铛 + 主题切换 + 设置入口（视觉规范：搜索居左，右侧为图标区） -->
         <div class="flex shrink-0 items-center gap-2">
+          <ReminderBell
+            :reminders="pendingReminders"
+            :missed="missedReminders"
+            @dismiss="dismiss"
+            @clear-missed="clearMissed"
+            @open-todo="openTodo"
+          />
           <ThemeToggle />
           <router-link
             :to="{ name: 'settings' }"

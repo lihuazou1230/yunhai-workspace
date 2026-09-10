@@ -146,3 +146,100 @@ select
   -- 未登录角色应当连表权限都没有（revoke 生效）
   has_table_privilege('anon', 'public.todos', 'select') as anon_can_read;
 
+-- ============================================================================
+-- 第六阶段 6.5 · 提醒体系：**不需要改表**
+--
+-- 提醒相关的字段全部搭在现有的 `todos.payload jsonb` 上（见 src/utils/todoRemote.ts）：
+--   payload.reminderAt  提醒时间（ISO 字符串；前端按「到期日 09:00 / 有具体时间则提前 1 小时」生成）
+--   payload.snoozedUntil 稍后再做（第六阶段已有的字段，与提醒共用「到期」语义）
+-- 这正是当初把扩展字段塞进 jsonb 的原因：加功能不用改表、不用停机、旧客户端也不会挂。
+--
+-- 与提醒有关的两个前端状态**刻意不入库**：
+--   · 已通知标记（localStorage `smart-workspace:reminder-notified`）——它只是「本机别重复弹」，
+--     跨设备同步反而会让另一台设备该提醒时被标记成已提醒
+--   · WxPusher UID（localStorage `smart-workspace:wxpusher-uid`）——用户级凭证走 BYOK，
+--     appToken 在 Edge Function Secrets 里（见 supabase/functions/README.md）
+--
+-- 所以本文件**无需新增任何表 / 列 / 策略**；下面整段都是可选的进阶部署说明，默认注释掉，
+-- 直接整份粘贴执行也不会产生任何副作用。
+-- ============================================================================
+
+-- ---------------------------------------------------------------------------
+-- 【可选 · 进阶】pg_cron 定时扫描：页面关掉也能收到微信提醒
+--
+-- 应用开着时由前端 `useReminder` 每 30 秒扫描并调 Edge Function `notify`；
+-- 页面关掉后前端就不存在了，只有服务端定时任务能兜住「人不在电脑前」。
+-- **不做这一步应用也完全可用**（应用内提醒 + 应用开着时的微信推送都在）。
+--
+-- 动手前必须先解决两件事，否则这段 SQL 跑起来也是空转：
+--   1. UID 目前只存在浏览器 localStorage，服务端看不到 —— 需要先把 UID 同步到服务端
+--      （例如写进 auth.users.user_metadata，或单独建一张用户设置表）
+--   2. 需要 service_role key（pg_cron 以数据库身份调函数，没有用户 JWT），
+--      它只能存在 Vault 里，**绝不能**出现在前端、本文件或仓库中
+--
+-- 另外服务端扫描还得自己补「防重复」（前端那份已通知标记在 localStorage）
+-- 与「每条任务最多提醒 2 次」的上限，否则每轮 cron 都会把同一条任务推一次。
+--
+-- 照抄前请先读：supabase/functions/README.md 的「四、（可选进阶）pg_cron 定时扫描」。
+-- ---------------------------------------------------------------------------
+--
+-- create extension if not exists pg_cron;
+-- create extension if not exists pg_net;
+--
+-- -- 密钥入 Vault（值不要留在 SQL 文件里，用控制台或一次性语句写入）
+-- -- select vault.create_secret('<SUPABASE_SERVICE_ROLE_KEY>', 'notify_service_key');
+-- -- select vault.create_secret('https://<project-ref>.supabase.co', 'project_url');
+--
+-- create or replace function public.scan_due_reminders()
+-- returns void
+-- language plpgsql
+-- security definer
+-- set search_path = public, vault, net
+-- as $$
+-- declare
+--   v_url text;
+--   v_key text;
+--   r     record;
+-- begin
+--   select decrypted_secret into v_key from vault.decrypted_secrets where name = 'notify_service_key';
+--   select decrypted_secret into v_url from vault.decrypted_secrets where name = 'project_url';
+--   if v_key is null or v_url is null then
+--     raise notice '缺少 Vault 密钥，跳过本轮扫描';
+--     return;
+--   end if;
+--
+--   for r in
+--     select t.title,
+--            u.raw_user_meta_data ->> 'wxpusher_uid' as uid
+--     from public.todos t
+--     join auth.users u on u.id = t.user_id
+--     where t.completed = false
+--       and t.payload ? 'reminderAt'
+--       -- 只看最近 10 分钟内到点的：更早的属于「应用一打开就补发」的范畴，短信轰炸没有意义
+--       and (t.payload ->> 'reminderAt')::timestamptz <= now()
+--       and (t.payload ->> 'reminderAt')::timestamptz > now() - interval '10 minutes'
+--       and coalesce(u.raw_user_meta_data ->> 'wxpusher_uid', '') <> ''
+--   loop
+--     perform net.http_post(
+--       url     := v_url || '/functions/v1/notify',
+--       headers := jsonb_build_object(
+--                    'Content-Type',  'application/json',
+--                    'Authorization', 'Bearer ' || v_key    -- service_role 绕过平台层 JWT 校验
+--                  ),
+--       body    := jsonb_build_object(
+--                    'uid',     r.uid,
+--                    'title',   r.title,
+--                    'content', '<p>' || r.title || '</p>',
+--                    'url',     v_url
+--                  )
+--     );
+--   end loop;
+-- end;
+-- $$;
+--
+-- -- 每 5 分钟跑一次（cron 表达式用 UTC）
+-- select cron.schedule('scan-due-reminders', '*/5 * * * *', $$select public.scan_due_reminders()$$);
+--
+-- -- 运行记录（排查「到底跑没跑」）
+-- -- select * from cron.job_run_details order by start_time desc limit 20;
+

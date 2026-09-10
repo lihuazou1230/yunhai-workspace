@@ -26,6 +26,7 @@ import { TAG_COLOR_DOT, TAG_COLOR_TEXT } from '@/types/tag'
 import { formatDueLabel, isOverdue, isToday } from '@/utils/dateFormatter'
 import { isValidDateKey } from '@/utils/validation'
 import { priorityLabel } from '@/utils/priorityHelper'
+import { formatReminderTime } from '@/utils/reminderSchedule'
 import { snoozeOptions } from '@/utils/tagHelper'
 import BaseButton from '@/components/atoms/BaseButton.vue'
 
@@ -111,8 +112,17 @@ const dueClass = computed(() => {
   return 'text-slate-400 dark:text-slate-500'
 })
 
-/** 优先级小旗：高=红 / 中=橙 / 低=灰 */
-const priorityText = computed(() => `${priorityLabel(props.todo.priority)}优先级`)
+/** 自定义提醒时间的展示文案（解析失败就不显示，避免出现 Invalid Date） */
+const customReminderText = computed(() => {
+  const iso = props.todo.reminderAt
+  if (!iso) return ''
+  const at = new Date(iso)
+  return Number.isNaN(at.getTime()) ? '' : formatReminderTime(at)
+})
+
+/** 优先级小旗：高=红 / 中=橙 / 低=灰 */ const priorityText = computed(
+  () => `${priorityLabel(props.todo.priority)}优先级`,
+)
 const priorityClass = computed(() => {
   switch (props.todo.priority) {
     case 'high':
@@ -495,6 +505,24 @@ function onPurge() {
           class="inline-flex items-center gap-1 text-slate-400 dark:text-slate-500"
         >
           💤 隐藏至 {{ todo.snoozedUntil }}
+        </span>
+
+        <!-- 提醒状态：关掉了就明说（否则用户会以为是提醒坏了）；自定义时间才显示具体时刻 -->
+        <span
+          v-if="todo.reminderOff"
+          class="inline-flex items-center gap-1 text-slate-400 dark:text-slate-500"
+          :title="'这条任务已关闭提醒'"
+          data-testid="todo-reminder-off"
+        >
+          🔕 不提醒
+        </span>
+        <span
+          v-else-if="todo.reminderAt"
+          class="inline-flex items-center gap-1 text-slate-400 dark:text-slate-500"
+          :title="`自定义提醒时间：${todo.reminderAt}`"
+          data-testid="todo-reminder-at"
+        >
+          🔔 {{ customReminderText }}
         </span>
       </p>
 

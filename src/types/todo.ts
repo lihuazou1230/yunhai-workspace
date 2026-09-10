@@ -59,12 +59,26 @@ export interface Todo {
    * 注意：snooze **不影响任何统计**（不算完成、不算删除、热力图不变化）。
    */
   snoozedUntil?: string
+  /**
+   * 自定义提醒时间（ISO 时间戳，第六阶段 6.5）。
+   *
+   * **刻意不自动写入**：默认提醒时间（到期日 09:00）完全可由 dueDate 推导出来，
+   * 写进每条任务只会让存储与云同步 payload 平白变胖。所以这里的语义是「用户改过」：
+   * 为空时走默认策略（见 utils/reminderSchedule.ts），有值时以它为准。
+   */
+  reminderAt?: string
+  /** 关掉这条任务的提醒（规划要求「用户可改可关」） */
+  reminderOff?: boolean
 }
 
 /** 新建任务入参 */
 export type TodoInput = Pick<Todo, 'title' | 'priority' | 'dueDate'> & {
   /** 标签 id 列表（不传表示无标签） */
   tags?: string[]
+  /** 自定义提醒时间 ISO（不传 = 走默认策略：到期日当天 09:00） */
+  reminderAt?: string
+  /** 关掉这条任务的提醒 */
+  reminderOff?: boolean
 }
 
 /** 默认优先级（TodoForm 未选择时使用） */

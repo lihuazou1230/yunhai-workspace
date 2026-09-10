@@ -199,4 +199,60 @@ describe('TodoForm', () => {
     await submitForm(wrapper)
     expect((wrapper.emitted('create')?.[1]?.[0] as { tags: string[] }).tags).toEqual([])
   })
+
+  // ---- 提醒（第六阶段 6.5） ----
+
+  it('默认不写提醒字段：提醒时间可由到期日推导，不必落库', async () => {
+    const wrapper = mountForm()
+    await wrapper.find('input[placeholder*="添加新任务"]').setValue('写周报')
+    await submitForm(wrapper)
+
+    const created = wrapper.emitted('create')?.[0]?.[0] as Record<string, unknown>
+    expect(created.reminderAt).toBeUndefined()
+    expect(created.reminderOff).toBeUndefined()
+    // 表单上说明默认策略是什么
+    expect(wrapper.text()).toContain('默认')
+    expect(wrapper.text()).toContain('09:00')
+  })
+
+  it('填了自定义提醒时间才带上 reminderAt（本地时间转 ISO）', async () => {
+    const wrapper = mountForm()
+    await wrapper.find('input[placeholder*="添加新任务"]').setValue('开会')
+    await wrapper.find('[data-testid="todo-form-reminder-at"]').setValue('2026-09-10T14:30')
+    await submitForm(wrapper)
+
+    const created = wrapper.emitted('create')?.[0]?.[0] as { reminderAt?: string }
+    expect(created.reminderAt).toBeDefined()
+    // 用本地时间解析，避免时区把时刻挪走
+    const parsed = new Date(created.reminderAt!)
+    expect(parsed.getHours()).toBe(14)
+    expect(parsed.getMinutes()).toBe(30)
+    expect(parsed.getDate()).toBe(10)
+  })
+
+  it('勾「不提醒」时提交 reminderOff，且忽略自定义时间', async () => {
+    const wrapper = mountForm()
+    await wrapper.find('input[placeholder*="添加新任务"]').setValue('随便一件事')
+    await wrapper.find('[data-testid="todo-form-reminder-at"]').setValue('2026-09-10T14:30')
+    await wrapper.find('[data-testid="todo-form-reminder-off"]').setValue(true)
+    // 勾上时表单自己会说明「这条不会打扰你」（提交后会重置，所以要在这里断言）
+    expect(wrapper.text()).toContain('不会打扰你')
+
+    await submitForm(wrapper)
+
+    const created = wrapper.emitted('create')?.[0]?.[0] as Record<string, unknown>
+    expect(created.reminderOff).toBe(true)
+    // 关掉了就不该再带时间（否则两处口径打架）
+    expect(created.reminderAt).toBeUndefined()
+  })
+
+  it('提交后提醒设置被重置（下一条任务恢复默认策略）', async () => {
+    const wrapper = mountForm()
+    await wrapper.find('input[placeholder*="添加新任务"]').setValue('第一条')
+    await wrapper.find('[data-testid="todo-form-reminder-off"]').setValue(true)
+    await submitForm(wrapper)
+
+    const input = wrapper.find('[data-testid="todo-form-reminder-off"]').element as HTMLInputElement
+    expect(input.checked).toBe(false)
+  })
 })

@@ -155,6 +155,10 @@ export const useTodoStore = defineStore('todo', () => {
       pinned: false,
       subtasks: [],
       tags: input.tags ?? [],
+      // 只在用户真的改过时才写这两个字段：默认提醒时间可以由 dueDate 推导出来，
+      // 写进每条任务只会让存储与云同步 payload 平白变胖（见 types/todo.ts 的说明）
+      ...(input.reminderAt ? { reminderAt: input.reminderAt } : {}),
+      ...(input.reminderOff ? { reminderOff: true } : {}),
     }
     todos.value = [...todos.value, todo]
     return todo

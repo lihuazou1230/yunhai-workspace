@@ -14,7 +14,7 @@ import { TAG_COLOR_DOT, TAG_COLOR_LABEL, TAG_COLOR_PALETTE } from '@/types/tag'
 import type { TagColor } from '@/types/tag'
 import { isValidDateKey, validateTodoTitle } from '@/utils/validation'
 import { priorityLabel } from '@/utils/priorityHelper'
-import { addDays, addMonths, todayKey } from '@/utils/dateFormatter'
+import { addDays, addMonths, formatShortDate, todayKey } from '@/utils/dateFormatter'
 import { useTagStore } from '@/stores/tagStore'
 import BaseButton from '@/components/atoms/BaseButton.vue'
 import BaseInput from '@/components/atoms/BaseInput.vue'
@@ -81,11 +81,16 @@ function submit() {
     priority: priority.value,
     dueDate: dueDate.value || undefined,
     tags: [...selectedTags.value],
+    // 只在用户真的改过时才带上这两个字段（默认策略由 dueDate 推导，不必落库）
+    reminderAt: reminderOff.value ? undefined : localInputToIso(reminderLocal.value),
+    reminderOff: reminderOff.value || undefined,
   })
   title.value = ''
   dueDate.value = todayKey()
   priority.value = DEFAULT_PRIORITY
   selectedTags.value = []
+  reminderLocal.value = ''
+  reminderOff.value = false
 }
 
 function onTitleEnter() {
@@ -97,6 +102,26 @@ function shiftDue(days: number, months = 0) {
   const base = dueDate.value || todayKey()
   dueDate.value = days !== 0 ? addDays(base, days) : addMonths(base, months)
 }
+
+// ---- 提醒（第六阶段 6.5：默认策略自动生成，用户可改可关） ----
+/** 自定义提醒时间（datetime-local 的本地串 `YYYY-MM-DDTHH:mm`）；留空 = 走默认策略 */
+const reminderLocal = ref('')
+/** 关掉这条任务的提醒 */
+const reminderOff = ref(false)
+
+/** datetime-local 的本地串 -> ISO（注意不是 UTC 串，否则时区会差几个小时） */
+function localInputToIso(value: string): string | undefined {
+  if (!value) return undefined
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString()
+}
+
+/** 默认提醒时间文案：到期日当天 09:00（与 utils/reminderSchedule.ts 的口径一致） */
+const defaultReminderHint = computed(() =>
+  dueDate.value && isValidDateKey(dueDate.value)
+    ? `默认 ${formatShortDate(dueDate.value)} 09:00`
+    : '需先设置截止日期',
+)
 
 // 暴露内部状态便于单元测试驱动非法日期等场景
 defineExpose({
@@ -110,6 +135,8 @@ defineExpose({
   newTagColor,
   creatingTag,
   createTagInline,
+  reminderLocal,
+  reminderOff,
 })
 </script>
 
@@ -227,5 +254,30 @@ defineExpose({
     </div>
 
     <p v-if="tagError" class="text-xs text-rose-500" role="alert">{{ tagError }}</p>
+
+    <!-- 提醒：留空走默认策略（到期日 09:00），也可以指定具体时间或直接关掉 -->
+    <div class="flex flex-wrap items-center gap-2 text-xs" data-testid="todo-form-reminder">
+      <span class="text-slate-400 dark:text-slate-500">提醒</span>
+      <input
+        v-model="reminderLocal"
+        type="datetime-local"
+        aria-label="自定义提醒时间"
+        data-testid="todo-form-reminder-at"
+        :disabled="reminderOff"
+        class="rounded-md border border-slate-200 bg-transparent px-2 py-1 text-xs text-slate-600 outline-none focus:border-[var(--el-color-primary)] disabled:opacity-40 dark:border-slate-600 dark:text-slate-300"
+      />
+      <label class="flex items-center gap-1 text-slate-500 dark:text-slate-400">
+        <input
+          v-model="reminderOff"
+          type="checkbox"
+          class="h-3.5 w-3.5 accent-[var(--el-color-primary)]"
+          data-testid="todo-form-reminder-off"
+        />
+        不提醒
+      </label>
+      <span class="text-slate-400 dark:text-slate-500">
+        {{ reminderOff ? '这条任务不会打扰你' : defaultReminderHint }}
+      </span>
+    </div>
   </form>
 </template>

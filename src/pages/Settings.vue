@@ -23,6 +23,9 @@ import { TAG_COLOR_DOT, TAG_COLOR_LABEL, TAG_COLOR_PALETTE } from '@/types/tag'
 import type { TagColor } from '@/types/tag'
 import { AI_PRESETS, AI_PROVIDERS } from '@/types/ai'
 import { useAvatar } from '@/composables/useAvatar'
+import { useReminder } from '@/composables/useReminder'
+import { sendWxPusherViaProxy } from '@/api/notify'
+import { WXPUSHER_APP_URL } from '@/utils/wxpusher'
 import { useAiStore } from '@/stores/aiStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useTagStore } from '@/stores/tagStore'
@@ -33,6 +36,62 @@ const todoStore = useTodoStore()
 const tagStore = useTagStore()
 const aiStore = useAiStore()
 const avatarOpen = ref(false)
+
+// ---- 提醒渠道（第六阶段 6.5） ----
+// autoScan: false —— 调度器只应有一处（DefaultLayout），设置页只读改设置。
+// 状态在 reminderStore 里，所以这里改开关，正在跑的调度器立刻就能看到。
+const reminder = useReminder({
+  todos: () => todoStore.visibleTodos,
+  autoScan: false,
+  onWxPusherError: (message) => ElMessage.warning(message),
+})
+
+const wxpusherTesting = ref(false)
+const wxpusherHint = ref('')
+
+/**
+ * 打开「系统通知」开关时顺手申请权限。
+ * 规划要求：**绝不进门就要权限**——只有用户主动开这个开关时才发起，
+ * 并且被拒后明确告诉他应用内提醒仍然有效（而不是让他以为功能坏了）。
+ */
+async function onToggleSystem(next: boolean) {
+  if (!next) {
+    reminder.updateSettings({ system: false })
+    return
+  }
+  const result = await reminder.requestPermission()
+  if (result === 'granted') {
+    reminder.updateSettings({ system: true })
+    wxpusherHint.value = ''
+    return
+  }
+  reminder.updateSettings({ system: false })
+  wxpusherHint.value =
+    result === 'denied'
+      ? '系统通知被拒绝，应用内提醒仍然有效'
+      : '当前浏览器不支持系统通知，已依赖应用内提醒'
+}
+
+/**
+ * 发一条测试消息：这条链路（前端 → Edge Function 代理 → WxPusher → 微信）
+ * 有几处配置点（UID、函数是否部署、Secrets 是否配好），
+ * 所以给用户一个「一键验证」比让他等真的任务到期才知道没配好要好得多。
+ */
+async function sendTestPush() {
+  if (!reminder.settings.value.wxpusherUid.trim()) {
+    wxpusherHint.value = '先填 UID 再发测试'
+    return
+  }
+  wxpusherTesting.value = true
+  wxpusherHint.value = ''
+  const result = await sendWxPusherViaProxy({
+    uid: reminder.settings.value.wxpusherUid.trim(),
+    title: 'Vue 3 智能工作台 · 测试消息',
+    content: '<p>提醒通道配置成功 ✅ 任务到期时你会在这里收到通知。</p>',
+  })
+  wxpusherTesting.value = false
+  wxpusherHint.value = result.ok ? '已发送，去微信看看' : result.error
+}
 
 // ---- 标签管理 ----
 const tagError = ref('')
@@ -447,6 +506,138 @@ async function testConnection() {
             </BaseButton>
             <BaseButton size="sm" variant="secondary" @click="aiStore.reset()">恢复默认</BaseButton>
           </span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 提醒渠道（第六阶段 6.5）：三层通道各管一段，用户按需要开 -->
+    <section class="card p-5" aria-label="提醒渠道">
+      <h2 class="mb-1 text-sm font-semibold text-slate-500 dark:text-slate-400">提醒渠道</h2>
+      <p class="mb-4 text-xs text-slate-400 dark:text-slate-500">
+        网页没有后台进程，所以提醒分三层降级：系统通知 → 应用内兜底（铃铛红点 + 标题计数）→
+        微信推送（关掉页面也能收）。至少留一层开着，否则任务到期不会有任何提示。
+      </p>
+
+      <div class="space-y-3">
+        <!-- 总开关 -->
+        <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+          <el-switch
+            :model-value="reminder.settings.value.enabled"
+            size="small"
+            data-testid="reminder-enabled"
+            @update:model-value="
+              (v: string | number | boolean) => reminder.updateSettings({ enabled: Boolean(v) })
+            "
+          />
+          启用任务提醒（每条任务最多提醒 2 次：到期 + 超时 1 小时催办）
+        </label>
+
+        <!-- 通道一：系统通知 -->
+        <div class="flex flex-wrap items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+          <el-switch
+            :model-value="reminder.settings.value.system"
+            size="small"
+            data-testid="reminder-system"
+            @update:model-value="(v: string | number | boolean) => onToggleSystem(Boolean(v))"
+          />
+          <span>系统通知</span>
+          <span
+            class="text-xs"
+            :class="
+              reminder.permission.value === 'granted'
+                ? 'text-emerald-600 dark:text-emerald-400'
+                : 'text-slate-400 dark:text-slate-500'
+            "
+            data-testid="reminder-permission"
+          >
+            {{
+              reminder.permission.value === 'granted'
+                ? '已授权'
+                : reminder.permission.value === 'denied'
+                  ? '已被浏览器拒绝 —— 已自动依赖应用内提醒'
+                  : reminder.permission.value === 'unsupported'
+                    ? '当前浏览器不支持'
+                    : '尚未授权'
+            }}
+          </span>
+          <BaseButton
+            v-if="reminder.permission.value === 'default'"
+            size="sm"
+            variant="secondary"
+            data-testid="reminder-request-permission"
+            @click="reminder.requestPermission()"
+          >
+            申请通知权限
+          </BaseButton>
+        </div>
+
+        <!-- 通道二：应用内兜底 -->
+        <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+          <el-switch
+            :model-value="reminder.settings.value.inApp"
+            size="small"
+            data-testid="reminder-inapp"
+            @update:model-value="
+              (v: string | number | boolean) => reminder.updateSettings({ inApp: Boolean(v) })
+            "
+          />
+          应用内提醒（顶栏铃铛红点 + 标签页标题显示待办数）
+        </label>
+
+        <!-- 通道三：微信推送（WxPusher） -->
+        <div class="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+          <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+            <el-switch
+              :model-value="reminder.settings.value.wxpusher"
+              size="small"
+              data-testid="reminder-wxpusher"
+              @update:model-value="
+                (v: string | number | boolean) => reminder.updateSettings({ wxpusher: Boolean(v) })
+              "
+            />
+            微信推送（WxPusher）
+          </label>
+
+          <p class="mt-2 text-xs leading-relaxed text-slate-400 dark:text-slate-500">
+            个人微信没有官方推送 API，本项目走 WxPusher 公众号通道：到
+            <a
+              :href="WXPUSHER_APP_URL"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-[var(--el-color-primary)] underline-offset-2 hover:underline"
+              >WxPusher</a
+            >
+            的应用页扫码关注拿到 UID 填在下面（UID 只存你自己的浏览器）。 应用 token 保存在 Supabase
+            Edge Function 的 Secrets 里，绝不下发到前端。
+          </p>
+
+          <div class="mt-2 flex flex-wrap items-center gap-2">
+            <input
+              :value="reminder.settings.value.wxpusherUid"
+              type="text"
+              placeholder="UID_xxxxxxxx"
+              aria-label="WxPusher UID"
+              data-testid="wxpusher-uid"
+              class="w-52 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-[var(--el-color-primary)] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+              @change="
+                reminder.updateSettings({
+                  wxpusherUid: ($event.target as HTMLInputElement).value.trim(),
+                })
+              "
+            />
+            <BaseButton
+              size="sm"
+              variant="secondary"
+              :disabled="wxpusherTesting"
+              data-testid="wxpusher-test"
+              @click="sendTestPush"
+            >
+              {{ wxpusherTesting ? '发送中…' : '发送测试消息' }}
+            </BaseButton>
+            <span class="text-xs text-slate-400 dark:text-slate-500" data-testid="wxpusher-hint">
+              {{ wxpusherHint }}
+            </span>
+          </div>
         </div>
       </div>
     </section>
