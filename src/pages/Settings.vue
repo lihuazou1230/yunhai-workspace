@@ -2,11 +2,12 @@
 /**
  * 页面：设置
  *
- * 三块内容：
+ * 四块内容：
  * 1. **个人资料**：头像（圆形预览 + 更换/裁剪）+ 昵称/邮箱/登录方式
  * 2. **数据同步**：模式（云端/本地）、同步状态、上次同步时间、「立即同步」，
  *    以及旧数据迁移状态——把「数据在哪、有没有同步上」明确告诉用户
  * 3. **外观自定义**：主题色/圆角/密度/明暗（复用 SettingsPanel，从抽屉改为整页）
+ * 4. **标签管理**（第六阶段 6.1）：改名 / 改色 / 删除（删除时说明影响范围）
  */
 
 import { computed, ref } from 'vue'
@@ -17,13 +18,66 @@ import BaseBadge from '@/components/atoms/BaseBadge.vue'
 import BaseButton from '@/components/atoms/BaseButton.vue'
 import { SUPABASE_SETUP_HINT, checkSupabaseConnection } from '@/api/supabase'
 import type { ConnectionCheck } from '@/api/supabase'
+import { TAG_COLOR_DOT, TAG_COLOR_LABEL, TAG_COLOR_PALETTE } from '@/types/tag'
+import type { TagColor } from '@/types/tag'
 import { useAvatar } from '@/composables/useAvatar'
 import { useAuthStore } from '@/stores/authStore'
+import { useTagStore } from '@/stores/tagStore'
 import { useTodoStore } from '@/stores/todoStore'
 
 const authStore = useAuthStore()
 const todoStore = useTodoStore()
+const tagStore = useTagStore()
 const avatarOpen = ref(false)
+
+// ---- 标签管理 ----
+const tagError = ref('')
+const removeDialogOpen = ref(false)
+/** 待删除的标签 id（确认弹窗里要显示名字与影响范围） */
+const pendingRemoveId = ref<string | null>(null)
+
+const pendingRemove = computed(() =>
+  pendingRemoveId.value ? tagStore.getTag(pendingRemoveId.value) : undefined,
+)
+
+/** 某个标签被多少任务引用（删除确认里要讲清楚影响范围） */
+function tagUsage(tagId: string): number {
+  return todoStore.todos.filter((t) => t.tags.includes(tagId)).length
+}
+
+const pendingRemoveUsage = computed(() =>
+  pendingRemoveId.value ? tagUsage(pendingRemoveId.value) : 0,
+)
+
+function renameTag(id: string, name: string) {
+  const current = tagStore.getTag(id)
+  if (!current || current.name === name.trim()) return
+  if (!tagStore.updateTag(id, { name })) {
+    tagError.value = '改名失败：标签名不能为空、不超过 12 字，且不能与其他标签重名'
+    return
+  }
+  tagError.value = ''
+}
+
+function recolorTag(id: string, color: TagColor) {
+  tagStore.updateTag(id, { color })
+}
+
+function askRemoveTag(id: string) {
+  pendingRemoveId.value = id
+  removeDialogOpen.value = true
+}
+
+function confirmRemoveTag() {
+  const id = pendingRemoveId.value
+  if (!id) return
+  // 先摘掉任务上的引用，再删标签：任务本身不删（规划明确要求）
+  todoStore.removeTagReference(id)
+  tagStore.removeTag(id)
+  removeDialogOpen.value = false
+  pendingRemoveId.value = null
+  tagError.value = ''
+}
 
 const { displayUrl, fallbackInitial, markImageFailed, loadLocalAvatar } = useAvatar()
 void loadLocalAvatar()
@@ -216,6 +270,85 @@ async function testConnection() {
     <section class="card p-5" aria-label="外观自定义">
       <h2 class="mb-4 text-sm font-semibold text-slate-500 dark:text-slate-400">外观自定义</h2>
       <SettingsPanel />
+    </section>
+
+    <!-- 标签管理（第六阶段 6.1）：改名 / 改色 / 删除 -->
+    <section class="card p-5" aria-label="标签管理">
+      <h2 class="mb-1 text-sm font-semibold text-slate-500 dark:text-slate-400">标签管理</h2>
+      <p class="mb-4 text-xs text-slate-400 dark:text-slate-500">
+        任务只记录标签 id，所以这里改名/改色会立刻作用于所有已打标的任务。
+      </p>
+
+      <p v-if="tagStore.tagCount === 0" class="text-xs text-slate-400 dark:text-slate-500">
+        还没有标签。去「任务」页的新建表单里点「+ 新标签」创建第一个。
+      </p>
+
+      <ul v-else class="space-y-2" data-testid="tag-manager">
+        <li
+          v-for="tag in tagStore.tags"
+          :key="tag.id"
+          class="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700"
+        >
+          <span class="h-2.5 w-2.5 shrink-0 rounded-full" :class="TAG_COLOR_DOT[tag.color]"></span>
+
+          <input
+            :value="tag.name"
+            type="text"
+            :aria-label="`${tag.name} 标签名`"
+            :data-testid="`tag-name-${tag.id}`"
+            class="w-32 rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-sm text-slate-700 outline-none hover:border-slate-200 focus:border-[var(--el-color-primary)] dark:text-slate-200 dark:hover:border-slate-600"
+            @change="renameTag(tag.id, ($event.target as HTMLInputElement).value)"
+          />
+
+          <!-- 改色：点色点直接换 -->
+          <span class="flex items-center gap-1">
+            <button
+              v-for="color in TAG_COLOR_PALETTE"
+              :key="color"
+              type="button"
+              class="h-3.5 w-3.5 rounded-full transition-transform hover:scale-110"
+              :class="[TAG_COLOR_DOT[color], tag.color === color ? 'ring-2 ring-slate-400' : '']"
+              :aria-label="`把${tag.name}改成${TAG_COLOR_LABEL[color]}色`"
+              :data-testid="`tag-color-${tag.id}-${color}`"
+              @click="recolorTag(tag.id, color)"
+            />
+          </span>
+
+          <span class="ml-auto flex items-center gap-2">
+            <span class="text-xs text-slate-400 dark:text-slate-500">
+              {{ tagUsage(tag.id) }} 个任务
+            </span>
+            <BaseButton
+              size="sm"
+              variant="danger"
+              :data-testid="`tag-delete-${tag.id}`"
+              @click="askRemoveTag(tag.id)"
+            >
+              删除
+            </BaseButton>
+          </span>
+        </li>
+      </ul>
+
+      <p v-if="tagError" class="mt-2 text-xs text-rose-500" role="alert">{{ tagError }}</p>
+
+      <!-- 删除确认：明确说明影响范围（标签没了，任务还在） -->
+      <el-dialog v-model="removeDialogOpen" title="删除标签" width="420px">
+        <p class="text-sm text-slate-600 dark:text-slate-300">
+          将删除标签「{{ pendingRemove?.name }}」，并从
+          <span class="font-semibold">{{ pendingRemoveUsage }} 个任务</span>
+          上摘掉它。
+        </p>
+        <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          <strong>任务不会被删除</strong>，只是少了一个分类；标签的颜色与名字也无法恢复。
+        </p>
+        <template #footer>
+          <BaseButton variant="secondary" @click="removeDialogOpen = false">取消</BaseButton>
+          <BaseButton variant="danger" data-testid="tag-delete-confirm" @click="confirmRemoveTag">
+            确认删除
+          </BaseButton>
+        </template>
+      </el-dialog>
     </section>
 
     <!-- 关于 -->

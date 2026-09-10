@@ -5,9 +5,9 @@
  * 结构（严格对齐规划里的 TodoItem 样式规格）：
  * 左  完成圆圈 20px，**主操作居左**；hover 主题色边框 + 极浅主题底，勾选后主题色实底 + 白勾
  * 中  内容列 = 标题行(14px/500，已置顶时标题旁小 📌)
- *             → 元信息行(12px 小图标 + 灰字)：日期 / 优先级小旗 / 子任务进度
+ *             → 元信息行(12px 小图标 + 灰字)：日期 / 优先级小旗 / 标签色点 / 子任务进度
  *             → 折叠的「+ 添加子任务」小字按钮
- * 右  操作区（置顶 / 删除，28px 图标钮）：桌面端 hover 渐现，移动端常显
+ * 右  操作区（置顶 / 更多 / 删除，28px 图标钮）：桌面端 hover 渐现，移动端常显
  *
  * 卡片：padding 12px 14px、rounded-xl、0.5px 边框、hover 边框加深；完成态标题划线 + 整卡 65% 透明。
  * 设计理由：列表类 UI 留白显高级、操作渐现是现代效率工具通行做法；
@@ -18,10 +18,15 @@
 
 import { computed, onMounted, ref, watch } from 'vue'
 
-import type { Todo } from '@/types/todo'
+import { onClickOutside } from '@vueuse/core'
+
+import type { Todo, TodoListView } from '@/types/todo'
+import type { Tag } from '@/types/tag'
+import { TAG_COLOR_DOT, TAG_COLOR_TEXT } from '@/types/tag'
 import { formatDueLabel, isOverdue, isToday } from '@/utils/dateFormatter'
 import { isValidDateKey } from '@/utils/validation'
 import { priorityLabel } from '@/utils/priorityHelper'
+import { snoozeOptions } from '@/utils/tagHelper'
 import BaseButton from '@/components/atoms/BaseButton.vue'
 
 const props = withDefaults(
@@ -43,6 +48,13 @@ const props = withDefaults(
     selected?: boolean
     /** 是否可拖拽排序 */
     draggable?: boolean
+    /**
+     * 该任务已解析好的标签（由父级从 tagStore 取好传进来）。
+     * 分子层不直接碰全局 store，保持「纯展示 + 事件向上」的分层约定。
+     */
+    todoTags?: Tag[]
+    /** 当前所在视图：决定操作菜单里是「归档 / 恢复 / 召回」哪一组动作 */
+    view?: TodoListView
   }>(),
   {
     showDue: false,
@@ -53,6 +65,8 @@ const props = withDefaults(
     selectable: false,
     selected: false,
     draggable: false,
+    todoTags: () => [],
+    view: 'main',
   },
 )
 
@@ -64,6 +78,11 @@ const emit = defineEmits<{
   (e: 'remove-subtask', todoId: string, subtaskId: string): void
   (e: 'toggle-pin', id: string): void
   (e: 'toggle-select', id: string): void
+  (e: 'archive', id: string): void
+  (e: 'unarchive', id: string): void
+  (e: 'snooze', id: string, until: string): void
+  (e: 'unsnooze', id: string): void
+  (e: 'purge', id: string): void
 }>()
 
 const isDone = computed(() => props.todo.status === 'completed')
@@ -234,6 +253,56 @@ function onAddSubtask() {
   newSubtask.value = ''
 }
 
+// ---- 更多操作菜单（归档 / 稍后再做 / 恢复 / 召回 / 彻底删除） ----
+const menuRef = ref<HTMLElement | null>(null)
+const menuOpen = ref(false)
+/** 「稍后再做」子菜单（明天 / 后天 / 下周一 / 自定义） */
+const snoozeOpen = ref(false)
+const customSnoozeDate = ref('')
+const quickSnoozeOptions = computed(() => snoozeOptions())
+
+onClickOutside(menuRef, () => {
+  menuOpen.value = false
+  snoozeOpen.value = false
+})
+
+function toggleMenu() {
+  menuOpen.value = !menuOpen.value
+  if (!menuOpen.value) snoozeOpen.value = false
+}
+
+function onArchive() {
+  menuOpen.value = false
+  emit('archive', props.todo.id)
+}
+
+function onUnarchive() {
+  menuOpen.value = false
+  emit('unarchive', props.todo.id)
+}
+
+function onUnsnooze() {
+  menuOpen.value = false
+  emit('unsnooze', props.todo.id)
+}
+
+function onSnooze(until: string) {
+  if (!isValidDateKey(until)) return
+  menuOpen.value = false
+  snoozeOpen.value = false
+  customSnoozeDate.value = ''
+  emit('snooze', props.todo.id, until)
+}
+
+/**
+ * 彻底删除：归档视图里的「真删」。
+ * 仍走父级的软删除 + 撤销保护（store.removeTodo），所以这里只负责发出意图。
+ */
+function onPurge() {
+  menuOpen.value = false
+  emit('purge', props.todo.id)
+}
+
 // ---- 拖拽排序 ----
 // 拖拽由父级 TodoList 的 SortableJS 实例接管（`handle: '.drag-handle'`），
 // 这里只负责渲染把手，不再走原生 HTML5 DnD。
@@ -392,6 +461,33 @@ function onAddSubtask() {
           <span class="transition-transform" :class="expandSubtasks ? 'rotate-90' : ''">▶</span>
           {{ subtaskDone }}/{{ subtaskTotal }}
         </button>
+
+        <!-- 标签：彩色小点 + 文字（Finexy 风格的「彩色小点+文字」语言） -->
+        <span
+          v-for="tag in todoTags"
+          :key="tag.id"
+          class="inline-flex items-center gap-1"
+          :class="TAG_COLOR_TEXT[tag.color]"
+          :title="`标签：${tag.name}`"
+          :data-testid="`todo-tag-${tag.id}`"
+        >
+          <span class="h-2 w-2 shrink-0 rounded-full" :class="TAG_COLOR_DOT[tag.color]"></span>
+          {{ tag.name }}
+        </span>
+
+        <!-- 归档 / Snooze 状态提示（让用户知道这条为什么不在主列表） -->
+        <span
+          v-if="view === 'archived'"
+          class="inline-flex items-center gap-1 text-slate-400 dark:text-slate-500"
+        >
+          📦 已归档
+        </span>
+        <span
+          v-else-if="todo.snoozedUntil"
+          class="inline-flex items-center gap-1 text-slate-400 dark:text-slate-500"
+        >
+          💤 隐藏至 {{ todo.snoozedUntil }}
+        </span>
       </p>
 
       <!-- 子任务清单（默认折叠，不再每卡常驻） -->
@@ -500,6 +596,116 @@ function onAddSubtask() {
           />
         </svg>
       </BaseButton>
+
+      <!-- 更多：归档 / 稍后再做（主列表）、恢复 / 彻底删除（归档视图）、召回（已隐藏视图） -->
+      <div ref="menuRef" class="relative">
+        <button
+          type="button"
+          class="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+          :aria-label="menuOpen ? '收起更多操作' : '更多操作'"
+          aria-haspopup="menu"
+          :aria-expanded="menuOpen"
+          data-testid="todo-more"
+          @click="toggleMenu"
+        >
+          ⋯
+        </button>
+
+        <div
+          v-if="menuOpen"
+          class="absolute right-0 top-full z-20 mt-1 w-40 rounded-xl border border-slate-200 bg-white p-1 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-800"
+          role="menu"
+        >
+          <template v-if="view === 'archived'">
+            <button
+              type="button"
+              role="menuitem"
+              class="w-full rounded-lg px-2 py-1.5 text-left text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
+              data-testid="todo-unarchive"
+              @click="onUnarchive"
+            >
+              ♻️ 恢复任务
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              class="w-full rounded-lg px-2 py-1.5 text-left text-rose-600 transition-colors hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-900/30"
+              data-testid="todo-purge"
+              @click="onPurge"
+            >
+              🗑 彻底删除
+            </button>
+          </template>
+
+          <template v-else-if="view === 'snoozed'">
+            <button
+              type="button"
+              role="menuitem"
+              class="w-full rounded-lg px-2 py-1.5 text-left text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
+              data-testid="todo-unsnooze"
+              @click="onUnsnooze"
+            >
+              ⏰ 立即召回
+            </button>
+          </template>
+
+          <template v-else>
+            <button
+              type="button"
+              role="menuitem"
+              class="w-full rounded-lg px-2 py-1.5 text-left text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
+              data-testid="todo-archive"
+              @click="onArchive"
+            >
+              📦 归档
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              class="w-full rounded-lg px-2 py-1.5 text-left text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
+              data-testid="todo-snooze"
+              @click="snoozeOpen = !snoozeOpen"
+            >
+              💤 稍后再做
+            </button>
+
+            <!-- 稍后再做子菜单：默认明天，可选后天 / 下周一 / 自定义 -->
+            <div
+              v-if="snoozeOpen"
+              class="mt-0.5 space-y-0.5 border-t border-slate-100 pt-1 dark:border-slate-700"
+            >
+              <button
+                v-for="opt in quickSnoozeOptions"
+                :key="opt.key"
+                type="button"
+                role="menuitem"
+                class="w-full rounded-lg px-2 py-1 text-left text-slate-500 transition-colors hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
+                :data-testid="`todo-snooze-${opt.key}`"
+                @click="onSnooze(opt.date)"
+              >
+                {{ opt.label }}（{{ opt.date.slice(5) }}）
+              </button>
+              <div class="flex items-center gap-1 px-1 pt-0.5">
+                <input
+                  v-model="customSnoozeDate"
+                  type="date"
+                  aria-label="自定义稍后再做日期"
+                  class="w-full rounded-md border border-slate-200 bg-transparent px-1.5 py-1 text-[11px] outline-none dark:border-slate-600"
+                />
+                <button
+                  type="button"
+                  class="rounded-md px-1.5 py-1 text-[11px] text-[var(--el-color-primary)] disabled:opacity-40"
+                  :disabled="!customSnoozeDate"
+                  data-testid="todo-snooze-custom-confirm"
+                  @click="onSnooze(customSnoozeDate)"
+                >
+                  确定
+                </button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
     </div>
   </li>
 </template>

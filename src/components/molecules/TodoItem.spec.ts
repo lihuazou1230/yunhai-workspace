@@ -13,6 +13,7 @@ function makeTodo(partial: Partial<Todo> & { id: string; title: string }): Todo 
     createdAt: '2026-09-01T00:00:00.000Z',
     pinned: false,
     subtasks: [],
+    tags: [],
     ...partial,
   }
 }
@@ -197,5 +198,105 @@ describe('TodoItem', () => {
 
     await wrapper.find('button[aria-label="展开子任务"]').trigger('click')
     expect(wrapper.text()).toContain('收集数据')
+  })
+
+  // ---- 标签（第六阶段 6.1） ----
+
+  it('元信息行展示标签：彩色小点 + 文字', () => {
+    const todo = makeTodo({ id: '1', title: '写周报' })
+    const wrapper = mount(TodoItem, {
+      props: {
+        todo,
+        todoTags: [
+          { id: 't1', name: '工作', color: 'sky' },
+          { id: 't2', name: '紧急', color: 'rose' },
+        ],
+      },
+    })
+
+    expect(wrapper.text()).toContain('工作')
+    expect(wrapper.text()).toContain('紧急')
+    const chip = wrapper.find('[data-testid="todo-tag-t1"]')
+    expect(chip.exists()).toBe(true)
+    expect(chip.find('span.bg-sky-500').exists()).toBe(true)
+    expect(chip.classes()).toContain('text-sky-600')
+  })
+
+  it('没有标签时不渲染标签 chip', () => {
+    const wrapper = mount(TodoItem, { props: { todo: makeTodo({ id: '1', title: '看文档' }) } })
+    expect(wrapper.find('[data-testid^="todo-tag-"]').exists()).toBe(false)
+  })
+
+  // ---- 归档 / Snooze 操作菜单（第六阶段 6.1） ----
+
+  it('主列表菜单：归档发出 archive，稍后再做发出 snooze（默认明天）', async () => {
+    const todo = makeTodo({ id: '1', title: '写周报' })
+    const wrapper = mount(TodoItem, { props: { todo } })
+
+    // 菜单默认收起
+    expect(wrapper.find('[data-testid="todo-archive"]').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="todo-more"]').trigger('click')
+    await wrapper.find('[data-testid="todo-archive"]').trigger('click')
+    expect(wrapper.emitted('archive')?.[0]).toEqual(['1'])
+
+    // 再开一次菜单走 snooze 子菜单
+    await wrapper.find('[data-testid="todo-more"]').trigger('click')
+    await wrapper.find('[data-testid="todo-snooze"]').trigger('click')
+    await wrapper.find('[data-testid="todo-snooze-tomorrow"]').trigger('click')
+
+    const snooze = wrapper.emitted('snooze')?.[0]
+    expect(snooze?.[0]).toBe('1')
+    expect(snooze?.[1]).toBe(addDays(today, 1))
+  })
+
+  it('稍后再做支持自定义日期，非法日期不发事件', async () => {
+    const wrapper = mount(TodoItem, { props: { todo: makeTodo({ id: '1', title: '写周报' }) } })
+
+    await wrapper.find('[data-testid="todo-more"]').trigger('click')
+    await wrapper.find('[data-testid="todo-snooze"]').trigger('click')
+
+    // 没填日期时确认按钮禁用
+    const confirm = wrapper.find('[data-testid="todo-snooze-custom-confirm"]')
+    expect(confirm.attributes('disabled')).toBeDefined()
+
+    await wrapper.find('input[aria-label="自定义稍后再做日期"]').setValue('2026-10-01')
+    await confirm.trigger('click')
+    expect(wrapper.emitted('snooze')?.[0]).toEqual(['1', '2026-10-01'])
+  })
+
+  it('归档视图菜单只提供恢复与彻底删除', async () => {
+    const wrapper = mount(TodoItem, {
+      props: { todo: makeTodo({ id: '1', title: '旧任务', archived: true }), view: 'archived' },
+    })
+
+    expect(wrapper.text()).toContain('已归档')
+
+    await wrapper.find('[data-testid="todo-more"]').trigger('click')
+    expect(wrapper.find('[data-testid="todo-archive"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="todo-unarchive"]').exists()).toBe(true)
+
+    await wrapper.find('[data-testid="todo-unarchive"]').trigger('click')
+    expect(wrapper.emitted('unarchive')?.[0]).toEqual(['1'])
+
+    await wrapper.find('[data-testid="todo-more"]').trigger('click')
+    await wrapper.find('[data-testid="todo-purge"]').trigger('click')
+    expect(wrapper.emitted('purge')?.[0]).toEqual(['1'])
+  })
+
+  it('已隐藏视图菜单只提供立即召回，并显示隐藏到期日', async () => {
+    const wrapper = mount(TodoItem, {
+      props: {
+        todo: makeTodo({ id: '1', title: '以后再说', snoozedUntil: '2026-12-01' }),
+        view: 'snoozed',
+      },
+    })
+
+    expect(wrapper.text()).toContain('隐藏至 2026-12-01')
+
+    await wrapper.find('[data-testid="todo-more"]').trigger('click')
+    expect(wrapper.find('[data-testid="todo-snooze"]').exists()).toBe(false)
+    await wrapper.find('[data-testid="todo-unsnooze"]').trigger('click')
+    expect(wrapper.emitted('unsnooze')?.[0]).toEqual(['1'])
   })
 })

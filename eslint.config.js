@@ -32,6 +32,12 @@ export default tseslint.config(
       'no-undef': 'off',
       // 页面/根组件使用单英文单词命名（如 App、Dashboard、Settings）
       'vue/multi-word-component-names': 'off',
+      // 下划线前缀 = 「故意不用」：用于解构剔除字段（const { archived: _a, ...rest } = todo）
+      // 与忽略回调参数等场景，是 TS 里表达「这个值我确实不需要」的通行写法
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', ignoreRestSiblings: true },
+      ],
     },
   },
   prettier,

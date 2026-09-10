@@ -18,6 +18,7 @@ function makeTodo(partial: Partial<Todo> & { id: string; title: string }): Todo 
     createdAt: '2026-09-01T00:00:00.000Z',
     pinned: false,
     subtasks: [],
+    tags: [],
     ...partial,
   }
 }

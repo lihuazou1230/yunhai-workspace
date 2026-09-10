@@ -7,6 +7,8 @@ export interface TodoFilterQuery {
   keyword: string
   /** 已选中的优先级（多选）；空数组或 undefined 表示不过滤 */
   priority?: TodoPriority[]
+  /** 已选中的标签 id（多选）；空数组或 undefined 表示不过滤标签 */
+  tags?: string[]
   /** 用于 today/week 筛选的日期键（默认今天） */
   today?: string
 }
@@ -44,12 +46,20 @@ export function filterByPriority(todos: Todo[], priority?: TodoPriority[]): Todo
   return todos.filter((t) => set.has(t.priority))
 }
 
-/** 复合过滤：先按状态，再按优先级，最后按关键字 */
+/** 按标签过滤（多选：命中任一已选标签即保留；空数组不过滤） */
+export function filterByTags(todos: Todo[], tags?: string[]): Todo[] {
+  if (!tags || tags.length === 0) return todos
+  const set = new Set(tags)
+  return todos.filter((t) => t.tags.some((id) => set.has(id)))
+}
+
+/** 复合过滤：先按状态，再按优先级与标签，最后按关键字 */
 export function filterTodos(todos: Todo[], query: TodoFilterQuery): Todo[] {
-  const { filter, keyword, priority, today } = query
-  return filterByPriority(filterByStatus(todos, filter, today), priority).filter((t) =>
-    matchesKeyword(t, keyword),
-  )
+  const { filter, keyword, priority, tags, today } = query
+  return filterByTags(
+    filterByPriority(filterByStatus(todos, filter, today), priority),
+    tags,
+  ).filter((t) => matchesKeyword(t, keyword))
 }
 
 /**

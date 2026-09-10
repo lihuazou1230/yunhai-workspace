@@ -12,7 +12,8 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import { useSortable } from '@vueuse/integrations/useSortable'
 import type { SortableEvent } from 'sortablejs'
 
-import type { TodoFilter, TodoPriority } from '@/types/todo'
+import type { TodoFilter, TodoListView, TodoPriority } from '@/types/todo'
+import { useTagStore } from '@/stores/tagStore'
 import { useTodoStore } from '@/stores/todoStore'
 import { PRIORITY_ORDER } from '@/utils/priorityHelper'
 import { priorityLabel } from '@/utils/priorityHelper'
@@ -22,6 +23,19 @@ import TodoItem from '@/components/molecules/TodoItem.vue'
 import BaseButton from '@/components/atoms/BaseButton.vue'
 
 const store = useTodoStore()
+const tagStore = useTagStore()
+
+/** 任务行的标签解析（分子层不碰 store，标签在这里解析好传下去） */
+function tagsOf(todo: { tags: string[] }) {
+  return tagStore.getTags(todo.tags)
+}
+
+/** 视图切换项（主列表 / 已归档 / 已隐藏） */
+const viewTabs = computed<Array<{ key: TodoListView; label: string }>>(() => [
+  { key: 'main', label: '任务' },
+  { key: 'archived', label: `已归档 ${store.archivedCount}` },
+  { key: 'snoozed', label: `已隐藏 ${store.snoozedCount}` },
+])
 
 const FILTER_TABS: Array<{ key: TodoFilter; label: string }> = [
   { key: 'all', label: '全部' },
@@ -102,6 +116,50 @@ function onToggleSelect(id: string) {
 }
 
 const selectedCount = computed(() => store.selectedIds.length)
+
+// ---- 标签 / 归档 / Snooze（第六阶段 6.1） ----
+
+/** 归档一条任务 */
+function onArchive(id: string) {
+  store.archive(id)
+}
+
+/** 取消归档 */
+function onUnarchive(id: string) {
+  store.unarchive(id)
+}
+
+/** 稍后再做 */
+function onSnooze(id: string, until: string) {
+  store.snooze(id, until)
+}
+
+/** 立即召回 */
+function onUnsnooze(id: string) {
+  store.unsnooze(id)
+}
+
+/** 彻底删除（复用软删除 + 撤销保护） */
+function onPurge(id: string) {
+  store.removeTodo(id)
+  onPendingChange()
+}
+
+/** 批量归档当前选中的任务 */
+function batchArchive() {
+  store.bulkArchive(store.selectedIds)
+}
+
+/** 批量召回（已隐藏视图） */
+function batchUnsnooze() {
+  store.bulkUnsnooze(store.selectedIds)
+}
+
+/** 一键归档所有已完成任务（归档视图与主列表都用得上） */
+function archiveAllCompleted() {
+  const ids = store.visibleTodos.filter((t) => t.status === 'completed').map((t) => t.id)
+  if (ids.length > 0) store.bulkArchive(ids)
+}
 
 /**
  * 拖拽排序（SortableJS / VueUse useSortable）。
@@ -195,9 +253,36 @@ watch(
 
 <template>
   <section class="space-y-3">
+    <!-- 视图切换：主列表 / 已归档 / 已隐藏（不新开路由，就地过滤切换） -->
+    <div class="flex flex-wrap items-center gap-2">
+      <div class="flex gap-1" role="tablist" aria-label="任务视图">
+        <BaseButton
+          v-for="tab in viewTabs"
+          :key="tab.key"
+          size="sm"
+          :variant="store.listView === tab.key ? 'primary' : 'secondary'"
+          :data-testid="`todos-view-${tab.key}`"
+          @click="store.setListView(tab.key)"
+        >
+          {{ tab.label }}
+        </BaseButton>
+      </div>
+
+      <BaseButton
+        v-if="store.listView === 'main' && store.completedCount > 0"
+        size="sm"
+        variant="ghost"
+        data-testid="todos-archive-completed"
+        @click="archiveAllCompleted"
+      >
+        归档所有已完成
+      </BaseButton>
+    </div>
+
     <!-- 工具栏：筛选 + 搜索 -->
     <div class="flex flex-wrap items-center justify-between gap-2">
-      <div class="flex gap-1" role="tablist" aria-label="任务筛选">
+      <!-- 完成状态筛选只在主列表有意义（归档/已隐藏视图看的是生命周期状态） -->
+      <div v-if="store.listView === 'main'" class="flex gap-1" role="tablist" aria-label="任务筛选">
         <BaseButton
           v-for="tab in FILTER_TABS"
           :key="tab.key"
@@ -208,6 +293,9 @@ watch(
           {{ tab.label }}
         </BaseButton>
       </div>
+      <span v-else class="text-sm font-medium text-slate-500 dark:text-slate-400">
+        {{ store.listView === 'archived' ? '📦 已归档任务' : '💤 已隐藏任务（稍后再做）' }}
+      </span>
       <div class="flex items-center gap-2">
         <div class="w-56">
           <SearchBar v-model="store.keyword" />
@@ -245,6 +333,34 @@ watch(
       </div>
     </div>
 
+    <!-- 标签筛选（多选：命中任一标签即保留） -->
+    <div
+      v-if="tagStore.tagCount > 0"
+      class="flex flex-wrap items-center gap-2"
+      data-testid="todos-tag-filter"
+    >
+      <span class="text-xs text-slate-400 dark:text-slate-500">标签</span>
+      <div class="flex flex-wrap gap-1" role="group" aria-label="标签筛选">
+        <BaseButton
+          size="sm"
+          :variant="store.tagFilter.length === 0 ? 'primary' : 'secondary'"
+          @click="store.clearTagFilter()"
+        >
+          全部
+        </BaseButton>
+        <BaseButton
+          v-for="tag in tagStore.tags"
+          :key="tag.id"
+          size="sm"
+          :variant="store.tagFilter.includes(tag.id) ? 'primary' : 'secondary'"
+          :data-testid="`todos-tag-filter-${tag.id}`"
+          @click="store.toggleTagFilter(tag.id)"
+        >
+          {{ tag.name }}
+        </BaseButton>
+      </div>
+    </div>
+
     <!-- 批量操作栏（多选模式） -->
     <div
       v-if="store.selectionMode"
@@ -260,6 +376,25 @@ watch(
           >中</BaseButton
         >
         <BaseButton size="sm" variant="secondary" @click="batchSetPriority('low')">低</BaseButton>
+        <!-- 视图相关批量动作：主列表批量归档，已隐藏视图批量召回 -->
+        <BaseButton
+          v-if="store.listView === 'main'"
+          size="sm"
+          variant="secondary"
+          data-testid="batch-archive"
+          @click="batchArchive"
+        >
+          归档
+        </BaseButton>
+        <BaseButton
+          v-else-if="store.listView === 'snoozed'"
+          size="sm"
+          variant="secondary"
+          data-testid="batch-unsnooze"
+          @click="batchUnsnooze"
+        >
+          召回
+        </BaseButton>
       </div>
       <BaseButton size="sm" variant="ghost" class="ml-auto" @click="store.toggleSelectionMode()">
         取消
@@ -294,10 +429,12 @@ watch(
         :show-subtasks="!store.selectionMode"
         :selectable="store.selectionMode"
         :selected="store.selectedIds.includes(todo.id)"
-        :complete-slide="store.filter === 'active'"
+        :complete-slide="store.filter === 'active' && store.listView === 'main'"
         :reveal-from-right="todo.id === revealId"
         :enter-from-left="todo.id === enterLeftId"
-        :draggable="!store.selectionMode"
+        :draggable="!store.selectionMode && store.listView === 'main'"
+        :todo-tags="tagsOf(todo)"
+        :view="store.listView"
         @toggle="toggle"
         @remove="remove"
         @toggle-subtask="onToggleSubtask"
@@ -305,6 +442,11 @@ watch(
         @remove-subtask="onRemoveSubtask"
         @toggle-pin="onTogglePin"
         @toggle-select="onToggleSelect"
+        @archive="onArchive"
+        @unarchive="onUnarchive"
+        @snooze="onSnooze"
+        @unsnooze="onUnsnooze"
+        @purge="onPurge"
       />
     </ul>
 
@@ -312,8 +454,11 @@ watch(
     <div
       v-else
       class="rounded-xl border border-dashed border-slate-300 py-10 text-center text-sm text-slate-400 dark:border-slate-600 dark:text-slate-500"
+      data-testid="todos-empty"
     >
-      🎉 暂无任务，添加一个开始吧
+      <template v-if="store.listView === 'archived'">📦 归档区是空的</template>
+      <template v-else-if="store.listView === 'snoozed'">💤 没有被藏起来的任务</template>
+      <template v-else>🎉 暂无任务，添加一个开始吧</template>
     </div>
   </section>
 </template>

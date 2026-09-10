@@ -24,9 +24,18 @@ import type {
   Todo,
   TodoFilter,
   TodoInput,
+  TodoListView,
   TodoPriority,
 } from '@/types/todo'
 import { UNDO_DELETE_TIMEOUT } from '@/types/todo'
+import {
+  archiveTodo,
+  isSnoozed,
+  snoozeTodo,
+  stripTagFromTodos,
+  unarchiveTodo,
+  unsnoozeTodo,
+} from '@/utils/tagHelper'
 
 export const TODO_STORAGE_KEY = 'smart-workspace:todos'
 
@@ -60,32 +69,61 @@ export const useTodoStore = defineStore('todo', () => {
   const selectedIds = ref<string[]>([])
   /** 是否已手动排序（拖拽后关闭自动排序） */
   const manualOrder = ref(false)
+  /** 列表视图：主列表 / 已归档 / 已隐藏（snooze 中）；与筛选 tab 是两条正交的轴 */
+  const listView = ref<TodoListView>('main')
+  /** 已选中的标签筛选（多选；空数组 = 不过滤标签） */
+  const tagFilter = ref<string[]>([])
   /** 撤销删除队列：软删除中的任务（1 分钟窗口，运行时，刷新即清空） */
   const pendingDeletes = ref<PendingDelete[]>([])
   /** id -> 真正删除定时器（运行时） */
   const timers = new Map<string, ReturnType<typeof setTimeout>>()
 
   // ---- getters ----
-  /** 可见任务：排除软删除中（待撤销）的任务 */
-  const visibleTodos = computed<Todo[]>(() => {
+  /** 未被软删除的任务（底层全集：含归档与 snooze 中的任务） */
+  const liveTodos = computed<Todo[]>(() => {
     const pendingIds = new Set(pendingDeletes.value.map((p) => p.todo.id))
     return todos.value.filter((t) => !pendingIds.has(t.id))
   })
 
+  /** 已归档任务（归档视图用） */
+  const archivedTodos = computed<Todo[]>(() => liveTodos.value.filter((t) => t.archived === true))
+
+  /**
+   * 可见任务（统计口径）：排除软删除中 + **已归档**的任务。
+   * 注意 snooze 的任务**不算掉**——规划明确「snooze 不影响任何统计」，只是不在列表里露面。
+   */
+  const visibleTodos = computed<Todo[]>(() => liveTodos.value.filter((t) => t.archived !== true))
+
+  /** snooze 中的任务（已隐藏视图用） */
+  const snoozedTodos = computed<Todo[]>(() => liveTodos.value.filter((t) => isSnoozed(t)))
+
+  /** 当前视图对应的基础集合 */
+  const listBaseTodos = computed<Todo[]>(() => {
+    if (listView.value === 'archived') return archivedTodos.value
+    if (listView.value === 'snoozed') return snoozedTodos.value
+    // 主列表：排除归档 + 排除 snooze 中（snoozedUntil 到期当天自动回归）
+    return visibleTodos.value.filter((t) => !isSnoozed(t))
+  })
+
   /** 过滤 + 搜索后的展示列表（按优先级高→低、截止日期早→晚排序；手动排序后不再重排） */
   const filteredTodos = computed<Todo[]>(() => {
-    const base = filterTodos(visibleTodos.value, {
-      filter: filter.value,
+    const base = filterTodos(listBaseTodos.value, {
+      // 归档 / 已隐藏视图不套「完成状态」筛选：这两个视图看的是**生命周期状态**，
+      // 再叠一层「进行中」会把已完成但已归档的任务藏掉，看起来像被误删了。
+      filter: listView.value === 'main' ? filter.value : 'all',
       keyword: keyword.value,
       priority: priority.value,
+      tags: tagFilter.value,
     })
     return manualOrder.value ? base : sortTodos(base)
   })
 
-  /** 今日聚焦（My Day）：置顶 或 今日到期 的任务 */
+  /** 今日聚焦（My Day）：置顶 或 今日到期 的任务（snooze 中的不出现） */
   const myDayTodos = computed<Todo[]>(() => {
     const today = todayKey()
-    return visibleTodos.value.filter((t) => t.pinned || (t.dueDate && t.dueDate === today))
+    return visibleTodos.value.filter(
+      (t) => !isSnoozed(t, today) && (t.pinned || (t.dueDate && t.dueDate === today)),
+    )
   })
 
   const totalCount = computed(() => visibleTodos.value.length)
@@ -93,6 +131,10 @@ export const useTodoStore = defineStore('todo', () => {
   const completedCount = computed(
     () => visibleTodos.value.filter((t) => t.status === 'completed').length,
   )
+  /** 已归档条数（任务页入口文案用） */
+  const archivedCount = computed(() => archivedTodos.value.length)
+  /** 已隐藏（snooze 中）条数 */
+  const snoozedCount = computed(() => snoozedTodos.value.length)
   /** 撤销条展示用：最近的待撤销任务 */
   const latestPendingDelete = computed<PendingDelete | null>(
     () => pendingDeletes.value[pendingDeletes.value.length - 1] ?? null,
@@ -109,6 +151,7 @@ export const useTodoStore = defineStore('todo', () => {
       createdAt: new Date().toISOString(),
       pinned: false,
       subtasks: [],
+      tags: input.tags ?? [],
     }
     todos.value = [...todos.value, todo]
     return todo
@@ -291,6 +334,69 @@ export const useTodoStore = defineStore('todo', () => {
     list.splice(targetIdx, 0, moved)
     todos.value = list
     manualOrder.value = true
+  }
+
+  // ---- 标签筛选（第六阶段 6.1） ----
+  function setListView(view: TodoListView) {
+    listView.value = view
+    manualOrder.value = false
+    clearSelection()
+  }
+
+  /** 切换某个标签是否在筛选中（多选） */
+  function toggleTagFilter(tagId: string) {
+    tagFilter.value = tagFilter.value.includes(tagId)
+      ? tagFilter.value.filter((x) => x !== tagId)
+      : [...tagFilter.value, tagId]
+    manualOrder.value = false
+  }
+
+  function clearTagFilter() {
+    tagFilter.value = []
+    manualOrder.value = false
+  }
+
+  /**
+   * 删除标签时摘掉所有任务上的引用（**任务本身不删**）。
+   * 由调用方在 tagStore.removeTag 之后调用，两个 store 各自管好自己的数据。
+   */
+  function removeTagReference(tagId: string) {
+    todos.value = stripTagFromTodos(todos.value, tagId)
+    tagFilter.value = tagFilter.value.filter((x) => x !== tagId)
+  }
+
+  // ---- 归档（第六阶段 6.1） ----
+  function archive(id: string) {
+    todos.value = todos.value.map((t) => (t.id === id ? archiveTodo(t) : t))
+  }
+
+  function unarchive(id: string) {
+    todos.value = todos.value.map((t) => (t.id === id ? unarchiveTodo(t) : t))
+  }
+
+  /** 批量归档（用于「归档所有已完成任务」） */
+  function bulkArchive(ids: string[]) {
+    const set = new Set(ids)
+    todos.value = todos.value.map((t) => (set.has(t.id) ? archiveTodo(t) : t))
+    clearSelection()
+  }
+
+  // ---- 稍后再做 / Snooze（第六阶段 6.1） ----
+  /** 藏到 until（YYYY-MM-DD）之前，不改变任何统计口径 */
+  function snooze(id: string, until: string) {
+    todos.value = todos.value.map((t) => (t.id === id ? snoozeTodo(t, until) : t))
+  }
+
+  /** 提前召回：立刻回到主列表 */
+  function unsnooze(id: string) {
+    todos.value = todos.value.map((t) => (t.id === id ? unsnoozeTodo(t) : t))
+  }
+
+  /** 批量召回 */
+  function bulkUnsnooze(ids: string[]) {
+    const set = new Set(ids)
+    todos.value = todos.value.map((t) => (set.has(t.id) ? unsnoozeTodo(t) : t))
+    clearSelection()
   }
 
   // ---- 云同步（第五阶段） ----
@@ -531,13 +637,20 @@ export const useTodoStore = defineStore('todo', () => {
     selectionMode,
     selectedIds,
     manualOrder,
+    listView,
+    tagFilter,
     // getters
+    liveTodos,
+    archivedTodos,
+    snoozedTodos,
     visibleTodos,
     filteredTodos,
     myDayTodos,
     totalCount,
     activeCount,
     completedCount,
+    archivedCount,
+    snoozedCount,
     // actions
     addTodo,
     updateTodo,
@@ -562,6 +675,17 @@ export const useTodoStore = defineStore('todo', () => {
     bulkRemove,
     bulkSetPriority,
     moveTodo,
+    // 标签 / 归档 / snooze（第六阶段 6.1）
+    setListView,
+    toggleTagFilter,
+    clearTagFilter,
+    removeTagReference,
+    archive,
+    unarchive,
+    bulkArchive,
+    snooze,
+    unsnooze,
+    bulkUnsnooze,
     // 云同步
     syncState,
     syncUserId,

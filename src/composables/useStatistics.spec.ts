@@ -23,6 +23,7 @@ function todo(partial: Partial<Todo> & { id: string }): Todo {
     createdAt: new Date().toISOString(),
     pinned: false,
     subtasks: [],
+    tags: [],
     ...partial,
   }
 }

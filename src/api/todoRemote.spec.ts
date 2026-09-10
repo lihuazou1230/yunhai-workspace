@@ -35,6 +35,7 @@ function todo(overrides: Partial<Todo> = {}): Todo {
     createdAt: '2026-09-09T00:00:00.000Z',
     pinned: true,
     subtasks: [{ id: 's1', title: '收集数据', completed: true }],
+    tags: [],
     ...overrides,
   }
 }
@@ -81,8 +82,43 @@ describe('任务行映射', () => {
         completedAt: null,
         pinned: true,
         subtasks: [{ id: 's1', title: '收集数据', completed: true }],
+        // 第六阶段：标签 / 归档 / snooze 一并进 payload
+        tags: [],
+        archived: false,
+        archivedAt: null,
+        snoozedUntil: null,
       },
     })
+  })
+
+  it('标签 / 归档 / snooze 随 payload 往返（云同步口径一致）', () => {
+    const original = todo({
+      tags: ['tag-a', 'tag-b'],
+      archived: true,
+      archivedAt: '2026-09-11T02:00:00.000Z',
+      snoozedUntil: '2026-09-20',
+    })
+    const restored = fromRemoteRow(toRemoteRow('u1', { todo: original, position: 0 }))
+
+    expect(restored.tags).toEqual(['tag-a', 'tag-b'])
+    expect(restored.archived).toBe(true)
+    expect(restored.archivedAt).toBe('2026-09-11T02:00:00.000Z')
+    expect(restored.snoozedUntil).toBe('2026-09-20')
+    expect(restored).toEqual(original)
+  })
+
+  it('旧客户端没写 tags/archived 时兜底为空数组与「未归档」', () => {
+    const restored = fromRemoteRow({
+      id: 't10',
+      title: '旧数据',
+      completed: false,
+      sort_order: 0,
+      payload: { priority: 'low' },
+    })
+    expect(restored.tags).toEqual([])
+    expect(restored.archived).toBeUndefined()
+    expect(restored.archivedAt).toBeUndefined()
+    expect(restored.snoozedUntil).toBeUndefined()
   })
 
   it('已完成任务 completed 列为 true', () => {

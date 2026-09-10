@@ -5,10 +5,17 @@
  * - 复用 TodoItem：完成/置顶/子任务
  */
 
+import { useTagStore } from '@/stores/tagStore'
 import { useTodoStore } from '@/stores/todoStore'
 import TodoItem from '@/components/molecules/TodoItem.vue'
 
 const store = useTodoStore()
+const tagStore = useTagStore()
+
+/** 任务行的标签解析（与 TodoList 同一套做法：分子层不碰 store） */
+function tagsOf(todo: { tags: string[] }) {
+  return tagStore.getTags(todo.tags)
+}
 
 function toggle(id: string) {
   store.toggleComplete(id)
@@ -16,6 +23,14 @@ function toggle(id: string) {
 
 function onTogglePin(id: string) {
   store.togglePinned(id)
+}
+
+function onArchive(id: string) {
+  store.archive(id)
+}
+
+function onSnooze(id: string, until: string) {
+  store.snooze(id, until)
 }
 
 function onToggleSubtask(todoId: string, subtaskId: string) {
@@ -46,11 +61,14 @@ function onRemoveSubtask(todoId: string, subtaskId: string) {
         :key="todo.id"
         :todo="todo"
         show-due
+        :todo-tags="tagsOf(todo)"
         @toggle="toggle"
         @toggle-pin="onTogglePin"
         @toggle-subtask="onToggleSubtask"
         @add-subtask="onAddSubtask"
         @remove-subtask="onRemoveSubtask"
+        @archive="onArchive"
+        @snooze="onSnooze"
       />
     </ul>
 

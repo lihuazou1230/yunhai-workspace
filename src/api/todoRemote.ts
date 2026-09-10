@@ -76,14 +76,28 @@ export function toRemoteRow(userId: string, { todo, position }: PositionedTodo):
       completedAt: todo.completedAt ?? null,
       pinned: todo.pinned,
       subtasks: todo.subtasks,
+      // 第六阶段：标签 / 归档 / snooze 都随 payload 同步（扩展字段，避免频繁改表）
+      tags: todo.tags,
+      archived: todo.archived === true,
+      archivedAt: todo.archivedAt ?? null,
+      snoozedUntil: todo.snoozedUntil ?? null,
     },
   }
+}
+
+/** payload.tags -> string[]（只保留非空字符串，去重） */
+function toTagIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const ids = value.filter((v): v is string => typeof v === 'string' && v !== '')
+  return [...new Set(ids)]
 }
 
 /** 云端行 → 本地任务（字段缺失全部有兜底） */
 export function fromRemoteRow(row: RemoteTodoRow): Todo {
   const payload = row.payload ?? {}
   const completed = row.completed === true
+  const archivedAt = asOptionalString(payload.archivedAt)
+  const snoozedUntil = asOptionalString(payload.snoozedUntil)
   return {
     id: row.id,
     title: typeof row.title === 'string' ? row.title : '',
@@ -94,6 +108,11 @@ export function fromRemoteRow(row: RemoteTodoRow): Todo {
     completedAt: completed ? asOptionalString(payload.completedAt) : undefined,
     pinned: payload.pinned === true,
     subtasks: toSubtasks(payload.subtasks),
+    tags: toTagIds(payload.tags),
+    // 只在真的归档时才写 archived，保持「未归档」的任务对象干净且往返一致
+    ...(payload.archived === true ? { archived: true } : {}),
+    ...(archivedAt ? { archivedAt } : {}),
+    ...(snoozedUntil ? { snoozedUntil } : {}),
   }
 }
 

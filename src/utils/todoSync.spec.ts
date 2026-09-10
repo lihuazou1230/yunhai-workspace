@@ -23,6 +23,7 @@ function todo(overrides: Partial<Todo> = {}): Todo {
     createdAt: '2026-09-09T00:00:00.000Z',
     pinned: false,
     subtasks: [],
+    tags: [],
     ...overrides,
   }
 }
