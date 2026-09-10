@@ -89,6 +89,36 @@ describe('isEditableTarget', () => {
     expect(isEditableTarget(null)).toBe(false)
     expect(isEditableTarget(undefined as unknown as EventTarget)).toBe(false)
   })
+
+  it('没有 tagName 的事件目标（window / 文本节点）算「非输入」，而不是抛错', () => {
+    // 合成事件、document 上的快捷键、跨窗口事件都可能给出不带 tagName 的目标；
+    // 少了这层兜底，`undefined.toUpperCase()` 会把快捷键处理整个打挂
+    expect(isEditableTarget({} as unknown as EventTarget)).toBe(false)
+    expect(isEditableTarget(window)).toBe(false)
+    expect(isEditableTarget(document as unknown as EventTarget)).toBe(false)
+  })
+})
+
+/**
+ * 原型链防护：曾经用 `value in SEARCH_ENGINES` 判断，而 `in` 会命中原型链，
+ * 于是 `'toString'` / `'constructor'` 这类原型键被当成合法引擎放行，
+ * 随后 `SEARCH_ENGINES[key].template` 取到 undefined 直接 TypeError。
+ * 存储里的引擎值是可以被用户手改的（localStorage），所以这不是纯理论问题。
+ * 已改用 `Object.hasOwn`，这组用例守住它别被改回去。
+ */
+describe('引擎校验的原型链防护', () => {
+  it('原型键不再被当成合法引擎', () => {
+    expect(isSearchEngineId('toString')).toBe(false)
+    expect(isSearchEngineId('constructor')).toBe(false)
+    expect(isSearchEngineId('hasOwnProperty')).toBe(false)
+    expect(isSearchEngineId('__proto__')).toBe(false)
+  })
+
+  it('原型键会被收敛为默认引擎，不再抛 TypeError', () => {
+    expect(safeSearchEngine('toString')).toBe('baidu')
+    expect(() => buildSearchUrl('toString' as never, 'vue')).not.toThrow()
+    expect(buildSearchUrl('toString' as never, 'vue')).toBe('https://www.baidu.com/s?wd=vue')
+  })
 })
 
 describe('shouldFocusSearch（Ctrl+K 与 / 快捷键）', () => {

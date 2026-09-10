@@ -20,7 +20,9 @@ export const THEME_COLOR_NAMES = Object.keys(THEME_COLOR_PRESETS) as ThemeColorN
 
 /** 校验是否为预设色名 */
 export function isThemeColorName(value: unknown): value is ThemeColorName {
-  return typeof value === 'string' && value in THEME_COLOR_PRESETS
+  // 同 searchEngine：用 Object.hasOwn 而不是 `in`，否则 'toString' 这类原型键会被放行，
+  // 随后 THEME_COLOR_PRESETS['toString'] 取到函数、颜色解析出一堆 NaN。
+  return typeof value === 'string' && Object.hasOwn(THEME_COLOR_PRESETS, value)
 }
 
 export function hexToRgb(hex: string): [number, number, number] {

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 
 import {
   aggregateByPriority,
@@ -8,8 +9,12 @@ import {
   computeTodayProgress,
   heatmapLevel,
   lastNDays,
+  useTaskStatistics,
+  useTodayProgress,
 } from './useStatistics'
 
+import { todayKey } from '@/utils/dateFormatter'
+import { useTodoStore } from '@/stores/todoStore'
 import type { Todo } from '@/types/todo'
 
 /** 固定"现在"，保证日期计算确定性 */
@@ -143,6 +148,20 @@ describe('buildHeatmapWeeks', () => {
     // 首个非空格必是真实日期
     expect(weeks[0].find((c) => c !== null)).toMatchObject({ date: '2026-09-08' })
   })
+
+  it('首日恰好是周一时不补前导空格（否则整张图会错位一列）', () => {
+    // 2026-09-07 是周一：周内索引为 0，第一格就该是真实数据
+    const { weeks, leadingBlank } = buildHeatmapWeeks([{ date: '2026-09-07', completed: 2 }])
+    expect(leadingBlank).toBe(0)
+    expect(weeks[0][0]).toMatchObject({ date: '2026-09-07', completed: 2, level: 2 })
+  })
+
+  it('没有日数据时既不产出空周也不抛错（新用户 / 统计还没算出来时图表要能安静地空着）', () => {
+    const { weeks, leadingBlank } = buildHeatmapWeeks([])
+
+    expect(weeks).toEqual([])
+    expect(leadingBlank).toBe(0)
+  })
 })
 
 describe('computeTodayProgress（今日完成度）', () => {
@@ -207,5 +226,61 @@ describe('computeTodayProgress（今日完成度）', () => {
 
   it('今日无产出且昨日也无产出时涨跌为 0（持平）', () => {
     expect(computeTodayProgress([], NOW).deltaPercent).toBe(0)
+  })
+})
+
+describe('连接 todoStore 的统计（图表数据源）', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    setActivePinia(createPinia())
+  })
+
+  it('useTaskStatistics 只统计未归档任务，并随 store 变化自动更新', () => {
+    const store = useTodoStore()
+    store.addTodo({ title: '写周报', priority: 'high' })
+    const archived = store.addTodo({ title: '旧任务', priority: 'low' })
+    // 归档 = 从「台面上」移走：统计口径必须和列表一致，否则卡片数字对不上
+    store.archive(archived.id)
+
+    const { statistics } = useTaskStatistics()
+    expect(statistics.value.total).toBe(1)
+    expect(statistics.value.byPriority[0]).toMatchObject({ priority: 'high', total: 1 })
+
+    store.addTodo({ title: '阅读', priority: 'medium' })
+    expect(statistics.value.total).toBe(2)
+    expect(statistics.value.daily).toHaveLength(90)
+  })
+
+  it('useTaskStatistics 的热力图随完成情况变化（完成一件后当天格子里有数）', () => {
+    const store = useTodoStore()
+    const todo = store.addTodo({ title: '写周报', priority: 'medium' })
+    const { heatmap } = useTaskStatistics()
+
+    const cellsBefore = heatmap.value.weeks.flat().filter((c) => c !== null)
+    expect(cellsBefore.every((c) => c.completed === 0)).toBe(true)
+
+    store.toggleComplete(todo.id)
+
+    const today = cellsBefore.find((c) => c.date === todayKey())
+    expect(today?.completed).toBe(0) // 变化前的快照
+    const cellsAfter = heatmap.value.weeks.flat().filter((c) => c !== null)
+    expect(cellsAfter.find((c) => c.date === todayKey())?.completed).toBe(1)
+  })
+
+  it('useTodayProgress 随 store 变化：完成今日到期任务后完成度到 100%', () => {
+    const store = useTodoStore()
+    const todo = store.addTodo({ title: '写周报', priority: 'medium', dueDate: todayKey() })
+    const { progress } = useTodayProgress()
+
+    expect(progress.value.dueTodayActive).toBe(1)
+    expect(progress.value.completedToday).toBe(0)
+    expect(progress.value.rate).toBe(0)
+    expect(progress.value.hasTarget).toBe(true)
+
+    store.toggleComplete(todo.id)
+
+    expect(progress.value.completedToday).toBe(1)
+    expect(progress.value.dueTodayActive).toBe(0)
+    expect(progress.value.rate).toBe(100)
   })
 })

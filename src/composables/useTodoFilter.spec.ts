@@ -6,7 +6,9 @@ import {
   countCompleted,
   filterByPriority,
   filterByStatus,
+  filterByTags,
   filterTodos,
+  isTodoStatus,
   matchesKeyword,
   sortTodos,
 } from './useTodoFilter'
@@ -126,5 +128,94 @@ describe('useTodoFilter', () => {
     const before = input.map((t) => t.id)
     sortTodos(input)
     expect(input.map((t) => t.id)).toEqual(before)
+  })
+
+  it("filterByStatus: 'date' 按目标日期筛；未指定目标日期时退回今天", () => {
+    // 迷你月历点了 09-20：只看那一天的截止任务
+    expect(filterByStatus(list, 'date', '2026-09-15', '2026-09-20').map((t) => t.id)).toEqual(['3'])
+    // 没点过任何日期时退回「今天」，避免出现「筛出来是空但没人知道为什么」
+    expect(filterByStatus(list, 'date', '2026-09-15').map((t) => t.id)).toEqual(['2'])
+  })
+
+  it('filterByTags 按标签多选过滤；空数组/未传表示不过滤', () => {
+    const tagged: Todo[] = [
+      makeTodo({ id: 't1', title: '写周报', tags: ['work'] }),
+      makeTodo({ id: 't2', title: '买菜', tags: ['life', 'work'] }),
+      makeTodo({ id: 't3', title: '健身', tags: [] }),
+    ]
+
+    expect(filterByTags(tagged, ['work']).map((t) => t.id)).toEqual(['t1', 't2'])
+    expect(filterByTags(tagged, ['life']).map((t) => t.id)).toEqual(['t2'])
+    // 多选是「命中任一」：并集而不是交集
+    expect(filterByTags(tagged, ['life', 'work']).map((t) => t.id)).toEqual(['t1', 't2'])
+    expect(filterByTags(tagged, ['nope']).map((t) => t.id)).toEqual([])
+    expect(filterByTags(tagged, []).map((t) => t.id)).toEqual(['t1', 't2', 't3'])
+    expect(filterByTags(tagged, undefined).map((t) => t.id)).toEqual(['t1', 't2', 't3'])
+  })
+
+  it('filterTodos 组合标签 + 优先级 + 关键字（三层过滤顺序不能颠，标签过滤必须在关键字之前）', () => {
+    const tagged: Todo[] = [
+      makeTodo({ id: 't1', title: '写周报', priority: 'high', tags: ['work'] }),
+      makeTodo({ id: 't2', title: '写方案', priority: 'medium', tags: ['work'] }),
+      makeTodo({ id: 't3', title: '买菜', priority: 'medium', tags: ['life'] }),
+      makeTodo({ id: 't4', title: '健身', priority: 'high', tags: [] }),
+    ]
+
+    // 只留 work 标签里关键字命中的那条
+    expect(
+      filterTodos(tagged, { filter: 'all', keyword: '写', tags: ['work'] }).map((t) => t.id),
+    ).toEqual(['t1', 't2'])
+    // 标签 + 优先级都不命中时为空（不是退回全部）
+    expect(
+      filterTodos(tagged, { filter: 'all', keyword: '', tags: ['life'], priority: ['high'] }).map(
+        (t) => t.id,
+      ),
+    ).toEqual([])
+    expect(
+      filterTodos(tagged, {
+        filter: 'all',
+        keyword: '买',
+        tags: ['life'],
+        priority: ['medium'],
+      }).map((t) => t.id),
+    ).toEqual(['t3'])
+  })
+
+  it('sortTodos：同状态同优先级时，有截止日期的排在无日期之前', () => {
+    const due = () => makeTodo({ id: 'due', title: '有日期', dueDate: '2026-09-30' })
+    const nodue = () => makeTodo({ id: 'nodue', title: '无日期' })
+
+    // 两种输入顺序都要给出同一结果（比较器被调用的方向与输入顺序有关）
+    expect(sortTodos([nodue(), due()]).map((t) => t.id)).toEqual(['due', 'nodue'])
+    expect(sortTodos([due(), nodue()]).map((t) => t.id)).toEqual(['due', 'nodue'])
+
+    // 两个都有日期且相同：视为相等，保持原有相对顺序（列表不会自己抖动）
+    const sameDate: Todo[] = [
+      makeTodo({ id: 'a', title: 'a', dueDate: '2026-09-10' }),
+      makeTodo({ id: 'b', title: 'b', dueDate: '2026-09-10' }),
+    ]
+    expect(sortTodos(sameDate).map((t) => t.id)).toEqual(['a', 'b'])
+
+    // 截止日期早→晚：输入顺序反过来也要排成一样
+    const early = makeTodo({ id: 'early', title: '早', dueDate: '2026-09-10' })
+    const late = makeTodo({ id: 'late', title: '晚', dueDate: '2026-09-30' })
+    expect(sortTodos([early, late]).map((t) => t.id)).toEqual(['early', 'late'])
+    expect(sortTodos([late, early]).map((t) => t.id)).toEqual(['early', 'late'])
+
+    // 都无日期且其它字段一样：判定相等，同样保持原顺序
+    const bothNoDate: Todo[] = [
+      makeTodo({ id: 'n1', title: 'n1' }),
+      makeTodo({ id: 'n2', title: 'n2' }),
+    ]
+    expect(sortTodos(bothNoDate).map((t) => t.id)).toEqual(['n1', 'n2'])
+  })
+
+  it('isTodoStatus 只认 active/completed（存储里读到别的值要能判脏）', () => {
+    expect(isTodoStatus('active')).toBe(true)
+    expect(isTodoStatus('completed')).toBe(true)
+    expect(isTodoStatus('archived')).toBe(false)
+    expect(isTodoStatus('')).toBe(false)
+    expect(isTodoStatus(null)).toBe(false)
+    expect(isTodoStatus(1)).toBe(false)
   })
 })

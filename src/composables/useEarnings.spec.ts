@@ -263,3 +263,166 @@ describe('useEarnings', () => {
     expect(earnings.config.value.workStart).toBe('09:00')
   })
 })
+
+describe('useEarnings · 切回标签页补算', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function configured(clock: () => Date) {
+    return useEarnings({
+      storage: createMemoryStorage({ [EARNINGS_STORAGE_KEY]: JSON.stringify(CONFIG) }),
+      clock,
+      autoTick: false,
+    })
+  }
+
+  it('标签页重新可见时立刻补算，不必等下一个 tick（否则切回来第一眼是旧数字）', () => {
+    let current = at(10, 0, 0)
+    const earnings = configured(() => current)
+    expect(earnings.amountText.value).toBe('125.00')
+
+    // 后台被节流期间时间照走
+    current = at(14, 0, 0)
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+
+    expect(earnings.amountText.value).toBe('500.00')
+  })
+
+  it('标签页转为隐藏时不补算：后台不该白跑高频计算', () => {
+    let current = at(10, 0, 0)
+    const earnings = configured(() => current)
+
+    current = at(14, 0, 0)
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    document.dispatchEvent(new Event('visibilitychange'))
+
+    expect(earnings.amountText.value).toBe('125.00')
+  })
+})
+
+describe('useEarnings · 次要指标与计薪日键', () => {
+  it('monthAmountText = 已过计薪日 × 日薪 + 今日已赚（与主指标同一基准，两个数字对得上账）', () => {
+    // 2026-09-10 是周四：本月之前的计薪日为 1~4、7~9 共 7 天；日薪 = 21750 / 21.75 = 1000 元
+    const earnings = useEarnings({
+      storage: createMemoryStorage({ [EARNINGS_STORAGE_KEY]: JSON.stringify(CONFIG) }),
+      clock: () => at(11),
+      autoTick: false,
+    })
+
+    expect(earnings.monthAmountText.value).toBe('7,250.00')
+    expect(earnings.shiftDateKey.value).toBe('2026-09-10')
+  })
+
+  it('夜班凌晨 01:00：金额按班次坐标算（3/8），计薪日键归属「昨天开始」的那个班', () => {
+    const night: EarningsConfig = {
+      ...CONFIG,
+      workStart: '22:00',
+      workEnd: '06:00',
+      lunchStart: '',
+      lunchEnd: '',
+    }
+    const earnings = useEarnings({
+      storage: createMemoryStorage({ [EARNINGS_STORAGE_KEY]: JSON.stringify(night) }),
+      clock: () => new Date(2026, 8, 11, 1, 0, 0),
+      autoTick: false,
+    })
+
+    // 22:00 → 01:00 已计薪 3 小时，占 8 小时的 3/8 => 375.00 元（跨零点不产生误差）
+    expect(earnings.amountText.value).toBe('375.00')
+    // 2026-09-11 凌晨仍属于 09-10 开始的那个夜班
+    expect(earnings.shiftDateKey.value).toBe('2026-09-10')
+  })
+})
+
+describe('useEarnings · tick 循环不被重复启动', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('重复 start 不会叠加定时器（叠加就会跑出两倍 tick）', () => {
+    vi.useFakeTimers()
+    const clock = vi.fn(() => at(10, 0, 0))
+    const earnings = useEarnings({
+      storage: createMemoryStorage({ [EARNINGS_STORAGE_KEY]: JSON.stringify(CONFIG) }),
+      clock,
+      autoTick: false,
+    })
+    const callsBefore = clock.mock.calls.length
+
+    earnings.start()
+    earnings.start()
+    vi.advanceTimersByTime(300)
+
+    // 100ms 一次 → 3 次；如果第二次 start 又建了一个定时器，这里会是 6 次
+    expect(clock.mock.calls.length).toBe(callsBefore + 3)
+    earnings.stop()
+  })
+
+  it('rAF 模式 stop 后即使浏览器又回调一帧，也不会再排下一帧（循环真能停下来）', () => {
+    const frames: Array<() => void> = []
+    const rafSpy = vi.fn((cb: () => void) => {
+      frames.push(cb)
+      return frames.length
+    })
+    vi.stubGlobal('requestAnimationFrame', rafSpy)
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+
+    const earnings = useEarnings({
+      storage: createMemoryStorage({ [EARNINGS_STORAGE_KEY]: JSON.stringify(CONFIG) }),
+      clock: () => at(10, 0, 0),
+      autoTick: true,
+      useRaf: true,
+    })
+
+    earnings.stop()
+    const scheduled = rafSpy.mock.calls.length
+
+    // 已排队的帧仍会被浏览器调用：此时必须直接返回，否则 rAF 循环永远停不下来
+    frames.shift()?.()
+
+    expect(rafSpy.mock.calls.length).toBe(scheduled)
+  })
+})
+
+describe('useEarnings · 默认时钟与无 rAF 环境', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('不注入时钟时走系统时间：假系统时间下金额照常算对', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(at(11, 0, 0))
+    const earnings = useEarnings({
+      storage: createMemoryStorage({ [EARNINGS_STORAGE_KEY]: JSON.stringify(CONFIG) }),
+      autoTick: false,
+    })
+
+    // 09:00-11:00 计薪 2 小时（8 小时的 1/4）=> 250.00 元
+    expect(earnings.snapshot.value.status).toBe('working')
+    expect(earnings.amountText.value).toBe('250.00')
+  })
+
+  it('useRaf 开启但环境没有 requestAnimationFrame 时退回定时器（图表不会一动不动）', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('requestAnimationFrame', undefined)
+    let current = at(10, 0, 0)
+    const earnings = useEarnings({
+      storage: createMemoryStorage({ [EARNINGS_STORAGE_KEY]: JSON.stringify(CONFIG) }),
+      clock: () => current,
+      autoTick: true,
+      useRaf: true,
+    })
+
+    expect(earnings.amountText.value).toBe('125.00')
+
+    current = at(10, 0, 1)
+    vi.advanceTimersByTime(100)
+    expect(earnings.amountText.value).toBe('125.03')
+
+    earnings.stop()
+  })
+})

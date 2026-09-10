@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 
@@ -16,6 +16,10 @@ describe('countdownStore', () => {
   beforeEach(() => {
     localStorage.clear()
     setActivePinia(createPinia())
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('默认状态：发薪日 15 号、条目为空', () => {
@@ -111,6 +115,23 @@ describe('countdownStore', () => {
     expect(store.items).toHaveLength(1)
   })
 
+  it('修改条目只动那一条：同列表里其它条目原样保留', () => {
+    const store = useCountdownStore()
+    const a = store.addItem({ title: 'A', date: '2026-09-20', kind: 'custom', yearly: false })!
+    const b = store.addItem({ title: 'B', date: '2026-09-25', kind: 'anniversary', yearly: true })!
+    const beforeB = { ...b }
+
+    expect(store.updateItem(a.id, { title: 'A2' })).toBe(true)
+
+    // 只改标题的补丁不该把日期/重复开关顺手清掉，也不该波及邻居条目
+    expect(store.items.find((i) => i.id === a.id)).toMatchObject({
+      title: 'A2',
+      date: '2026-09-20',
+      yearly: false,
+    })
+    expect(store.items.find((i) => i.id === b.id)).toEqual(beforeB)
+  })
+
   it('发薪日钳制到 1..31，NaN 被忽略（保留原值）', async () => {
     const store = useCountdownStore()
 
@@ -198,5 +219,31 @@ describe('countdownStore', () => {
     await nextTick()
     expect(JSON.parse(localStorage.getItem(COUNTDOWN_ITEMS_KEY)!)).toEqual([])
     expect(JSON.parse(localStorage.getItem(COUNTDOWN_PAYDAY_KEY)!)).toBe(DEFAULT_PAYDAY_DAY)
+  })
+
+  it('crypto.randomUUID 不可用（非安全上下文 / 老浏览器）时退化为本地 id，功能照旧', () => {
+    // http:// 部署或旧内核下 globalThis.crypto 存在但没有 randomUUID
+    vi.stubGlobal('crypto', {})
+    const store = useCountdownStore()
+
+    const item = store.addItem({
+      title: '生日',
+      date: '2026-09-20',
+      kind: 'anniversary',
+      yearly: true,
+    })!
+
+    expect(item.id).toMatch(/^cd-\d+-[a-z0-9]+$/)
+    expect(store.items[0].id).toBe(item.id)
+    // 降级 id 也必须唯一：同毫秒内连加两条不能撞（否则删除/修改会误伤另一条）
+    const second = store.addItem({
+      title: '纪念日',
+      date: '2026-09-21',
+      kind: 'custom',
+      yearly: false,
+    })!
+    expect(second.id).not.toBe(item.id)
+    expect(store.removeItem(item.id))
+    expect(store.items.map((i) => i.id)).toEqual([second.id])
   })
 })

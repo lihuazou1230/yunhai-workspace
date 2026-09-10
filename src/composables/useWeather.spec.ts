@@ -496,3 +496,165 @@ describe('useWeather · 手动切换城市（规划第三阶段要求保留的�
     expect(w.error.value).toContain('网络错误')
   })
 })
+
+/**
+ * 上面测的是「降级链路的正常走位」，这一组测的是**每一环自己坏掉时**的表现：
+ * 存储读不出来、定位实现同步抛错、天气请求失败……降级链路的意义就在于
+ * 「任何一环坏掉都还能给用户一个能看的界面，而不是白屏或 undefined」。
+ */
+describe('useWeather · 单环故障时的表现', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('存储整体不可用（隐私模式）：记忆读写都失败也不影响进站，照常给出默认城市', async () => {
+    // 天气缓存是模块加载时就抓走了真实 localStorage 的对象引用，
+    // 所以这里替换全局 localStorage 只影响 useWeather 自己的位置记忆——正是要测的那一环
+    vi.stubGlobal('localStorage', {
+      getItem: () => {
+        throw new DOMException('denied', 'SecurityError')
+      },
+      setItem: () => {
+        throw new DOMException('denied', 'SecurityError')
+      },
+      removeItem: () => {
+        throw new DOMException('denied', 'SecurityError')
+      },
+    })
+
+    stubGeo('denied')
+    stubFetch([])
+
+    const w = useWeather()
+    await expect(w.init()).resolves.toBe(true)
+    expect(w.state.value).toBe('success')
+    // 记忆读不出来 → 当作没有记忆；写不进去 → 当作降级，都不能把进站打断
+    expect(w.locateHint.value).toContain('已显示默认城市')
+    expect(w.placeLabel.value).toBe('青山湖区 · 江西')
+  })
+
+  it('定位实现同步抛错（非 Error）：给可读的「定位失败」，而不是把 undefined 当提示', async () => {
+    // 浏览器/第三方定位实现可能同步抛错（不是走 error 回调），抛出的也不一定是 Error
+    vi.stubGlobal('navigator', {
+      geolocation: {
+        getCurrentPosition: () => {
+          throw 'boom'
+        },
+      },
+    })
+    const urls: string[] = []
+    stubFetch(urls)
+
+    const w = useWeather()
+    await expect(w.init()).resolves.toBe(true)
+
+    expect(w.located.value).toBe(false)
+    expect(w.locateHint.value).toBe('定位失败，已显示默认城市')
+  })
+
+  it('定位成功但天气请求失败：不谎报「已定位」，失败的位置也不写进记忆', async () => {
+    vi.stubGlobal('navigator', {
+      geolocation: {
+        getCurrentPosition: (success: (p: unknown) => void) =>
+          success({ coords: { latitude: 28.68, longitude: 115.9 } }),
+      },
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (String(url).includes('regeo')) return mockJson(REGEO_OK)
+        throw new Error('网络异常')
+      }),
+    )
+
+    const w = useWeather()
+    await expect(w.init()).resolves.toBe(false)
+
+    expect(w.located.value).toBe(false)
+    expect(w.locateHint.value).toBe('定位成功，但获取天气失败')
+    // 这次失败的位置不该被记住，否则下次会一直往一个查不到天气的地方回退
+    expect(readRememberedPlace()).toBeNull()
+    // 没有任何数据可展示时地点文案为空串，不能是 'undefined · undefined'
+    expect(w.placeLabel.value).toBe('')
+  })
+
+  it('「重试」跳过缓存重新请求：出错后拿到 30 分钟前的旧缓存等于没修好', async () => {
+    stubGeo('ok')
+    const urls: string[] = []
+    stubFetch(urls)
+
+    const w = useWeather()
+    await w.init()
+    const before = urls.filter((u) => u.includes('weatherInfo')).length
+
+    await expect(w.retry()).resolves.toBe(true)
+
+    expect(urls.filter((u) => u.includes('weatherInfo')).length).toBe(before + 1)
+    expect(w.fromCache.value).toBe(false)
+  })
+
+  it('记忆里只有 adcode 没存 label：地点文案回落到天气接口，不留空标题', async () => {
+    // 只存了 adcode 是历史数据/手工写入的真实可能，展示不能因此空掉
+    localStorage.setItem(LAST_PLACE_KEY, JSON.stringify({ adcode: '360111' }))
+    stubGeo('denied')
+    stubFetch([])
+
+    const w = useWeather()
+    await expect(w.init()).resolves.toBe(true)
+
+    expect(w.locateHint.value).toContain('已显示上次的位置')
+    expect(w.placeLabel.value).toBe('青山湖区 · 江西')
+  })
+
+  it('记忆里 adcode 是空串时按「没有记忆」处理（空 adcode 会查出一个坏请求）', () => {
+    localStorage.setItem(LAST_PLACE_KEY, JSON.stringify({ adcode: '', label: '空 adcode' }))
+    expect(readRememberedPlace()).toBeNull()
+
+    localStorage.setItem(LAST_PLACE_KEY, 'null')
+    expect(readRememberedPlace()).toBeNull()
+  })
+
+  it('还没加载任何数据时地点文案为空串（组件首帧不会闪出 undefined）', () => {
+    expect(useWeather().placeLabel.value).toBe('')
+  })
+
+  it('环境里没有 localStorage（SSR/极老浏览器）：记忆读写直接跳过，不抛异常', async () => {
+    vi.stubGlobal('localStorage', undefined)
+    stubGeo('denied')
+    stubFetch([])
+
+    const w = useWeather()
+    await expect(w.init()).resolves.toBe(true)
+    expect(w.state.value).toBe('success')
+  })
+
+  it('「已拒绝定位」且没有记忆、默认城市也请求失败：进入错误态而不是假装成功', async () => {
+    localStorage.setItem(DENIED_KEY, '1')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('网络异常')
+      }),
+    )
+
+    const w = useWeather()
+    await expect(w.init()).resolves.toBe(false)
+    expect(w.state.value).toBe('error')
+    expect(w.error.value).not.toBe('')
+  })
+
+  it('Key 在进站过程中失效（构建未注入/被清空）：提示「未配置 Key」而不是一串英文报错', async () => {
+    // configured 是进站那一刻算好的；此后 Key 失效时请求会抛错，
+    // 这里要保证用户看到的是人话，而不是 requireKey 抛出的原始堆栈文案
+    stubGeo('ok')
+    const w = useWeather()
+    expect(w.configured.value).toBe(true)
+
+    vi.stubEnv('VITE_AMAP_KEY', '')
+    vi.stubEnv('VITE_WEATHER_KEY', '')
+
+    await expect(w.init()).resolves.toBe(false)
+    expect(w.state.value).toBe('error')
+    expect(w.error.value).toBe('未配置天气 API Key')
+  })
+})

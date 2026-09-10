@@ -110,6 +110,29 @@ describe('useAvatar', () => {
       expect(URL.createObjectURL).toHaveBeenCalledTimes(1)
     })
 
+    it('本地没有存过头像时不生成 objectURL（新用户不该白占一个 blob 地址）', async () => {
+      const { loadLocalAvatar, displayUrl, hasAvatar } = useAvatar()
+
+      await loadLocalAvatar()
+
+      expect(URL.createObjectURL).not.toHaveBeenCalled()
+      expect(displayUrl.value).toBe('')
+      expect(hasAvatar.value).toBe(false)
+    })
+
+    it('环境不支持本地持久化时如实提示「刷新后会丢失」', async () => {
+      vi.stubGlobal('indexedDB', undefined)
+      await signIn()
+      const { saveAvatar } = useAvatar()
+
+      const result = await saveAvatar(new Blob(['x'], { type: 'image/webp' }))
+
+      expect(result.ok).toBe(true)
+      // 提示语必须和真实结果一致：本次会话能看，但刷新后就没了
+      expect(result.message).toContain('刷新后会丢失')
+      vi.unstubAllGlobals()
+    })
+
     it('移除头像：清掉本地 blob 与展示地址', async () => {
       const { saveAvatar, removeAvatar, displayUrl } = useAvatar()
       await saveAvatar(new Blob(['x'], { type: 'image/webp' }))
@@ -190,6 +213,26 @@ describe('useAvatar', () => {
       await loadLocalAvatar()
       expect(displayUrl.value).toBe('https://cdn/a.webp?v=2')
     })
+
+    it('移除头像时写元数据抛异常（断网）也不把异常抛给组件，返回失败文案并复位 saving', async () => {
+      // 之前本地模式存过一份：用它观察失败时会不会被顺手删掉
+      await putBlob(AVATAR_BLOB_KEY, new Blob(['local'], { type: 'image/png' }))
+      await signIn({ ...USER, avatarUrl: 'https://cdn/a.webp?v=9' })
+      api.updateAvatarMetadata.mockRejectedValue(new Error('Failed to fetch'))
+      const { removeAvatar, error, saving } = useAvatar()
+
+      const result = await removeAvatar()
+
+      expect(result.ok).toBe(false)
+      // describeAuthError 在本用例里是桩（err: 前缀），真实实现会把 fetch 失败翻成中文
+      expect(result.message).toContain('Failed to fetch')
+      expect(error.value).toContain('Failed to fetch')
+      // finally 必须复位：卡在 saving 会让按钮永久转圈
+      expect(saving.value).toBe(false)
+      // 当前实现的行为：异常在删除本地 blob 之前抛出，所以本地副本保留（移除既然失败了，保留本地数据也说得通）；
+      // 关键是这里必须返回 ok:false，UI 才不会给用户「已移除」的错觉
+      expect(await getBlob(AVATAR_BLOB_KEY)).toBeTruthy()
+    })
   })
 
   describe('兜底与释放', () => {
@@ -237,6 +280,34 @@ describe('useAvatar', () => {
 
       expect(URL.revokeObjectURL).toHaveBeenCalled()
       expect(avatar.displayUrl.value).toBe('')
+    })
+
+    it('本来就没有 objectURL 时 dispose 不空调用 revoke，也不改变展示态', async () => {
+      await signIn()
+      const avatar = useAvatar()
+      vi.mocked(URL.revokeObjectURL).mockClear()
+
+      avatar.dispose()
+
+      // 没有东西可释放就什么都别做：避免对 undefined 调用 revoke
+      expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+      expect(avatar.displayUrl.value).toBe('')
+    })
+
+    it('dispose 会重置「只读一次」标记：重新挂载后还能再读一次本地头像', async () => {
+      supabase.isSupabaseConfigured.mockReturnValue(false)
+      await putBlob(AVATAR_BLOB_KEY, new Blob(['old'], { type: 'image/png' }))
+      await signIn()
+      const first = useAvatar()
+      await first.loadLocalAvatar()
+      expect(URL.createObjectURL).toHaveBeenCalledTimes(1)
+
+      first.dispose()
+      const second = useAvatar()
+      await second.loadLocalAvatar()
+
+      // dispose 后 loadedOnce 复位，重新挂载的组件才不至于永远读不到头像
+      expect(URL.createObjectURL).toHaveBeenCalledTimes(2)
     })
   })
 })

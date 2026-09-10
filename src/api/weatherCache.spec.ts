@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   createWeatherCache,
@@ -67,6 +67,10 @@ describe('weatherCache', () => {
     cache = createWeatherCache(storage)
   })
 
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('adcode 缓存：写入后不同写法都能命中', () => {
     expect(cache.getAdcode('杭州')).toBeUndefined()
     cache.setAdcode('杭州', '330100')
@@ -110,6 +114,23 @@ describe('weatherCache', () => {
     expect(cache.getAdcode('杭州')).toBe('330100')
   })
 
+  it('写入失败（配额超限 / 隐私模式）时降级为纯内存：本次仍可读写，不再反复抛错', () => {
+    const broken = memoryStorage()
+    // Safari 隐私模式下 localStorage 存在但 setItem 直接抛 QuotaExceededError
+    broken.setItem = () => {
+      throw new Error('QuotaExceededError')
+    }
+    const memoryOnly = createWeatherCache(broken)
+
+    memoryOnly.setAdcode('杭州', '330100')
+    memoryOnly.setWeather('330100', DATA)
+
+    // 降级后数据只能存在内存里，但「写入即读得到」这条契约不能破
+    expect(memoryOnly.getAdcode('杭州')).toBe('330100')
+    expect(memoryOnly.getWeather('330100')).toEqual(DATA)
+    expect(broken.getItem(WEATHER_CACHE_KEY)).toBeNull()
+  })
+
   it('无 storage（隐私模式）时退化为内存缓存，仍可用', () => {
     const memoryOnly = createWeatherCache(null)
     memoryOnly.setAdcode('北京', '110000')
@@ -118,5 +139,34 @@ describe('weatherCache', () => {
     expect(memoryOnly.getWeather('110000')).toEqual(DATA)
     memoryOnly.clear()
     expect(memoryOnly.getWeather('110000')).toBeUndefined()
+  })
+
+  it('缓存里缺 adcode 字段（旧版本只写了天气）时按空表处理，写入后照常可用', () => {
+    storage.setItem(WEATHER_CACHE_KEY, JSON.stringify({ weather: {} }))
+
+    expect(cache.getAdcode('杭州')).toBeUndefined()
+    cache.setAdcode('杭州', '330100')
+    expect(cache.getAdcode('杭州')).toBe('330100')
+  })
+
+  it('缓存里缺 weather 字段时天气查询按未命中处理，地理编码缓存仍可复用', () => {
+    storage.setItem(WEATHER_CACHE_KEY, JSON.stringify({ adcode: { 杭州: '330100' } }))
+
+    expect(cache.getAdcode('杭州')).toBe('330100')
+    expect(cache.getWeather('330100')).toBeUndefined()
+    cache.setWeather('330100', DATA)
+    expect(cache.getWeather('330100')).toEqual(DATA)
+  })
+
+  it('没有 window（SSR / 非浏览器宿主）时默认实例静默降级为纯内存', () => {
+    // 默认实例在模块加载时创建，若这里不兜住 window 缺失，整个模块导入就会抛 ReferenceError
+    vi.stubGlobal('window', undefined)
+
+    const ssr = createWeatherCache()
+    ssr.setAdcode('北京', '110000')
+    ssr.setWeather('110000', DATA)
+
+    expect(ssr.getAdcode('北京')).toBe('110000')
+    expect(ssr.getWeather('110000')).toEqual(DATA)
   })
 })

@@ -44,6 +44,24 @@ describe('头像文件前置校验', () => {
     expect(validateAvatarFile(null).ok).toBe(false)
     expect(validateAvatarFile({ type: 'image/png', size: 0 }).ok).toBe(false)
   })
+
+  it('没有 type 时退回文件名提示（剪贴板粘贴 / 旧浏览器可能不给 MIME）', () => {
+    const result = validateAvatarFile({ name: 'photo.jpeg', size: 1024 })
+    expect(result.ok).toBe(false)
+    expect(result.message).toContain('photo.jpeg')
+  })
+
+  it('type 与 name 都没有时兜底成「未知格式」，不留下空括号', () => {
+    expect(validateAvatarFile({ size: 1024 }).message).toContain('未知格式')
+  })
+
+  it('type 大小写不敏感（系统给的 MIME 偶尔是大写）', () => {
+    expect(validateAvatarFile({ name: 'a.PNG', type: 'IMAGE/PNG', size: 1024 }).ok).toBe(true)
+  })
+
+  it('缺 size 字段按 0 处理，报「内容为空」而不是当成合法文件', () => {
+    expect(validateAvatarFile({ type: 'image/png' }).message).toContain('内容为空')
+  })
 })
 
 describe('Storage 路径与缓存失效', () => {
@@ -83,6 +101,11 @@ describe('姓名首字母兜底', () => {
     expect(avatarInitial('')).toBe('?')
     expect(avatarInitial('   ')).toBe('?')
   })
+
+  it('name 不是字符串（接口 / 旧数据没给名字）时也兜底为问号', () => {
+    expect(avatarInitial(null as unknown as string)).toBe('?')
+    expect(avatarInitial(undefined as unknown as string)).toBe('?')
+  })
 })
 
 describe('formatBytes', () => {
@@ -91,5 +114,11 @@ describe('formatBytes', () => {
     expect(formatBytes(900)).toBe('900 B')
     expect(formatBytes(2048)).toBe('2.0 KB')
     expect(formatBytes(5 * 1024 * 1024)).toBe('5.00 MB')
+  })
+
+  it('非法字节数（负数 / NaN / 无穷）兜底 0 B，不显示 -1 B 或 NaN MB', () => {
+    expect(formatBytes(-1)).toBe('0 B')
+    expect(formatBytes(Number.NaN)).toBe('0 B')
+    expect(formatBytes(Number.POSITIVE_INFINITY)).toBe('0 B')
   })
 })

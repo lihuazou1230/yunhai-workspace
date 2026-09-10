@@ -5,11 +5,12 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { DEFAULT_AI_CONFIG } from '@/types/ai'
+import { AI_TIMEOUT_MS, DEFAULT_AI_CONFIG } from '@/types/ai'
 import type { AiConfig } from '@/types/ai'
 import {
   AI_BASE_URL_MISSING_MESSAGE,
   AI_KEY_MISSING_MESSAGE,
+  AiError,
   breakdownWithAi,
   chatJson,
   isAiConfigured,
@@ -54,6 +55,7 @@ function stubSequence(responses: unknown[]) {
 }
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
@@ -93,6 +95,50 @@ describe('chatJson（原生 fetch + 结构化输出）', () => {
       AI_BASE_URL_MISSING_MESSAGE,
     )
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('自定义厂商只填了地址没填模型名时也直接拒绝，不发请求', async () => {
+    // 少了模型名发出去必然是一个 400，本地先拦下来能省一次配额、也给出更准的提示
+    const { fetchMock } = stubSequence([])
+    await expect(chatJson({ ...CONFIG, model: '   ' }, [])).rejects.toThrow('未配置 AI 模型名')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('外部传入的 signal 中止（组件卸载）时联动取消内部请求', async () => {
+    const external = new AbortController()
+    let seen: AbortSignal | undefined
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init: { signal?: AbortSignal }) => {
+        seen = init.signal
+        return new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () =>
+            reject(new DOMException('The operation was aborted', 'AbortError')),
+          )
+        })
+      }),
+    )
+
+    const pending = chatJson(CONFIG, [], { signal: external.signal }).catch((e: unknown) => e)
+    external.abort()
+    const error = await pending
+
+    // 内部的 AbortController 必须跟着外部一起中止，否则请求还会跑完、结果写回已卸载的组件
+    expect(seen?.aborted).toBe(true)
+    expect((error as AiError).message).toBe('AI 请求超时，请稍后重试')
+  })
+
+  it('fetch 拒绝的不是 Error（老 SDK / polyfill 抛字符串）时给通用失败文案', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject('socket hang up')),
+    )
+
+    const error = await chatJson(CONFIG, []).catch((e: unknown) => e)
+
+    // 不能把原始值直接抛给 UI（它连 message 都没有）
+    expect(error).toBeInstanceOf(AiError)
+    expect((error as AiError).message).toBe('AI 请求失败')
   })
 
   it('HTTP 错误码转成中文提示（401/402/429/404）', async () => {
@@ -137,6 +183,67 @@ describe('chatJson（原生 fetch + 结构化输出）', () => {
       },
     ])
     await expect(chatJson(CONFIG, [])).resolves.toEqual({ title: 'x' })
+  })
+
+  it('请求超时（到点自行 abort）翻译成「请稍后重试」，不混进「网络错误」', async () => {
+    // 假时钟推进 AI_TIMEOUT_MS：真实等待 30 秒既慢又会拖垮整个测试套件
+    vi.useFakeTimers()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, init: { signal?: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () =>
+              reject(new DOMException('The operation was aborted', 'AbortError')),
+            )
+          }),
+      ),
+    )
+
+    const pending = chatJson(CONFIG, []).catch((error: unknown) => error)
+    await vi.advanceTimersByTimeAsync(AI_TIMEOUT_MS)
+    const error = await pending
+
+    expect(error).toBeInstanceOf(AiError)
+    // 超时和网络故障的处置完全不同（一个值得重试，一个先查网络），提示必须分开
+    expect((error as AiError).message).toBe('AI 请求超时，请稍后重试')
+    // 非 2xx 才有 status，超时没有状态码可给
+    expect((error as AiError).status).toBeUndefined()
+    vi.useRealTimers()
+  })
+
+  it('错误响应体读不出来（流已被消费 / 非文本）时不拼 detail，只给状态码文案', async () => {
+    stubSequence([
+      {
+        ok: false,
+        status: 500,
+        json: async () => ({}),
+        text: async () => {
+          throw new TypeError('body stream already read')
+        },
+      },
+    ])
+
+    const error = await chatJson(CONFIG, []).catch((e: unknown) => e)
+
+    // detail 为空串 → 不能留下一个尾部悬空的「：」
+    expect((error as AiError).message).toBe('AI 接口报错（HTTP 500）')
+    expect((error as AiError).status).toBe(500)
+  })
+
+  it('模型返回的不是 JSON 时不重试：只有「结构校验失败」才会带错误重试一次', async () => {
+    // 响应体不是 JSON（网关返回了 HTML 错误页之类）走的是 chatJson 直接抛错，
+    // 重试机制只针对「JSON 合法但字段不合格」，所以这里必须只发一次请求
+    const { bodies: calls } = stubSequence([
+      {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: '<html>502 Bad Gateway</html>' } }] }),
+      },
+    ])
+
+    await expect(parseTodoWithAi(CONFIG, '写周报', TODAY)).rejects.toThrow('不是合法 JSON 对象')
+    expect(calls).toHaveLength(1)
   })
 })
 

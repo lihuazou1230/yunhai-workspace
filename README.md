@@ -192,6 +192,62 @@ pnpm lint
 
 > 说明：该批处理文件**只包含 ASCII 字符**。cmd.exe 解析 .bat 时按「字节」记录文件位置，文件中只要出现多字节字符（中文），后续行就会错位并报 `'xxx' is not recognized`；因此启动器刻意不使用中文提示。
 
+## 🧪 测试与覆盖率
+
+```bash
+pnpm test            # 全量单测（Vitest + happy-dom，跑完即退出）
+pnpm test:watch      # 开发时监听
+pnpm test:coverage   # 带覆盖率（@vitest/coverage-v8），text 打到终端 + html 落到 coverage/
+```
+
+（npm 用户把 `pnpm` 换成 `npm run` 即可；PowerShell 下若 `npm` 被策略拦住，用 `npm.cmd run test:coverage`。）
+
+**只统计核心逻辑**——`src/utils` / `src/composables` / `src/stores` / `src/api` 四层（见 `vite.config.ts`
+的 `test.coverage.include`）。页面与组件数量多、行为依赖真实浏览器环境，交给集成/组件测试护航更划算；
+把它们塞进分母只会稀释数字，让阈值失去约束力。
+
+阈值写在 `vite.config.ts` 的 `test.coverage.thresholds`：低于阈值**直接退出码非 0**，所以它不是徽章上的装饰，
+而是能把回归拦在提交前的一道闸。全局取规划口径，另给 `utils` 单独加严一档（纯函数是规划里「必须全测」的一层，
+一个总阈值会让它被其它层的高分掩盖）：
+
+| 指标       | 全局阈值 | `src/utils` 阈值 | 实测       |
+| ---------- | -------- | ---------------- | ---------- |
+| lines      | 80%      | 95%              | **99.79%** |
+| statements | 80%      | 95%              | **99.55%** |
+| functions  | 80%      | 95%              | **99.72%** |
+| branches   | 70%      | 90%              | **98.95%** |
+
+分层实测（`pnpm test:coverage`，97 个 spec 文件 / 1451 条用例）：
+
+| 层级                  | 语句   | 分支   | 函数   | 行     |
+| --------------------- | ------ | ------ | ------ | ------ |
+| `src/utils`（纯函数） | 99.6%  | 99.09% | 100%   | 100%   |
+| `src/composables`     | 99.2%  | 97.64% | 100%   | 99.8%  |
+| `src/stores`          | 99.44% | 99.38% | 99.18% | 99.31% |
+| `src/api`（请求层）   | 100%   | 99.37% | 100%   | 100%   |
+
+覆盖口径的**诚实说明**：
+
+- **单测覆盖**：纯函数（薪资三模式换算、跨零点夜班时间差、金额整数「分」运算、日期归一化、odometer
+  拆位、节假日查询、壁纸样式、标签与排序索引、搜索 URL/深链）、composables 的核心分支（提醒扫描与
+  防重复标记、`useLocalStorage` 序列化容错、天气「定位 → 记忆位置 → 默认城市」降级链、主题模式与系统
+  偏好联动、ECharts 实例的 dispose）、stores 的状态流转（标签增删不影响任务本身、归档/恢复改变统计
+  口径、snooze 到期自动回归、撤销删除窗口用 fake timers 推进）、请求层的异常分类（AbortController
+  超时、非 2xx、JSON 解析失败、网络异常）。
+- **集成 / 组件测试覆盖**（**不计入**上面的覆盖率分母）：整站挂载与路由守卫、登录/会话恢复流程、
+  云同步多端合并与离线队列、仪表板拖拽排序、AI 添加任务与拆解（含降级）、头像上传链路、
+  秒表三种模式的界面状态等。它们断言的是「用户看到什么」，不是「某一行执行过」。
+- **仍然没覆盖到的**（`coverage/index.html` 里能看到具体行号，都是可解释的）：
+  ① **当前调用路径不可达的纯防御性兜底**——`earnings.ts` 的几处默认/`?? 0` 分支、`linkHelper.ts` 的旧数据兼容分支、
+  `useStatistics.ts` 的空值兜底、`useECharts.ts` 的 SSR 早退、`httpClient.ts` 里 `clearTimeout` 的「没有定时器」分支、
+  `useWeather.ts` 中「抛出的不是 Error 时的通用文案」。它们是为将来接入新调用方留的保护，现在没有真实入口；
+  ② **只在部署环境或真实浏览器成立的分支**——`import.meta.env.BASE_URL` 取到子路径、IndexedDB 真实配额耗尽、
+  真实通知权限弹窗。这些在 happy-dom 下用桩件模拟其**可观测后果**（如「存储不可用 → 静默降级为内存态」），
+  但不去伪造一个现实中不存在的场景只为点亮某一行。
+
+纪律：**先保纯函数再保分支，不为凑数字写装饰性测试**。只断言「跑到了这一行」的用例一律不写；
+剩下的未覆盖行若确属不可达的防御代码，宁可留着并注明原因，也不为了数字好看而造测试。
+
 ## 天气 API 配置（高德地图）
 
 数据源为**高德地图 Web 服务 API**（国内直连、中文城市名、实测 ~80ms），实况天气每小时更新多次。
@@ -235,7 +291,7 @@ VITE_AMAP_KEY=你的Key
 | 位置文案   | 行政区名只能取自逆地理编码（天气接口按区级 adcode 查询时 `city` 其实是**区名**）：普通城市 = **区 · 城市 · 省份**（「青山湖区 · 南昌市 · 江西省」）；直辖市 = **区 · 城市**（「黄浦区 · 上海市」，此时城市即 province）。见 `utils/placeFormatter.ts` |
 | 参数顺序   | `location=经度,纬度`（经度在前！写反会定位到完全不同的地方）                                                                                                                                                                                          |
 | 位置记忆   | 定位成功即把 `{ adcode, label }` 写入 `smart-workspace:last-place`；**定位被拒/失败时优先回退到它**（比默认城市更贴近用户），请求直接走 adcode，不再消耗一次逆地理编码                                                                                |
-| 交互       | 卡片默认展示当前位置天气，另有「🏙 城市」手动切换（输入城市名或点常用城市快捷键）；「📍 定位」重新定位、「↻ 刷新」跳过缓存重取；手动切换的城市也会写入位置记忆                                                                    |
+| 交互       | 卡片默认展示当前位置天气，另有「🏙 城市」手动切换（输入城市名或点常用城市快捷键）；「📍 定位」重新定位、「↻ 刷新」跳过缓存重取；手动切换的城市也会写入位置记忆                                                                                         |
 | 权限被拒   | 记录标记，之后进站直接用记忆位置（无记忆则默认城市），并在卡片内说明「定位权限已被拒绝」                                                                                                                                                              |
 | 坐标纠偏   | 浏览器给的是 WGS84、高德用 GCJ-02，差异仅几百米，对「查哪个城市」无影响，故不做纠偏以省一次请求                                                                                                                                                       |
 
@@ -521,6 +577,22 @@ GitHub 的已知问题（[actions/deploy-pages#22](https://github.com/actions/de
 - 提交前由 lint-staged 自动执行 ESLint/Prettier
 - ⚠️ commitlint 的 `subject-case` 规则只在 subject **以有大小写的拉丁字母开头**时生效：以 `ECharts`、`API` 这类英文缩写开头会被判为 start-case 而拒绝，写成中文开头即可
 
+## 已知问题（测试里已锁定现状，尚未修复）
+
+补测试时挖出来的三个真问题。它们都**不影响主流程**，但都在测试里写成了「锁定当前行为 + 中文注释」，
+修好之后把对应断言反过来即可（注释里写了修法）：
+
+1. **登录拉取云端期间的新建任务可能被覆盖**（`stores/todoStore.ts` 的 `activateCloud`）
+   那段「补差」的 `diffTodos(...)` 紧跟在 `todos.value = next` 之后，比的是同一份数据、差异恒为空；
+   同时 `activating` 挡住了 watcher，于是登录后**拉取云端那一小段时间内**新增的任务既没进同步队列，
+   又被 `next` 覆盖。修法：在 `await fetchRemoteTodos` **之前**拍一份快照，赋值前用它跟当前列表求差异并合并/入队。
+2. **`httpClient` 的 `res.text()` 拒绝未被包装**：流被消费/连接中断时抛出的是原始 `TypeError`，
+   与模块注释「任何失败都抛 `HttpError`」不符，按 `kind` 分类处理的上层会拿到一个没有 `kind` 的错误。
+   修法：把 `await response.text()` 也包进 try/catch。
+3. **`getCurrentCoords` 注入实现同步抛错时拒绝原始值而非 `GeoError`**：`useWeather.locate()` 里
+   `e instanceof GeoError && e.code === 'denied'` 因此命不中，`geo-denied` 标记不会被记
+   （UI 不崩、照常降级到默认城市，只是下次进站会白试一次定位）。修法：把同步抛错也包成 `GeoError`。
+
 ## 待优化项
 
 - **主题偏好跨设备同步**：目前留在 localStorage，后续可选挂到 `auth.users.user_metadata`（本期不做，不阻塞主线）
@@ -544,15 +616,15 @@ GitHub 的已知问题（[actions/deploy-pages#22](https://github.com/actions/de
 
 施工过程中有几处**有意偏离**规划原文，都有具体理由；还有一处是规划写错了、按官方文档纠正：
 
-| 规划原文 | 实际实现 | 理由 |
-|---|---|---|
-| `layouts/MobileLayout.vue` | 无此文件，移动端由 `components/organisms/MobileBottomNav.vue` 承担 | 移动端与桌面端共用同一个 `DefaultLayout`，只是底部导航换成 bottom nav；再拆一个布局文件会带来两份几乎相同的骨架 |
-| `Login.vue` 用 ElForm 校验 | 自研 `BaseInput` + `utils/validation.ts` 纯函数校验 | 校验规则要复用到 TodoForm/ResetPassword，抽成纯函数才能单测；ElForm 的规则是运行时配置，测起来反而绕 |
-| 头像「方形裁剪框 + 圆形遮罩」 | 圆形引导环（无遮罩压暗），导出方形 256×256 + CSS `rounded-full` 显示 | 遮罩压暗后很难看清选区外的构图；导出方形是为了将来支持非圆形头像展示，圆形只在展示层做 |
-| `reminderAt`「默认策略自动生成」 | **不自动写入**，为空时由 `dueDate` 推导出默认提醒时间 | 可推导的字段写进每条任务只会让存储与云同步 payload 平白变胖；语义改为「用户改过才存」 |
-| WxPusher `contentType: 3`（HTML） | `contentType: 2`（HTML）+ `uids: [uid]` 数组 | 规划此处写错了：按 [WxPusher 官方文档](https://wxpusher.zjiecode.com/docs/api-reference.html)，`1`=文本 / `2`=HTML / `3`=Markdown，照抄会把 `<p>` 当 Markdown 渲染；且 POST 接收人字段是 `uids` 数组（单数 `uid` 只存在于 GET 查询参数） |
-| 侧边栏「帮助」入口 | 已实现（打开使用说明弹窗） | — |
-| 卡片拖拽「等槽化」 | 按规划实现：进入编辑布局即切等槽网格，默认仍是精调 bento | 变跨度卡片无法直接拖拽换位，等槽化是规划自己给出的取舍 |
+| 规划原文                          | 实际实现                                                             | 理由                                                                                                                                                                                                                                     |
+| --------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `layouts/MobileLayout.vue`        | 无此文件，移动端由 `components/organisms/MobileBottomNav.vue` 承担   | 移动端与桌面端共用同一个 `DefaultLayout`，只是底部导航换成 bottom nav；再拆一个布局文件会带来两份几乎相同的骨架                                                                                                                          |
+| `Login.vue` 用 ElForm 校验        | 自研 `BaseInput` + `utils/validation.ts` 纯函数校验                  | 校验规则要复用到 TodoForm/ResetPassword，抽成纯函数才能单测；ElForm 的规则是运行时配置，测起来反而绕                                                                                                                                     |
+| 头像「方形裁剪框 + 圆形遮罩」     | 圆形引导环（无遮罩压暗），导出方形 256×256 + CSS `rounded-full` 显示 | 遮罩压暗后很难看清选区外的构图；导出方形是为了将来支持非圆形头像展示，圆形只在展示层做                                                                                                                                                   |
+| `reminderAt`「默认策略自动生成」  | **不自动写入**，为空时由 `dueDate` 推导出默认提醒时间                | 可推导的字段写进每条任务只会让存储与云同步 payload 平白变胖；语义改为「用户改过才存」                                                                                                                                                    |
+| WxPusher `contentType: 3`（HTML） | `contentType: 2`（HTML）+ `uids: [uid]` 数组                         | 规划此处写错了：按 [WxPusher 官方文档](https://wxpusher.zjiecode.com/docs/api-reference.html)，`1`=文本 / `2`=HTML / `3`=Markdown，照抄会把 `<p>` 当 Markdown 渲染；且 POST 接收人字段是 `uids` 数组（单数 `uid` 只存在于 GET 查询参数） |
+| 侧边栏「帮助」入口                | 已实现（打开使用说明弹窗）                                           | —                                                                                                                                                                                                                                        |
+| 卡片拖拽「等槽化」                | 按规划实现：进入编辑布局即切等槽网格，默认仍是精调 bento             | 变跨度卡片无法直接拖拽换位，等槽化是规划自己给出的取舍                                                                                                                                                                                   |
 
 ## 许可证
 

@@ -45,6 +45,19 @@ describe('toAmountCells', () => {
   it('rollingDigits 只取数字位', () => {
     expect(rollingDigits('1,234.56')).toEqual(['1', '2', '3', '4', '5', '6'])
   })
+
+  it('小数部分混进分隔符/单位时不算数字位（否则 odometer 会去滚动一个逗号）', () => {
+    // 手工拼串的调用方可能给出千分位分隔符或单位，非数字位必须另起 key 且不可滚动
+    const cells = toAmountCells('1.234,5')
+    expect(cells.map((c) => c.key)).toEqual(['i0', 'dot', 'f0', 'f1', 'f2', 'fc3', 'f4'])
+    expect(
+      cells
+        .filter((c) => c.rolling)
+        .map((c) => c.char)
+        .join(''),
+    ).toBe('12345')
+    expect(rollingDigits('12.5%')).toEqual(['1', '2', '5'])
+  })
 })
 
 describe('changedSlots（只让变化的位滚动）', () => {

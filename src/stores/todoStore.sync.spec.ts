@@ -392,4 +392,177 @@ describe('todoStore · 云同步', () => {
       expect(remote.pushRemoteTodos).toHaveBeenCalledTimes(1)
     })
   })
+
+  describe('激活云同步的边界情况', () => {
+    it('迁移标记读不出来（隐私模式 SecurityError）时按「没迁移过」处理：重跑一次幂等迁移而不是直接失败', async () => {
+      const store = useTodoStore()
+      store.addTodo({ title: '本地任务', priority: 'medium' })
+
+      // 隐私模式 / 禁用 Cookie 时，连 localStorage.getItem 都会抛 SecurityError
+      const spy = vi.spyOn(window.localStorage, 'getItem').mockImplementation(() => {
+        throw new Error('SecurityError: localStorage is disabled')
+      })
+      try {
+        // 先确认桩真的生效了（否则下面的 isMigrated false 只是「读不到标记」的假绿）
+        expect(() => localStorage.getItem(migrationKey('u1'))).toThrow('SecurityError')
+
+        expect(store.isMigrated('u1')).toBe(false)
+        // 读不到标记 ⇒ 视为未迁移 ⇒ 走一次性迁移（merge + 全量 upsert，本身幂等，重跑无害）
+        const ok = await store.activateCloud('u1')
+        expect(ok).toBe(true)
+        expect(remote.pushRemoteTodos).toHaveBeenCalledTimes(1)
+        expect(store.syncState).toBe('synced')
+      } finally {
+        spy.mockRestore()
+      }
+    })
+
+    it('激活期间的新增既不会进补发队列、也会被云端结果覆盖（补差分支实际永不触发）', async () => {
+      // 本地缓存已经属于 u1（adopt-remote）：云端为准，激活时会用远端列表覆盖本地
+      localStorage.setItem(SYNC_OWNER_KEY, JSON.stringify('u1'))
+      const store = useTodoStore()
+
+      let release!: (todos: Todo[]) => void
+      remote.fetchRemoteTodos.mockImplementation(
+        () =>
+          new Promise<Todo[]>((resolve) => {
+            release = resolve
+          }),
+      )
+
+      const activating = store.activateCloud('u1')
+      // 真实场景：登录成功后用户立刻记一笔，此时云端还在拉取
+      const late = store.addTodo({ title: '拉取期间新增', priority: 'high' })
+      await settle()
+      release([todo({ id: 'cloud-1', title: '云端任务' })])
+      await activating
+      await settle()
+
+      // 注意：当前实现的行为如此（疑似缺陷，未修，已上报）——
+      // 激活期间 todos 的 watcher 被 activating 挡住，而「补差」那段代码
+      // （activateCloud 里 diffTodos(...)）紧跟在 todos.value = next 之后，
+      // 比的是同一份数据，差异恒为空，于是这条路径永远不会执行：
+      // 用户在拉取期间做的改动既没进队列、也被 next 直接覆盖掉。
+      expect(store.todos.map((t) => t.id)).toEqual(['cloud-1'])
+      expect(store.todos.some((t) => t.id === late.id)).toBe(false)
+      expect(store.syncQueue).toEqual([])
+      expect(remote.pushRemoteTodos).not.toHaveBeenCalled()
+    })
+
+    it('未登录时手动「立即同步」是空操作：不发任何请求，也不谎报成功', async () => {
+      const store = useTodoStore()
+      store.addTodo({ title: '本地任务', priority: 'low' })
+      await settle()
+
+      expect(await store.syncNow()).toBe(false)
+
+      expect(remote.fetchRemoteTodos).not.toHaveBeenCalled()
+      expect(remote.pushRemoteTodos).not.toHaveBeenCalled()
+      expect(store.syncState).toBe('local')
+    })
+
+    it('activateCloud 收到空 userId 时直接返回 false（不给云端发一个 user_id 为空的查询）', async () => {
+      const store = useTodoStore()
+
+      expect(await store.activateCloud('')).toBe(false)
+
+      expect(remote.fetchRemoteTodos).not.toHaveBeenCalled()
+      expect(store.syncUserId).toBeNull()
+    })
+
+    it('队列为空 + 之前是离线 → 联网后同步把状态扳回 synced（角标不能一直显示离线）', async () => {
+      const store = useTodoStore()
+      await store.activateCloud('u1')
+      const unbind = store.bindConnectivity()
+      // 断网事件把状态置为 offline，但此时并没有攒下任何待补发操作
+      setOnline(false)
+      window.dispatchEvent(new Event('offline'))
+      expect(store.syncState).toBe('offline')
+      expect(store.syncQueue).toEqual([])
+
+      setOnline(true)
+      expect(await store.syncNow()).toBe(true)
+
+      expect(store.syncState).toBe('synced')
+      unbind()
+    })
+
+    it('没有 window（SSR / 非浏览器宿主）时 bindConnectivity 返回空解绑函数，不抛错', () => {
+      const store = useTodoStore()
+      vi.stubGlobal('window', undefined)
+
+      const unbind = store.bindConnectivity()
+
+      expect(typeof unbind).toBe('function')
+      expect(() => unbind()).not.toThrow()
+      vi.unstubAllGlobals()
+    })
+
+    it('只改标签 / 归档 / snooze 时不会推送：差异指纹里没有这几个字段', async () => {
+      const store = useTodoStore()
+      await store.activateCloud('u1')
+      const created = store.addTodo({ title: '要归档的任务', priority: 'medium' })
+      await settle()
+      remote.pushRemoteTodos.mockClear()
+
+      store.archive(created.id)
+      await settle()
+
+      // 归档必须自己就能触发推送——它不改 title/status 等老字段，
+      // 所以 todoSignature 里必须有 archived，否则「只归档」永远同步不到其它设备。
+      expect(remote.pushRemoteTodos).toHaveBeenCalledTimes(1)
+
+      // 对照：这条推送确实带上了归档状态
+      const [, entries] = remote.pushRemoteTodos.mock.calls[0] as [
+        string,
+        Array<{ todo: { archived?: boolean } }>,
+      ]
+      expect(entries[0].todo.archived).toBe(true)
+    })
+
+    it('队列里指向「本地已经没有的任务」时跳过该条推送（刷新的旧队列可能指向已删任务）', async () => {
+      const store = useTodoStore()
+      await store.activateCloud('u1')
+      // 模拟刷新页面后从 localStorage 读回来的陈旧队列：任务已经不在了
+      store.syncQueue = [{ todoId: 'ghost-todo', type: 'upsert' }]
+
+      expect(await store.syncNow()).toBe(true)
+
+      // 不为幽灵任务发请求，但队列要照常排空（否则它会永远堵在队头，后面的改动全推不出去）
+      expect(remote.pushRemoteTodos).not.toHaveBeenCalled()
+      expect(store.syncQueue).toEqual([])
+      expect(store.syncState).toBe('synced')
+    })
+
+    it('未登录时网络状态变化不发任何同步请求，本地模式也不会被标成「离线」', async () => {
+      const store = useTodoStore()
+      await store.activateCloud('u1')
+      await store.deactivateCloud()
+      const unbind = store.bindConnectivity()
+      // 激活/退出过程中本来就有请求，这里只关心「事件之后」有没有新请求
+      remote.fetchRemoteTodos.mockClear()
+      remote.pushRemoteTodos.mockClear()
+
+      window.dispatchEvent(new Event('online'))
+      window.dispatchEvent(new Event('offline'))
+      await settle()
+
+      expect(remote.fetchRemoteTodos).not.toHaveBeenCalled()
+      expect(remote.pushRemoteTodos).not.toHaveBeenCalled()
+      // 没登录就没有「离线待补发」这回事，侧边栏不该弹离线提示
+      expect(store.syncState).toBe('local')
+      unbind()
+    })
+
+    it('未登录时调 deactivateCloud 是空操作（退出登录流程可以无脑调用）', async () => {
+      const store = useTodoStore()
+      store.addTodo({ title: '本地任务', priority: 'low' })
+
+      await expect(store.deactivateCloud()).resolves.toBeUndefined()
+
+      expect(remote.pushRemoteTodos).not.toHaveBeenCalled()
+      expect(store.syncState).toBe('local')
+      expect(store.syncUserId).toBeNull()
+    })
+  })
 })

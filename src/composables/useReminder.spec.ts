@@ -18,7 +18,11 @@ vi.mock('@/api/notify', () => ({
 import { sendWxPusherViaProxy } from '@/api/notify'
 import { useReminder } from './useReminder'
 import { useReminderStore } from '@/stores/reminderStore'
-import { REMINDER_NOTIFIED_KEY, REMINDER_STORAGE_KEY } from '@/types/reminder'
+import {
+  REMINDER_NOTIFIED_KEY,
+  REMINDER_SCAN_INTERVAL,
+  REMINDER_STORAGE_KEY,
+} from '@/types/reminder'
 import type { DueReminder } from '@/types/reminder'
 import type { Todo } from '@/types/todo'
 
@@ -447,6 +451,51 @@ describe('useReminder · 授权与设置', () => {
     expect(raw['1'].count).toBe(1)
     h.stop()
   })
+
+  it('关掉「应用内兜底」后：既不进待处理列表，也不调应用内通道（但标记与系统通知照常）', () => {
+    const list = [todo({ id: '1', dueDate: '2026-09-10' })]
+    const h = setup(
+      () => list,
+      () => AT(9),
+      { enabled: true, system: true, inApp: false },
+    )
+
+    h.scan()
+
+    expect(h.inApp).not.toHaveBeenCalled()
+    expect(h.store.pending).toHaveLength(0)
+    // 通道关了不等于提醒没发生：标记必须写，否则关掉再打开会重复提醒
+    expect(h.store.notified['1'].count).toBe(1)
+    expect(h.system).toHaveBeenCalledTimes(1)
+    h.stop()
+  })
+
+  it('不注入时钟时用系统时间：默认行为就是「以此刻为准」', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(AT(9))
+
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useReminderStore()
+    store.updateSettings({ enabled: true, inApp: true })
+
+    const inApp = vi.fn()
+    const scope = effectScope()
+    const api = scope.run(() =>
+      useReminder({
+        todos: () => [todo({ id: '1', dueDate: '2026-09-10' })],
+        autoScan: false,
+        channels: { inApp, wxpusher: async () => {} },
+      }),
+    )!
+
+    api.scan()
+
+    // 系统时间是 2026-09-10 09:00，正好是默认提醒时刻
+    expect(inApp).toHaveBeenCalledTimes(1)
+    scope.stop()
+    vi.useRealTimers()
+  })
 })
 
 describe('提醒触发的提醒项形状', () => {
@@ -467,5 +516,451 @@ describe('提醒触发的提醒项形状', () => {
     expect(arg.at).toEqual(AT(9))
     expect(arg.overdueMs).toBe(60 * 60 * 1000)
     h.stop()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 以下三组都不注入假通道，测的是**线上真正跑的那份默认实现**。
+// 注入假通道只能证明「调度算对了」，证明不了「通知真的弹出来了」——
+// 而默认实现恰恰是最容易在权限变化、浏览器抛错时静默失效的一层。
+// ---------------------------------------------------------------------------
+
+interface FakeNotification {
+  title: string
+  options: { body?: string; tag?: string }
+  onclick: (() => void) | null
+  close: ReturnType<typeof vi.fn>
+}
+
+/** 能 `new` 的 Notification 替身，并记录每次构造出的实例（用于断言文案与点击行为） */
+function stubNotification(permission: NotificationPermission, onConstruct?: () => void) {
+  const instances: FakeNotification[] = []
+  const ctor = vi.fn(function (this: FakeNotification, title: string, options: never) {
+    onConstruct?.()
+    this.title = title
+    this.options = options as FakeNotification['options']
+    this.onclick = null
+    this.close = vi.fn()
+    instances.push(this)
+  })
+  vi.stubGlobal(
+    'Notification',
+    Object.assign(ctor, {
+      permission,
+      requestPermission: vi.fn(async () => permission),
+    }),
+  )
+  return { ctor, instances }
+}
+
+/** 不注入 channels 的挂载：走 defaultSystem / defaultWxPusher */
+function setupDefaultChannels(
+  todos: () => Todo[],
+  now: () => Date,
+  settings: Record<string, unknown> = {},
+  hooks: {
+    onOpenTodo?: (todoId: string) => void
+    onWxPusherError?: (message: string) => void
+  } = {},
+) {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  const store = useReminderStore()
+  store.updateSettings(settings)
+
+  const scope = effectScope()
+  const api = scope.run(() =>
+    useReminder({
+      todos,
+      clock: now,
+      autoScan: false,
+      onOpenTodo: hooks.onOpenTodo,
+      onWxPusherError: hooks.onWxPusherError,
+    }),
+  )!
+
+  return { api, store, stop: () => scope.stop() }
+}
+
+describe('useReminder · 默认系统通知（Notification API）', () => {
+  it('授权 granted：到点弹通知，标题带 ⏰，tag 用任务 id（同一任务替换而不是堆一排）', () => {
+    const { ctor, instances } = stubNotification('granted')
+    const list = [todo({ id: 'x', title: '交周报', dueDate: '2026-09-10' })]
+    const h = setupDefaultChannels(
+      () => list,
+      () => AT(9),
+      { enabled: true, system: true },
+    )
+
+    h.api.scan()
+
+    expect(ctor).toHaveBeenCalledTimes(1)
+    expect(instances[0].title).toBe('⏰ 交周报')
+    expect(instances[0].options.body).toBe('任务到期提醒')
+    expect(instances[0].options.tag).toBe('x')
+    h.stop()
+  })
+
+  it('点击通知：聚焦页面 + 回调导航到那条任务 + 关掉通知', () => {
+    const { instances } = stubNotification('granted')
+    const focusSpy = vi.spyOn(window, 'focus').mockImplementation(() => {})
+    const opened: string[] = []
+    const list = [todo({ id: 'x', title: '交周报', dueDate: '2026-09-10' })]
+    const h = setupDefaultChannels(
+      () => list,
+      () => AT(9),
+      { enabled: true, system: true },
+      { onOpenTodo: (id) => opened.push(id) },
+    )
+
+    h.api.scan()
+    instances[0].onclick?.()
+
+    expect(focusSpy).toHaveBeenCalled()
+    expect(opened).toEqual(['x'])
+    expect(instances[0].close).toHaveBeenCalled()
+    focusSpy.mockRestore()
+    h.stop()
+  })
+
+  it('第 2 次是催办：正文带上已超时时长，用户一眼知道晚了多久', () => {
+    const { instances } = stubNotification('granted')
+    const list = [todo({ id: '1', title: '交周报', dueDate: '2026-09-10' })]
+    let now = AT(9)
+    const h = setupDefaultChannels(
+      () => list,
+      () => now,
+      { enabled: true, system: true },
+    )
+
+    h.api.scan()
+    expect(instances[0].options.body).toBe('任务到期提醒')
+
+    now = AT(10, 30)
+    h.api.scan()
+
+    expect(instances).toHaveLength(2)
+    expect(instances[1].options.body).toBe('催办：已超时 30 分')
+    h.stop()
+  })
+
+  it('未授权（default/denied）：不构造通知，但提醒标记与应用内兜底照常（权限不阻塞本地流程）', () => {
+    const { ctor } = stubNotification('denied')
+    const list = [todo({ id: '1', dueDate: '2026-09-10' })]
+    const h = setupDefaultChannels(
+      () => list,
+      () => AT(9),
+      { enabled: true, system: true, inApp: true },
+    )
+
+    h.api.scan()
+
+    expect(ctor).not.toHaveBeenCalled()
+    // 权限被拒时应用内兜底是唯一依赖，必须仍然拿到这条提醒
+    expect(h.store.notified['1'].count).toBe(1)
+    expect(h.store.pending).toHaveLength(1)
+    h.stop()
+  })
+
+  it('构造通知抛错（无用户手势等场景）被吞掉：不打断扫描，也不影响兜底', () => {
+    stubNotification('granted', () => {
+      throw new Error('无用户手势')
+    })
+    const list = [todo({ id: '1', dueDate: '2026-09-10' })]
+    const h = setupDefaultChannels(
+      () => list,
+      () => AT(9),
+      { enabled: true, system: true, inApp: true },
+    )
+
+    expect(() => h.api.scan()).not.toThrow()
+    expect(h.store.notified['1'].count).toBe(1)
+    expect(h.store.pending).toHaveLength(1)
+    h.stop()
+  })
+
+  it('权限申请抛错时保留原有 permission，不把状态改坏', async () => {
+    const ctor = vi.fn()
+    vi.stubGlobal(
+      'Notification',
+      Object.assign(ctor, {
+        permission: 'default',
+        requestPermission: vi.fn(async () => {
+          throw new Error('浏览器拒绝调用')
+        }),
+      }),
+    )
+    const h = setupDefaultChannels(
+      () => [],
+      () => AT(9),
+    )
+
+    await expect(h.api.requestPermission()).resolves.toBe('default')
+    expect(h.api.permission.value).toBe('default')
+    h.stop()
+  })
+})
+
+describe('useReminder · 默认微信通道（经 Supabase 代理）', () => {
+  beforeEach(() => {
+    vi.mocked(sendWxPusherViaProxy).mockResolvedValue({ ok: true })
+  })
+
+  it('没填 UID：直接跳过，不发无谓请求（没绑定就不该产生服务端调用）', async () => {
+    const list = [todo({ id: '1', title: '交周报', dueDate: '2026-09-10' })]
+    const h = setupDefaultChannels(
+      () => list,
+      () => AT(9),
+      { enabled: true, inApp: true, wxpusher: true, wxpusherUid: '   ' },
+    )
+
+    h.api.scan()
+    await nextTick()
+
+    expect(sendWxPusherViaProxy).not.toHaveBeenCalled()
+    // 本地提醒不受影响
+    expect(h.store.pending).toHaveLength(1)
+    h.stop()
+  })
+
+  it('配了 UID：按 uid + 推送文案调代理，正文含任务标题与深链', async () => {
+    const list = [todo({ id: 'x', title: '交周报', dueDate: '2026-09-10' })]
+    const h = setupDefaultChannels(
+      () => list,
+      () => AT(9),
+      { enabled: true, wxpusher: true, wxpusherUid: ' UID_abc12345 ' },
+    )
+
+    h.api.scan()
+    await vi.waitFor(() => expect(sendWxPusherViaProxy).toHaveBeenCalledTimes(1))
+
+    const payload = vi.mocked(sendWxPusherViaProxy).mock.calls[0][0]
+    // UID 前后空白要被 trim（用户从微信里复制经常带空格）
+    expect(payload.uid).toBe('UID_abc12345')
+    expect(payload.title).toBe('交周报')
+    expect(payload.content).toContain('交周报')
+    expect(payload.url).toContain('/todos?focus=x')
+    h.stop()
+  })
+
+  it('代理返回失败：回调提示原因，但不影响本地提醒（降级而非阻塞）', async () => {
+    vi.mocked(sendWxPusherViaProxy).mockResolvedValue({ ok: false, error: '代理未部署' })
+    const onWxPusherError = vi.fn()
+    const list = [todo({ id: '1', dueDate: '2026-09-10' })]
+    const h = setupDefaultChannels(
+      () => list,
+      () => AT(9),
+      { enabled: true, inApp: true, wxpusher: true, wxpusherUid: 'UID_abc12345' },
+      { onWxPusherError },
+    )
+
+    h.api.scan()
+    await vi.waitFor(() => expect(onWxPusherError).toHaveBeenCalledWith('代理未部署'))
+    expect(h.store.notified['1'].count).toBe(1)
+    expect(h.store.pending).toHaveLength(1)
+    h.stop()
+  })
+
+  it('代理成功：不打扰用户（只有失败才提示）', async () => {
+    const onWxPusherError = vi.fn()
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useReminderStore()
+    store.updateSettings({
+      enabled: true,
+      wxpusher: true,
+      wxpusherUid: 'UID_abc12345',
+    })
+    const scope = effectScope()
+    const api = scope.run(() =>
+      useReminder({
+        todos: () => [todo({ id: '1', dueDate: '2026-09-10' })],
+        clock: () => AT(9),
+        autoScan: false,
+        onWxPusherError,
+      }),
+    )!
+
+    api.scan()
+    await vi.waitFor(() => expect(sendWxPusherViaProxy).toHaveBeenCalledTimes(1))
+    await nextTick()
+
+    expect(onWxPusherError).not.toHaveBeenCalled()
+    scope.stop()
+  })
+})
+
+describe('useReminder · 自动扫描的触发时机（回前台必须立刻补扫）', () => {
+  /** 页面可见性只读，happy-dom 里得自己 defineProperty 才能模拟切后台 */
+  function setVisibility(state: 'visible' | 'hidden') {
+    Object.defineProperty(document, 'visibilityState', {
+      value: state,
+      configurable: true,
+      writable: true,
+    })
+  }
+
+  /** 不传 autoScan（默认开启），注入 inApp 便于数「扫了几轮」 */
+  function setupAuto(todos: () => Todo[], now: () => Date) {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useReminderStore()
+    store.updateSettings({ enabled: true, inApp: true })
+
+    const inApp = vi.fn()
+    const scope = effectScope()
+    const api = scope.run(() =>
+      useReminder({
+        todos,
+        clock: now,
+        channels: { inApp, wxpusher: async () => {} },
+      }),
+    )!
+
+    return { api, store, inApp, stop: () => scope.stop() }
+  }
+
+  afterEach(() => {
+    setVisibility('visible')
+    vi.useRealTimers()
+  })
+
+  it('挂载即扫一轮：打开应用就能看到错过/到点的提醒，不用等周期', () => {
+    const list = [todo({ id: '1', dueDate: '2026-09-10' })]
+    const h = setupAuto(
+      () => list,
+      () => AT(9),
+    )
+
+    // 没有手动调用 scan：挂载时就该发出去
+    expect(h.inApp).toHaveBeenCalledTimes(1)
+    h.stop()
+  })
+
+  it('visibilitychange 回到可见：立刻补扫（合盖一晚后一打开就补上，不等下一个周期）', () => {
+    const list = [todo({ id: '1', dueDate: '2026-09-10' })]
+    let now = AT(9)
+    const h = setupAuto(
+      () => list,
+      () => now,
+    )
+    expect(h.inApp).toHaveBeenCalledTimes(1)
+
+    // 时间推进到催办时刻，但**不**手动 scan，只模拟用户切回标签页
+    now = AT(10)
+    setVisibility('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+
+    expect(h.inApp).toHaveBeenCalledTimes(2)
+    h.stop()
+  })
+
+  it('visibilitychange 但页面仍隐藏：不白扫一轮', () => {
+    const list = [todo({ id: '1', dueDate: '2026-09-10' })]
+    let now = AT(9)
+    const h = setupAuto(
+      () => list,
+      () => now,
+    )
+
+    now = AT(10)
+    setVisibility('hidden')
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(h.inApp).toHaveBeenCalledTimes(1)
+
+    // 真正可见时才补上
+    setVisibility('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(h.inApp).toHaveBeenCalledTimes(2)
+    h.stop()
+  })
+
+  it('window focus：切回窗口也补扫一轮（比 visibilitychange 更早触发）', () => {
+    const list = [todo({ id: '1', dueDate: '2026-09-10' })]
+    let now = AT(9)
+    const h = setupAuto(
+      () => list,
+      () => now,
+    )
+
+    now = AT(10)
+    window.dispatchEvent(new Event('focus'))
+
+    expect(h.inApp).toHaveBeenCalledTimes(2)
+    h.stop()
+  })
+
+  it('30 秒轮询真的在跑：推进一个周期会再扫一轮（曾经是死代码）', () => {
+    // 这条用例保护一个踩过的坑：useIntervalFn 的 `immediate` 控制的是「是否自动 resume()」，
+    // 之前写成 immediate:false，定时器压根没建，规划要求的周期轮询成了死代码。
+    vi.useFakeTimers()
+    const list = [todo({ id: '1', dueDate: '2026-09-10' })]
+    let now = AT(9)
+    const h = setupAuto(
+      () => list,
+      () => now,
+    )
+    // 挂载即扫一轮：到点提醒发出
+    expect(h.inApp).toHaveBeenCalledTimes(1)
+
+    // 推进到 10:00（第二次提醒的时点）并跨过一个扫描周期 → 轮询应当自己发现催办
+    now = AT(10)
+    vi.advanceTimersByTime(REMINDER_SCAN_INTERVAL)
+
+    expect(h.inApp).toHaveBeenCalledTimes(2)
+    h.stop()
+  })
+
+  it('轮询是幂等的：时钟没走时连推多个周期也不会把同一条提醒发第二遍', () => {
+    // 打开轮询之后，扫描从「偶发」变成「每 30 秒一次」——防重复标记必须扛得住高频重复扫描，
+    // 否则用户每半分钟被骚扰一次（这比原来不轮询更糟，所以这条是打开轮询的配套保护）
+    vi.useFakeTimers()
+    const list = [todo({ id: '1', dueDate: '2026-09-10' })]
+    const h = setupAuto(
+      () => list,
+      () => AT(9),
+    )
+    expect(h.inApp).toHaveBeenCalledTimes(1)
+
+    vi.advanceTimersByTime(REMINDER_SCAN_INTERVAL * 3)
+
+    expect(h.inApp).toHaveBeenCalledTimes(1)
+    expect(h.store.notified['1'].count).toBe(1)
+    h.stop()
+  })
+
+  it('卸载后定时器被摘掉：推进时间不会再扫（否则组件销毁后还在后台空转）', () => {
+    vi.useFakeTimers()
+    const list = [todo({ id: '1', dueDate: '2026-09-10' })]
+    let now = AT(9)
+    const h = setupAuto(
+      () => list,
+      () => now,
+    )
+    expect(h.inApp).toHaveBeenCalledTimes(1)
+
+    h.stop()
+
+    // 卸载后把时间推过第二次提醒的时点：如果定时器没被清掉，这里会多出一次催办
+    now = AT(11)
+    vi.advanceTimersByTime(REMINDER_SCAN_INTERVAL * 5)
+
+    expect(h.inApp).toHaveBeenCalledTimes(1)
+  })
+
+  it('组件卸载：清掉运行时待处理列表，但设置与已通知标记必须留着', () => {
+    const list = [todo({ id: '1', dueDate: '2026-09-10' })]
+    const h = setupAuto(
+      () => list,
+      () => AT(10),
+    )
+    expect(h.store.pending).toHaveLength(1)
+
+    h.stop()
+
+    expect(h.store.pending).toHaveLength(0)
+    // 持久化状态不能跟着组件一起消失，否则重新挂载会重复提醒
+    expect(h.store.notified['1'].count).toBe(1)
+    expect(h.store.settings.enabled).toBe(true)
   })
 })

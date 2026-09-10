@@ -57,3 +57,119 @@ describe('getCurrentCoords', () => {
     await assertion
   })
 })
+
+describe('getCurrentCoords · 默认实现与异常兜底', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('未注入实现时用 navigator.geolocation（即真实链路）', async () => {
+    vi.stubGlobal('navigator', {
+      geolocation: fakeGeo((success) =>
+        success({ coords: { latitude: 30.25, longitude: 120.16 } }),
+      ),
+    })
+
+    await expect(getCurrentCoords()).resolves.toEqual({ latitude: 30.25, longitude: 120.16 })
+  })
+
+  it('浏览器完全没有 geolocation（老环境）时立刻抛 unsupported，而不是静默挂起', async () => {
+    vi.stubGlobal('navigator', {})
+
+    await expect(getCurrentCoords()).rejects.toMatchObject({ code: 'unsupported' })
+  })
+
+  it('把超时与精度要求明确传给浏览器（否则一次定位可能等到天荒地老）', async () => {
+    const seen: Array<Record<string, unknown> | undefined> = []
+    const geo = fakeGeo((success, _error, options) => {
+      seen.push(options as Record<string, unknown> | undefined)
+      success({ coords: { latitude: 0, longitude: 0 } })
+    })
+
+    await getCurrentCoords({ geolocation: geo, timeout: 3000 })
+
+    expect(seen[0]).toEqual({
+      // 查天气不需要 GPS 级精度：省电、也更容易快速拿到结果
+      enableHighAccuracy: false,
+      timeout: 3000,
+      // 5 分钟内复用上一次坐标，避免每次进页面都弹一次定位
+      maximumAge: 5 * 60 * 1000,
+    })
+  })
+
+  it('错误码 2 / 未知码分别映射为 unavailable / unknown', async () => {
+    await expect(
+      getCurrentCoords({ geolocation: fakeGeo((_s, e) => e?.({ code: 2 })) }),
+    ).rejects.toMatchObject({ code: 'unavailable' })
+    await expect(
+      getCurrentCoords({ geolocation: fakeGeo((_s, e) => e?.({ code: 99 })) }),
+    ).rejects.toMatchObject({ code: 'unknown' })
+    // 有的实现对错误对象不带 code：按 0 处理成 unknown，不能把 undefined 传下去
+    await expect(
+      getCurrentCoords({
+        geolocation: fakeGeo((_s, e) => e?.(undefined as unknown as { code: number })),
+      }),
+    ).rejects.toMatchObject({ code: 'unknown' })
+  })
+
+  it('成功回调之后浏览器又报错：以第一次结果为准，迟到的回调被守卫忽略', async () => {
+    let lateError: ((e: { code: number }) => void) | undefined
+    const geo = fakeGeo((success, error) => {
+      lateError = error
+      success({ coords: { latitude: 30.1, longitude: 120.2 } })
+    })
+
+    await expect(getCurrentCoords({ geolocation: geo })).resolves.toEqual({
+      latitude: 30.1,
+      longitude: 120.2,
+    })
+    // 迟到的错误回调必须被 settled 守卫吞掉，否则会变成未捕获的 Promise 拒绝
+    expect(() => lateError?.({ code: 1 })).not.toThrow()
+  })
+
+  it('默认超时 8000ms：兜底定时器留了 1 秒余量，8 秒整不算超时', async () => {
+    vi.useFakeTimers()
+    let settled = false
+    const geo = fakeGeo(() => {
+      // 不回调
+    })
+    const pending = getCurrentCoords({ geolocation: geo })
+    const assertion = expect(pending).rejects.toMatchObject({ code: 'timeout' })
+    void pending.catch(() => {
+      settled = true
+    })
+
+    await vi.advanceTimersByTimeAsync(8000)
+    expect(settled).toBe(false)
+
+    // 再走 1 秒才到兜底时间：宁可多等 1 秒，也不把「正在回来的坐标」判死
+    await vi.advanceTimersByTimeAsync(1000)
+    await assertion
+    expect(settled).toBe(true)
+  })
+
+  it('兜底超时后浏览器才回调：结果保持 timeout，迟到的成功不会二次落定', async () => {
+    vi.useFakeTimers()
+    let lateSuccess: (() => void) | undefined
+    const geo = fakeGeo((success) => {
+      lateSuccess = () => success({ coords: { latitude: 1, longitude: 1 } })
+    })
+
+    const pending = getCurrentCoords({ geolocation: geo, timeout: 500 })
+    const assertion = expect(pending).rejects.toMatchObject({ code: 'timeout' })
+    await vi.advanceTimersByTimeAsync(1600)
+    await assertion
+
+    expect(() => lateSuccess?.()).not.toThrow()
+  })
+
+  it('定位实现同步抛错时以原始异常拒绝（不会被翻成 GeoError）', async () => {
+    const geo = fakeGeo(() => {
+      throw new Error('SecurityError: 权限策略禁止定位')
+    })
+
+    // 注意：当前实现的行为如此——同步异常由 Promise 构造器直接转成拒绝，
+    // 调用方拿到的不是 GeoError，因此只能走「其它失败」兜底分支（不会误判为 denied）
+    await expect(getCurrentCoords({ geolocation: geo })).rejects.toThrow('权限策略禁止定位')
+  })
+})

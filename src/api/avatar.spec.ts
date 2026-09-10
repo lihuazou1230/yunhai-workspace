@@ -84,6 +84,16 @@ describe('头像 Storage API', () => {
     expect(stub.remove).toHaveBeenCalledWith(['u1/avatar.webp'])
   })
 
+  it('移除失败（RLS 拒绝 / 网络问题）时抛错，由调用方提示用户', async () => {
+    // 静默吞掉这个错误会让用户以为「头像已移除」，但刷新后又回来了
+    const stub = storageStub({
+      remove: vi.fn(async () => ({ data: null, error: { message: 'permission denied' } })),
+    })
+    holder.client = stub.client
+
+    await expect(removeAvatarObject('u1')).rejects.toMatchObject({ message: 'permission denied' })
+  })
+
   it('未配置 Supabase 时抛出引导错误', async () => {
     await expect(uploadAvatar('u1', new Blob(['x']))).rejects.toBeInstanceOf(
       SupabaseUnavailableError,

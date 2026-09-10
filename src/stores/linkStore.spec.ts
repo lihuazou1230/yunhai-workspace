@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 
@@ -9,6 +9,10 @@ describe('linkStore', () => {
   beforeEach(() => {
     localStorage.clear()
     setActivePinia(createPinia())
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('新增链接：网址补 https://、标题去空白、空分组落进默认分组', async () => {
@@ -81,6 +85,33 @@ describe('linkStore', () => {
     expect(store.getLink(link.id)?.url).toBe('https://old.com')
   })
 
+  it('只改分组或图标时，其余字段（标题/网址/另一个字段）原样保留，其它链接不受影响', () => {
+    const store = useLinkStore()
+    const a = store.addLink({ title: 'A', url: 'a.com', group: '工具' })!
+    const b = store.addLink({ title: 'B', url: 'b.com', group: '工具' })!
+
+    // 只改分组：标题与网址必须原样（设置页的分组下拉就是这条路径）
+    expect(store.updateLink(a.id, { group: '学习' })).toBe(true)
+    expect(store.getLink(a.id)).toMatchObject({
+      title: 'A',
+      url: 'https://a.com',
+      group: '学习',
+      iconUrl: undefined,
+    })
+    // 同组另一条链接完全没被碰到
+    expect(store.getLink(b.id)).toEqual(b)
+
+    // 只改自定义图标：分组与其它字段不受影响
+    expect(store.updateLink(a.id, { iconUrl: 'https://cdn.example.com/a.png' })).toBe(true)
+    expect(store.getLink(a.id)).toMatchObject({
+      title: 'A',
+      url: 'https://a.com',
+      group: '学习',
+      iconUrl: 'https://cdn.example.com/a.png',
+    })
+    expect(store.getLink(b.id)).toEqual(b)
+  })
+
   it('删除链接', () => {
     const store = useLinkStore()
     const a = store.addLink({ title: 'A', url: 'a.com' })!
@@ -101,6 +132,18 @@ describe('linkStore', () => {
 
     store.moveLink(link.id, '')
     expect(store.getLink(link.id)?.group).toBe(DEFAULT_LINK_GROUP)
+  })
+
+  it('换分组只动那一条：同组其它链接留在原分组', () => {
+    const store = useLinkStore()
+    const a = store.addLink({ title: 'A', url: 'a.com', group: '工具' })!
+    const b = store.addLink({ title: 'B', url: 'b.com', group: '工具' })!
+
+    store.moveLink(a.id, '学习')
+
+    expect(store.groups.map((bucket) => bucket.group)).toEqual(['学习', '工具'])
+    // 拖一条链接去别的组，不该把同组的兄弟也带走
+    expect(store.getLink(b.id)?.group).toBe('工具')
   })
 
   it('同组内排序：把 moved 插到 target 之前', () => {
@@ -145,5 +188,20 @@ describe('linkStore', () => {
     store.reset()
     expect(store.linkCount).toBe(0)
     expect(store.groups).toEqual([])
+  })
+
+  it('crypto.randomUUID 不可用（非安全上下文 / 老浏览器）时退化为本地 id，功能照旧', () => {
+    vi.stubGlobal('crypto', {})
+    const store = useLinkStore()
+
+    const a = store.addLink({ title: 'A', url: 'a.com' })!
+    expect(a.id).toMatch(/^link-\d+-[a-z0-9]+$/)
+    expect(store.getLink(a.id)?.url).toBe('https://a.com')
+    // 降级 id 同样要唯一：同毫秒内连加两条不能撞（否则拖动排序/删除会误伤）
+    const b = store.addLink({ title: 'B', url: 'b.com' })!
+    expect(b.id).not.toBe(a.id)
+
+    store.removeLink(a.id)
+    expect(store.links.map((l) => l.id)).toEqual([b.id])
   })
 })

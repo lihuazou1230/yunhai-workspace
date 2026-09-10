@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { appUrl, buildAppUrl } from './appUrl'
 
@@ -64,6 +64,31 @@ describe('appUrl（读当前 origin + 构建期 BASE_URL）', () => {
       )
     } finally {
       ;(import.meta.env as Record<string, unknown>).BASE_URL = original
+    }
+  })
+})
+
+describe('appUrl 的运行时兜底（没有 location / 没有 BASE_URL）', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('没有 location 时 origin 当成空串，拼出站内相对路径（SSR 预渲染不崩）', () => {
+    vi.stubGlobal('location', undefined)
+    expect(appUrl('reset-password')).toBe('/reset-password')
+    expect(appUrl()).toBe('/')
+  })
+
+  it('构建期没注入 BASE_URL 时退回根目录（换宿主或自定义构建下仍是可用地址）', () => {
+    const env = import.meta.env as Record<string, unknown>
+    const original = env.BASE_URL
+    try {
+      // 用 delete 而不是赋 undefined：vite 的 env 代理会把 undefined 变成字符串
+      // 'undefined'，那样 `?? '/'` 兜不住，地址会拼成 hostundefined/todos
+      delete env.BASE_URL
+      expect(appUrl('todos')).toBe(`${location.origin}/todos`)
+    } finally {
+      env.BASE_URL = original
     }
   })
 })

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { DEFAULT_EARNINGS_CONFIG } from '@/types/earnings'
 import type { EarningsConfig } from '@/types/earnings'
@@ -16,13 +16,17 @@ import {
   isEarningsConfigured,
   isNightShift,
   isPaidDay,
+  isTodayPaid,
+  isWorkDate,
   lastMonthSamePeriodFen,
   monthlyEarnedFen,
   nextChange,
   paidDaysInMonth,
   parseTimeToSeconds,
   resolveEarningsStatus,
+  salaryOf,
   secondsOfDay,
+  shiftDateKey,
   yuanToFen,
 } from './earnings'
 
@@ -433,5 +437,157 @@ describe('computeEarnings 快照', () => {
     const snapshot = computeEarnings(CONFIG, at(14, 0, 0, 12))
     expect(snapshot.status).toBe('weekend')
     expect(snapshot.earnedFen).toBe(0)
+  })
+})
+
+describe('薪资模式的名义金额（salaryOf）', () => {
+  it('三种模式各取各的字段（设置页回显用它）', () => {
+    expect(salaryOf({ ...CONFIG, salaryMode: 'monthly', monthlySalary: 21750 })).toBe(21750)
+    expect(salaryOf({ ...CONFIG, salaryMode: 'daily', dailySalary: 800 })).toBe(800)
+    expect(salaryOf({ ...CONFIG, salaryMode: 'hourly', hourlySalary: 125 })).toBe(125)
+  })
+
+  it('模式字段是脏数据时回落到月薪（读旧配置不该显示成 0）', () => {
+    const dirty = { ...CONFIG, salaryMode: '年薪' as EarningsConfig['salaryMode'] }
+    expect(salaryOf(dirty)).toBe(CONFIG.monthlySalary)
+  })
+})
+
+describe('班次之外的时间边界（配置被改坏时的兜底）', () => {
+  it('午休整段落在班次之外 → 不扣（把早班改成晚班后忘了改午休，不该把工时扣穿）', () => {
+    expect(dailyWorkSeconds({ ...CONFIG, lunchStart: '19:00', lunchEnd: '20:00' })).toBe(9 * 3600)
+  })
+
+  it('午休起止填成同一时刻 → 视为没有午休', () => {
+    expect(dailyWorkSeconds({ ...CONFIG, lunchStart: '12:00', lunchEnd: '12:00' })).toBe(9 * 3600)
+  })
+
+  it('只填了午休一头（另一头非法）→ 视为没有午休，而不是扣掉整段', () => {
+    expect(dailyWorkSeconds({ ...CONFIG, lunchStart: '', lunchEnd: '13:00' })).toBe(9 * 3600)
+    expect(dailyWorkSeconds({ ...CONFIG, lunchStart: '12:00', lunchEnd: '' })).toBe(9 * 3600)
+  })
+
+  it('下班时间非法 → 零长度班次；夜班判定也不再成立', () => {
+    expect(dailyWorkSeconds({ ...CONFIG, workStart: '09:00', workEnd: '' })).toBe(0)
+    expect(isNightShift({ ...CONFIG, workStart: '', workEnd: '18:00' })).toBe(false)
+    expect(isNightShift({ ...CONFIG, workStart: '22:00', workEnd: '' })).toBe(false)
+  })
+
+  it('零长度班次下金额全为 0，也不给倒计时（避免「距下班 0 秒」这类死循环文案）', () => {
+    const zero = { ...CONFIG, workStart: '09:00', workEnd: '09:00' }
+    expect(hourlyEarnedFen(zero)).toBe(0)
+    expect(earnedFen(zero, at(10))).toBe(0)
+    expect(nextChange(zero, at(10))).toEqual({ target: 'none', seconds: 0 })
+  })
+
+  it('上班前不产生金额（还没开始赚，不能因为「今天是计薪日」就先记上）', () => {
+    expect(earnedFen(CONFIG, at(8, 0))).toBe(0)
+    expect(elapsedWorkSeconds(CONFIG, at(8, 0))).toBe(0)
+  })
+
+  it('月计薪天数为 0（脏配置）时月薪模式金额为 0，不做除零', () => {
+    const broken = { ...CONFIG, monthWorkDays: 0 }
+    expect(earnedFen(broken, at(12, 0))).toBe(0)
+    expect(Number.isFinite(earnedFen(broken, at(12, 0)))).toBe(true)
+  })
+})
+
+describe('每周计薪日的兜底', () => {
+  it('workDays 缺失或为空数组时按周一~周五（不能把每天当成休息日）', () => {
+    const noDays = { ...CONFIG, workDays: undefined as unknown as number[] }
+    expect(isWorkDate(noDays, at(12))).toBe(true) // 周四
+    expect(isWorkDate(noDays, at(12, 0, 0, 12))).toBe(false) // 周六
+    expect(isWorkDate({ ...CONFIG, workDays: [] }, at(12))).toBe(true)
+  })
+})
+
+describe('日薪/时薪模式下的本月已赚', () => {
+  it('日薪模式按「已完整计薪天数 × 日薪 + 今日已赚」累计（没有月薪可封顶）', () => {
+    const daily: EarningsConfig = { ...CONFIG, salaryMode: 'daily', dailySalary: 800 }
+    // 9/1~9/9 是 7 个完整计薪日 × 800 元 + 当天 12:00 的 300 元（3/8 天）
+    expect(formatFen(monthlyEarnedFen(daily, at(12, 0)))).toBe('5,900.00')
+  })
+})
+
+describe('计薪日展示（isTodayPaid / shiftDateKey）', () => {
+  const NIGHT = { ...CONFIG, workStart: '22:00', workEnd: '06:00' }
+
+  it('工作日计薪、周末不计薪（迷你模式的文案据此切换）', () => {
+    expect(isTodayPaid(CONFIG, at(10))).toBe(true)
+    expect(isTodayPaid(CONFIG, at(10, 0, 0, 12))).toBe(false) // 周六
+  })
+
+  it('夜班凌晨仍属于「昨天那个班次」：周五晚上的班到周六凌晨仍计薪', () => {
+    expect(isTodayPaid(NIGHT, at(3, 0, 0, 12))).toBe(true)
+    // 周六晚上才开的班不计薪
+    expect(isTodayPaid(NIGHT, at(23, 0, 0, 12))).toBe(false)
+  })
+
+  it('shiftDateKey 取「班次开始那天」的日期键（日报与日历标记都按它归档）', () => {
+    expect(shiftDateKey(CONFIG, at(10, 30))).toBe('2026-09-10')
+    expect(shiftDateKey(NIGHT, at(23, 30, 0, 11))).toBe('2026-09-11')
+    // 周六凌晨 03:00 的活儿记在 9/11（周五）那天
+    expect(shiftDateKey(NIGHT, at(3, 0, 0, 12))).toBe('2026-09-11')
+  })
+
+  it('不传 now 时按系统当前时间算（组件里的默认调用路径）', () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(at(10, 30))
+      expect(isTodayPaid(CONFIG)).toBe(true)
+      expect(shiftDateKey(CONFIG)).toBe('2026-09-10')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('脏金额与残缺配置的兜底', () => {
+  it('formatFen 收到非有限值（NaN / ±Infinity）按 0 显示，不把 NaN 打到界面上', () => {
+    expect(formatFen(Number.NaN)).toBe('0.00')
+    expect(formatFen(Number.POSITIVE_INFINITY)).toBe('0.00')
+    expect(formatFen(Number.NEGATIVE_INFINITY)).toBe('0.00')
+  })
+
+  it('时薪模式下时薪直接取配置值，不反推', () => {
+    expect(hourlyEarnedFen({ ...CONFIG, salaryMode: 'hourly', hourlySalary: 125 })).toBe(12500)
+  })
+
+  it('时薪模式但班次长度算不出来时日薪为 0（不是 Infinity 或 NaN）', () => {
+    const broken = {
+      ...CONFIG,
+      salaryMode: 'hourly' as const,
+      hourlySalary: 100,
+      workStart: '09:00',
+      workEnd: '09:00',
+    }
+    expect(dailyEarnedFen(broken)).toBe(0)
+  })
+
+  it('零长度班次的已计薪秒数为 0（elapsedWorkSeconds 的第一道闸）', () => {
+    expect(elapsedWorkSeconds({ ...CONFIG, workStart: '09:00', workEnd: '09:00' }, at(10))).toBe(0)
+  })
+
+  it('午休写成跨零点的时段（夜班配置改成日班后的残留）整段落在班次外 → 不扣', () => {
+    // 23:00~01:00 相对 09:00~18:00 完全在班次之外，照扣会把工时算穿
+    expect(dailyWorkSeconds({ ...CONFIG, lunchStart: '23:00', lunchEnd: '01:00' })).toBe(9 * 3600)
+  })
+})
+
+describe('快照里的边界（零长度班次 / 夜班文案）', () => {
+  it('零长度班次：进度为 0 而不是 NaN（进度条与百分比直接读这个值）', () => {
+    const snapshot = computeEarnings({ ...CONFIG, workStart: '09:00', workEnd: '09:00' }, at(10))
+    expect(snapshot.progress).toBe(0)
+    expect(snapshot.status).toBe('not-configured')
+  })
+
+  it('夜班的下班时间标注「次日」，否则用户会误以为 06:00 是今天早上', () => {
+    const night = { ...CONFIG, workStart: '22:00', workEnd: '06:00' }
+    const snapshot = computeEarnings(night, at(23, 0))
+    expect(snapshot.nightShift).toBe(true)
+    expect(snapshot.shiftStartLabel).toBe('22:00')
+    expect(snapshot.shiftEndLabel).toBe('06:00（次日）')
+    // 日班不带这个后缀
+    expect(computeEarnings(CONFIG, at(10)).shiftEndLabel).toBe('18:00')
   })
 })

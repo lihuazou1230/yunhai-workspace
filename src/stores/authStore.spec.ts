@@ -71,6 +71,14 @@ describe('authStore', () => {
     expect(store.isAuthed).toBe(false)
   })
 
+  it('未登录时 email / avatarUrl 给空串而不是 undefined（模板直接插值会渲染成 "undefined"）', () => {
+    const store = useAuthStore()
+    expect(store.user).toBeNull()
+    expect(store.email).toBe('')
+    expect(store.avatarUrl).toBe('')
+    expect(store.displayName).toBe('本地访客')
+  })
+
   it('未配置 Supabase：直接进入本地模式，不报错、不阻塞', async () => {
     configured(false)
     const store = useAuthStore()
@@ -205,6 +213,48 @@ describe('authStore', () => {
     )
   })
 
+  it('GitHub 登录失败（provider 未开启 / 网络不通）：记录文案，状态保持未登录', async () => {
+    api.signInWithGitHub.mockResolvedValue({ ok: false, message: 'Provider is not enabled' })
+    const store = useAuthStore()
+    await store.init()
+
+    const result = await store.signInWithGithub()
+
+    expect(result.ok).toBe(false)
+    expect(store.lastError).toBe('Provider is not enabled')
+    expect(store.isAuthed).toBe(false)
+  })
+
+  it('注册失败：记录文案并保持未登录（不能因为「调用没抛错」就当成功）', async () => {
+    api.signUpWithPassword.mockResolvedValue({ ok: false, message: '该邮箱已注册，请直接登录' })
+    const store = useAuthStore()
+    await store.init()
+
+    const result = await store.signUp({
+      email: 'a@b.com',
+      password: 'pw123456',
+      displayName: '张三',
+    })
+
+    expect(result.ok).toBe(false)
+    expect(store.lastError).toBe('该邮箱已注册，请直接登录')
+    expect(store.isAuthed).toBe(false)
+    // 失败时不该去刷新用户（那会多打一次会话接口）
+    expect(api.getCurrentSessionUser).toHaveBeenCalledTimes(1)
+  })
+
+  it('注册成功且直接拿到会话：立刻刷新用户，不用等 onAuthStateChange', async () => {
+    api.signUpWithPassword.mockResolvedValue({ ok: true, message: '注册成功，已自动登录' })
+    const store = useAuthStore()
+    await store.init()
+
+    api.getCurrentSessionUser.mockResolvedValue(SESSION_USER)
+    await store.signUp({ email: 'a@b.com', password: 'pw123456', displayName: '张三' })
+
+    expect(store.isAuthed).toBe(true)
+    expect(api.getCurrentSessionUser).toHaveBeenCalledTimes(2)
+  })
+
   it('重新发送验证邮件：去空格后调用，失败时记录文案', async () => {
     const store = useAuthStore()
     await store.init()
@@ -259,6 +309,27 @@ describe('authStore', () => {
     expect(store.lastError).toBe('网络不可用')
   })
 
+  it('退出登录成功时把上一次的错误文案也清掉（否则登录页会残留旧报错）', async () => {
+    api.getCurrentSessionUser.mockRejectedValue(new Error('network down'))
+    const store = useAuthStore()
+    await store.init()
+    expect(store.lastError).toBe('err:Error: network down')
+
+    api.signOutUser.mockResolvedValue({ ok: true, message: '已退出登录' })
+    await store.signOut()
+
+    expect(store.lastError).toBe('')
+    expect(store.status).toBe('guest')
+  })
+
+  it('本地模式（未配置 Supabase）下 refreshUser 直接返回 null，不打会话接口', async () => {
+    configured(false)
+    const store = useAuthStore()
+
+    expect(await store.refreshUser()).toBeNull()
+    expect(api.getCurrentSessionUser).not.toHaveBeenCalled()
+  })
+
   it('更新头像地址后本地用户立刻反映新头像', async () => {
     api.getCurrentSessionUser.mockResolvedValue(SESSION_USER)
     const store = useAuthStore()
@@ -269,6 +340,23 @@ describe('authStore', () => {
 
     store.clearLocalAvatar()
     expect(store.avatarUrl).toBe('')
+  })
+
+  it('写头像元数据失败时记下文案，且不把本地头像改成没存上的那个地址', async () => {
+    api.getCurrentSessionUser.mockResolvedValue(SESSION_USER)
+    api.updateAvatarMetadata.mockResolvedValue({
+      ok: false,
+      message: '网络不可用，请检查网络后重试',
+    })
+    const store = useAuthStore()
+    await store.init()
+
+    const result = await store.setAvatarUrl('https://x/a.webp?v=9')
+
+    expect(result.ok).toBe(false)
+    expect(store.lastError).toBe('网络不可用，请检查网络后重试')
+    // 云端没存上却把界面上换成新地址，刷新后头像会「变回去」，用户会以为丢了
+    expect(store.avatarUrl).toBe(SESSION_USER.avatarUrl)
   })
 
   it('dispose 取消失订阅并允许重新初始化', async () => {
@@ -284,5 +372,43 @@ describe('authStore', () => {
 
     await store.init()
     expect(api.getCurrentSessionUser).toHaveBeenCalledTimes(2)
+  })
+
+  it('refreshUser 失败（会话接口挂了）：记下原因并返回 null，且不把已有的登录态清掉', async () => {
+    api.getCurrentSessionUser.mockResolvedValue(SESSION_USER)
+    const store = useAuthStore()
+    await store.init()
+    expect(store.isAuthed).toBe(true)
+
+    api.getCurrentSessionUser.mockRejectedValue(new Error('session endpoint down'))
+    const result = await store.refreshUser()
+
+    expect(result).toBeNull()
+    expect(store.lastError).toBe('err:Error: session endpoint down')
+    // 一次「刷新资料」失败 ≠ 登出：把用户踢回登录页才是更糟的体验
+    expect(store.isAuthed).toBe(true)
+    expect(store.displayName).toBe('张三')
+  })
+
+  it('refreshUser 拿不到会话（token 已失效）时返回 null，但不主动把用户踢下线', async () => {
+    api.getCurrentSessionUser.mockResolvedValue(SESSION_USER)
+    const store = useAuthStore()
+    await store.init()
+    expect(store.isAuthed).toBe(true)
+
+    // 会话过期：这里只回报「没拿到用户」，登出由 onAuthStateChange 的 SIGNED_OUT 负责，
+    // 否则一次接口抖动就会把用户甩到登录页
+    api.getCurrentSessionUser.mockResolvedValue(null)
+
+    expect(await store.refreshUser()).toBeNull()
+    expect(store.isAuthed).toBe(true)
+  })
+
+  it('未登录时 clearLocalAvatar 是空操作，不抛错', () => {
+    const store = useAuthStore()
+    expect(store.user).toBeNull()
+
+    expect(() => store.clearLocalAvatar()).not.toThrow()
+    expect(store.user).toBeNull()
   })
 })

@@ -14,6 +14,8 @@
 
 import { onBeforeUnmount, onMounted, watch } from 'vue'
 
+import { useEventListener, useIntervalFn } from '@vueuse/core'
+
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { useTodoStore } from '@/stores/todoStore'
@@ -58,6 +60,16 @@ onMounted(() => {
   unbindConnectivity = todoStore.bindConnectivity()
 })
 onBeforeUnmount(() => unbindConnectivity())
+
+/**
+ * 校准「今天」：snooze 到期的任务要能**随日期自己走**地回到列表。
+ * 页面在后台开一整夜时没有任何任务写入，只靠 computed 是不会重算的，
+ * 所以这里每分钟对一次日期、回前台再对一次（跨零点立刻生效）。
+ */
+useIntervalFn(todoStore.refreshToday, 60_000, { immediate: true, immediateCallback: true })
+useEventListener(document, 'visibilitychange', () => {
+  if (document.visibilityState === 'visible') todoStore.refreshToday()
+})
 </script>
 
 <template>

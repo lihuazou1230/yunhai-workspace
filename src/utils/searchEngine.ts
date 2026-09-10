@@ -7,7 +7,10 @@ import type { SearchEngineId } from '@/types/search'
 
 /** 校验是否为已知引擎（存 localStorage 的值可能来自旧版本或被人手改过） */
 export function isSearchEngineId(value: unknown): value is SearchEngineId {
-  return typeof value === 'string' && value in SEARCH_ENGINES
+  // 必须用 Object.hasOwn 而不是 `in`：`'toString' in SEARCH_ENGINES` 会走原型链返回 true，
+  // 于是 SEARCH_ENGINES['toString'].template 取到 undefined，拼 URL 时直接炸。
+  // 这里的值来自可被用户手改的 localStorage，不是纯理论问题。
+  return typeof value === 'string' && Object.hasOwn(SEARCH_ENGINES, value)
 }
 
 /** 收敛未知引擎为默认的百度 */

@@ -98,6 +98,17 @@ describe('深链', () => {
     expect(deepLink('t1', '')).toBe('')
     expect(deepLink('t1', '   ')).toBe('')
   })
+
+  it('id 非字符串（脏任务数据）时按「没有 id」处理，退化成应用首页', () => {
+    expect(deepLink(undefined as unknown as string, base)).toBe(base)
+    expect(deepLink(123 as unknown as string, base)).toBe(base)
+    expect(deepLink({} as unknown as string, base)).toBe(base)
+  })
+
+  it('基地址非字符串时返回空串（宁可没有链接，也不要拼出 "null/todos" 这种坏地址）', () => {
+    expect(deepLink('t1', null as unknown as string)).toBe('')
+    expect(deepLink('t1', 42 as unknown as string)).toBe('')
+  })
 })
 
 describe('推送文案拼装', () => {

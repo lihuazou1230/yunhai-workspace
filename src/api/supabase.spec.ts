@@ -92,6 +92,17 @@ describe('Supabase 配置读取与客户端单例', () => {
     expect(second).not.toBe(first)
     expect(createClientMock).toHaveBeenCalledTimes(2)
   })
+
+  it('已配置时 requireSupabaseClient 返回同一个单例（写操作入口不会各建一个客户端）', () => {
+    vi.stubEnv('VITE_SUPABASE_URL', 'https://demo.supabase.co')
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key')
+
+    const required = requireSupabaseClient()
+
+    // 与 getSupabaseClient 必须指向同一实例：否则会话/令牌会在两份客户端之间不同步
+    expect(required).toBe(getSupabaseClient())
+    expect(createClientMock).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('连接自检 checkSupabaseConnection', () => {
@@ -238,5 +249,86 @@ describe('读取服务端开启的登录方式 fetchAuthProviders', () => {
 
     expect(await fetchAuthProviders()).toBeNull()
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('配置读取与超时保护的边界情况', () => {
+  beforeEach(() => {
+    vi.stubEnv('VITE_SUPABASE_URL', 'https://demo.supabase.co')
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key')
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  /** 永不返回、只在收到 abort 信号时拒绝的 fetch 替身（配合假时钟测超时，不产生真实等待） */
+  function hangingFetch() {
+    return vi.fn(
+      (_url: string, init?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () =>
+            reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+          )
+        }),
+    )
+  }
+
+  it('环境变量键根本不存在（不是空串）时同样按未配置处理，不抛错', () => {
+    const env = import.meta.env as Record<string, unknown>
+    const had = Object.prototype.hasOwnProperty.call(env, 'VITE_SUPABASE_URL')
+    try {
+      // .env.local 里只写了 anon key 的情况：这个键根本不存在，读出来是 undefined 而不是 ''
+      delete env.VITE_SUPABASE_URL
+      expect(env.VITE_SUPABASE_URL).toBeUndefined()
+
+      expect(readSupabaseEnv().url).toBe('')
+      expect(isSupabaseConfigured()).toBe(false)
+      expect(getSupabaseClient()).toBeNull()
+
+      // 反过来只写了 url、没写 key：同样不许半配置状态下白屏
+      env.VITE_SUPABASE_URL = 'https://demo.supabase.co'
+      delete env.VITE_SUPABASE_ANON_KEY
+      expect(readSupabaseEnv().anonKey).toBe('')
+      expect(isSupabaseConfigured()).toBe(false)
+    } finally {
+      if (had) env.VITE_SUPABASE_URL = 'https://demo.supabase.co'
+      else delete env.VITE_SUPABASE_URL
+    }
+  })
+
+  it('探测登录方式超时（8 秒）时返回 null，不能让设置页一直转圈', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', hangingFetch())
+
+    const pending = fetchAuthProviders(8000)
+    await vi.advanceTimersByTimeAsync(8000)
+
+    // 「问不到」按「未知」处理：按钮照常显示，比永远 loading 好
+    await expect(pending).resolves.toBeNull()
+  })
+
+  it('连接自检超时时明确提示「请求超时」，而不是含糊地说地址抄错了', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', hangingFetch())
+
+    const pending = checkSupabaseConnection(8000)
+    await vi.advanceTimersByTimeAsync(8000)
+    const result = await pending
+
+    expect(result.ok).toBe(false)
+    expect(result.message).toContain('超时')
+    expect(result.detail).toContain('/auth/v1/health')
+  })
+
+  it('/auth/v1/settings 没有 external 字段时按「邮箱可用、GitHub 未开」处理', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) })),
+    )
+
+    // 老版本 Supabase 不返回 external：此时判定成「邮箱不可用」会让登录页没有任何登录方式
+    expect(await fetchAuthProviders()).toEqual({ email: true, github: false })
   })
 })

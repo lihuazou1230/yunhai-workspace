@@ -166,4 +166,15 @@ describe('extractJson（从模型回复里抽 JSON）', () => {
     expect(extractJson('')).toBeNull()
     expect(extractJson('   ')).toBeNull()
   })
+
+  it('围栏里不是合法 JSON 时返回 null（模型把解释写进了代码块）', () => {
+    // 剥掉 ```json 之后仍然是自然语言：不能再往后猜，直接判为「没抽到」
+    expect(extractJson('```json\n{这里其实是解释，不是 JSON}\n```')).toBeNull()
+    expect(extractJson('```\n{也不是}\n```')).toBeNull()
+  })
+
+  it('花括号之间不是合法 JSON 时返回 null（避免把散文里的括号当成结果）', () => {
+    expect(extractJson('结果是 {不是 JSON} 大概吧')).toBeNull()
+    expect(extractJson('{1, 2, 3}')).toBeNull()
+  })
 })

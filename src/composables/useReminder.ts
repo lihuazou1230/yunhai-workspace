@@ -193,7 +193,14 @@ export function useReminder(options: UseReminderOptions): UseReminderReturn {
 
   // ---- 自动扫描 ----
   if (options.autoScan !== false) {
-    useIntervalFn(scan, REMINDER_SCAN_INTERVAL, { immediate: false })
+    /**
+     * 注意 `immediate: true`（默认值）不能省成 `false`：
+     * useIntervalFn 的 `immediate` 控制的是「是否自动调用 resume()」，
+     * 传 false 只是不立刻启动 —— 定时器根本不会被创建（返回的 resume 我们也没接住），
+     * 于是规划要求的「30 秒一轮扫描」会变成死代码，只剩挂载/回前台/focus 三个时机。
+     * `immediateCallback: false` 才是「启动定时器但先不回调」，首轮由下面那行显式触发。
+     */
+    useIntervalFn(scan, REMINDER_SCAN_INTERVAL, { immediate: true, immediateCallback: false })
     useEventListener(document, 'visibilitychange', () => {
       if (document.visibilityState === 'visible') scan()
     })

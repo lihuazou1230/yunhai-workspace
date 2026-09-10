@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { addDays, todayKey } from './dateFormatter'
 import {
@@ -206,5 +206,33 @@ describe('streak', () => {
     const info = computeStreak(doneRun('w', '2026-09-14', 2), { now: NOW, weekGoal: 0 })
     expect(info.weekGoal).toBe(1)
     expect(info.weekRate).toBe(100)
+  })
+
+  it('进行中的任务与「已完成但没有完成时间」的历史数据都不参与统计', () => {
+    // 若把这些也算进去，连续天数会被算成断档或虚增——统计口径必须只认 completedAt
+    const todos = [
+      doneOn('a', '2026-09-15'),
+      doneOn('b', '2026-09-14'),
+      todo({ id: 'c' }),
+      todo({ id: 'd', status: 'completed' }),
+    ]
+    const info = computeStreak(todos, { now: NOW })
+
+    expect(info.current).toBe(2)
+    expect(info.best).toBe(2)
+    expect(info.weekCompleted).toBe(2)
+  })
+
+  it('不传 now 时以系统当前时间为基准（组件里的默认调用路径）', () => {
+    const todos = doneRun('a', '2026-09-13', 3)
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(NOW)
+      const info = computeStreak(todos)
+      expect(info.current).toBe(3)
+      expect(info.weekCompleted).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

@@ -65,6 +65,15 @@ export const useTodoStore = defineStore('todo', () => {
   const keyword = ref('')
   /** `filter === 'date'` 时要看的日期键（迷你月历点某天跳过来） */
   const filterDate = ref<string | null>(null)
+  /**
+   * 「今天」的**响应式副本**。
+   *
+   * 为什么不让各个 computed 直接调 `todayKey()`：那样 snooze 的「到期自动回归」就只会在
+   * **有任务写入**时才重算（computed 依赖里只有 todos）——页面开着一整夜、第二天回来，
+   * 已到期的任务仍会被当成 snoozed 藏着。把它做成响应式状态、由 App.vue 定时/回前台刷新，
+   * 「今天」才会自己走。
+   */
+  const today = ref(todayKey())
   /** 是否处于多选模式（批量操作；运行时） */
   const selectionMode = ref(false)
   /** 已选中的任务 id（多选；运行时） */
@@ -97,14 +106,16 @@ export const useTodoStore = defineStore('todo', () => {
   const visibleTodos = computed<Todo[]>(() => liveTodos.value.filter((t) => t.archived !== true))
 
   /** snooze 中的任务（已隐藏视图用） */
-  const snoozedTodos = computed<Todo[]>(() => liveTodos.value.filter((t) => isSnoozed(t)))
+  const snoozedTodos = computed<Todo[]>(() =>
+    liveTodos.value.filter((t) => isSnoozed(t, today.value)),
+  )
 
   /** 当前视图对应的基础集合 */
   const listBaseTodos = computed<Todo[]>(() => {
     if (listView.value === 'archived') return archivedTodos.value
     if (listView.value === 'snoozed') return snoozedTodos.value
     // 主列表：排除归档 + 排除 snooze 中（snoozedUntil 到期当天自动回归）
-    return visibleTodos.value.filter((t) => !isSnoozed(t))
+    return visibleTodos.value.filter((t) => !isSnoozed(t, today.value))
   })
 
   /** 过滤 + 搜索后的展示列表（按优先级高→低、截止日期早→晚排序；手动排序后不再重排） */
@@ -123,9 +134,9 @@ export const useTodoStore = defineStore('todo', () => {
 
   /** 今日聚焦（My Day）：置顶 或 今日到期 的任务（snooze 中的不出现） */
   const myDayTodos = computed<Todo[]>(() => {
-    const today = todayKey()
+    const current = today.value
     return visibleTodos.value.filter(
-      (t) => !isSnoozed(t, today) && (t.pinned || (t.dueDate && t.dueDate === today)),
+      (t) => !isSnoozed(t, current) && (t.pinned || (t.dueDate && t.dueDate === current)),
     )
   })
 
@@ -411,6 +422,15 @@ export const useTodoStore = defineStore('todo', () => {
     todos.value = todos.value.map((t) => (t.id === id ? unsnoozeTodo(t) : t))
   }
 
+  /**
+   * 校准「今天」（由 App.vue 定时与回前台调用）。
+   * 跨零点后 snooze 到期的任务会自动回到主列表 —— 不需要任何任务写入来触发重算。
+   */
+  function refreshToday() {
+    const next = todayKey()
+    if (next !== today.value) today.value = next
+  }
+
   /** 批量召回 */
   function bulkUnsnooze(ids: string[]) {
     const set = new Set(ids)
@@ -659,6 +679,7 @@ export const useTodoStore = defineStore('todo', () => {
     manualOrder,
     listView,
     tagFilter,
+    today,
     // getters
     liveTodos,
     archivedTodos,
@@ -707,6 +728,7 @@ export const useTodoStore = defineStore('todo', () => {
     snooze,
     unsnooze,
     bulkUnsnooze,
+    refreshToday,
     // 云同步
     syncState,
     syncUserId,

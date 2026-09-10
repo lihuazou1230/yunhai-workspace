@@ -175,6 +175,46 @@ describe('任务行映射', () => {
     expect(restored.subtasks).toEqual([])
     expect(restored.status).toBe('active')
   })
+
+  it('没有截止日期时写 null（jsonb 里必须显式清空，不能整个键消失）', () => {
+    const row = toRemoteRow('u1', { todo: todo({ dueDate: undefined }), position: 0 })
+
+    // 键消失与值为 null 在「云端为准」的覆盖语义下是两回事：前者会让旧日期残留
+    expect(row.payload).toHaveProperty('dueDate', null)
+    expect(Object.keys(row.payload ?? {})).toContain('dueDate')
+  })
+
+  it('云端 title 不是字符串（旧版本写入 null）时回落空串，不把 null 塞进任务模型', () => {
+    const restored = fromRemoteRow({
+      id: 't1',
+      title: null as unknown as string,
+      completed: false,
+      payload: {},
+      sort_order: 0,
+    })
+
+    // 模板里直接插值 null 会渲染成 "null"
+    expect(restored.title).toBe('')
+  })
+
+  it('子任务的 id/title 不是字符串时整条丢掉（脏数据不能进 UI）', () => {
+    const restored = fromRemoteRow({
+      id: 't1',
+      title: '任务',
+      completed: false,
+      sort_order: 0,
+      payload: {
+        subtasks: [
+          { id: 3, title: '数字 id' },
+          { id: 's2', title: 5 },
+          { id: 's3', title: '正常', completed: true },
+        ],
+      },
+    })
+
+    // 少了 id 就没法去重/切换完成态，宁可丢掉这一条，也不能让列表出现不可操作的行
+    expect(restored.subtasks).toEqual([{ id: 's3', title: '正常', completed: true }])
+  })
 })
 
 describe('云端读写', () => {
@@ -221,6 +261,29 @@ describe('云端读写', () => {
       from: vi.fn(() => queryStub({ data: null, error: { message: 'permission denied' } })),
     }
     await expect(fetchRemoteTodos('u1')).rejects.toMatchObject({ message: 'permission denied' })
+  })
+
+  it('云端返回 data 为 null（表刚建好 / RLS 拦掉全部行）时按空列表处理', async () => {
+    // data 为 null 而 error 也为 null 是 supabase 的合法返回，
+    // 直接 .map 会抛 TypeError，把「云端还没有任务」误报成同步故障
+    holder.client = { from: vi.fn(() => queryStub({ data: null, error: null })) }
+
+    await expect(fetchRemoteTodos('u1')).resolves.toEqual([])
+  })
+
+  it('写入 / 删除 / 清空失败都抛错（调用方据此保留离线队列，下次重试）', async () => {
+    holder.client = {
+      from: vi.fn(() => queryStub({ data: null, error: { message: 'upsert failed' } })),
+    }
+    await expect(pushRemoteTodos('u1', [{ todo: todo(), position: 0 }])).rejects.toMatchObject({
+      message: 'upsert failed',
+    })
+
+    holder.client = {
+      from: vi.fn(() => queryStub({ data: null, error: { message: 'delete failed' } })),
+    }
+    await expect(deleteRemoteTodos(['t1'])).rejects.toMatchObject({ message: 'delete failed' })
+    await expect(clearRemoteTodos('u1')).rejects.toMatchObject({ message: 'delete failed' })
   })
 
   it('推送：upsert 到 todos 表并带 user_id', async () => {

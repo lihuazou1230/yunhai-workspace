@@ -34,4 +34,16 @@ describe('拖拽索引换算（SortableJS → store.moveTodo）', () => {
   it('空列表不崩', () => {
     expect(resolveSortMove([], 0, 1)).toBeNull()
   })
+
+  it('列表里出现重复 id 时不产生移动（插到自己前面等于原地不动）', () => {
+    // 导入 / 从云端恢复的数据可能带着重复 id，此时 moved 与 target 是同一条任务
+    expect(resolveSortMove([{ id: 'dup' }, { id: 'dup' }], 0, 1)).toBeNull()
+    expect(resolveSortMove([{ id: 'dup' }, { id: 'dup' }], 1, 0)).toBeNull()
+  })
+
+  it('长度失真 / 带空洞的数组（下标取不到元素）安全返回 null 而不是崩', () => {
+    // 过滤后与 SortableJS 的索引不同步时会读到空洞，这里必须挡住而不是抛 undefined.id
+    const sparse = new Array<{ id: string }>(3)
+    expect(resolveSortMove(sparse, 0, 2)).toBeNull()
+  })
 })

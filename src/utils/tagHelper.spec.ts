@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Todo } from '@/types/todo'
 import {
@@ -169,5 +169,38 @@ describe('Snooze 纯函数', () => {
     // 2026-09-14 是周一
     const options = snoozeOptions(new Date(2026, 8, 14))
     expect(options.find((o) => o.key === 'nextMonday')?.date).toBe('2026-09-21')
+  })
+})
+
+describe('标签 id 生成的兜底（crypto 不可用时）', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+  })
+
+  it('crypto 整个缺失时退化成时间戳 + 随机串，同一毫秒内也不撞 id', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 8, 10, 9, 0, 0))
+    // 老 Safari / http 内网访问（非安全上下文）里没有 globalThis.crypto
+    vi.stubGlobal('crypto', undefined)
+
+    const a = createTag({ name: '  工作  ', color: 'sky' })
+    const b = createTag({ name: '生活', color: 'rose' })
+
+    expect(a.id.startsWith(`tag-${Date.now()}-`)).toBe(true)
+    expect(a.id).toMatch(/^tag-\d+-[a-z0-9]{1,8}$/)
+    // 连续建两个标签必须拿到不同 id，否则列表的 :key 会互相顶掉
+    expect(b.id).not.toBe(a.id)
+    // 走兜底路径同样要保留「去空白」等业务语义
+    expect(a.name).toBe('工作')
+    expect(b.color).toBe('rose')
+  })
+
+  it('crypto 存在但没有 randomUUID 时也走兜底（并非所有实现都带这个方法）', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 8, 10, 9, 0, 0))
+    vi.stubGlobal('crypto', { getRandomValues: () => new Uint8Array(1) })
+
+    expect(createTag({ name: '工作', color: 'sky' }).id).toMatch(/^tag-\d+-[a-z0-9]{1,8}$/)
   })
 })

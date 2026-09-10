@@ -287,4 +287,73 @@ describe('fetchWeatherForecast', () => {
     await fetchWeatherForecast('苏州', { force: true })
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })
+
+  it('预报缓存读取抛错（隐私模式 SecurityError）时当作没有缓存，照常走网络', async () => {
+    vi.stubEnv('VITE_AMAP_KEY', 'test-key')
+    const fetchMock = vi.fn(async () => mockJson(FORECAST_OK))
+    vi.stubGlobal('fetch', fetchMock)
+
+    // 隐私模式下 localStorage 存在但一读就抛；缓存只是省额度，读不到不该让天气整块挂掉
+    const spy = vi.spyOn(window.localStorage, 'getItem').mockImplementation(() => {
+      throw new Error('SecurityError: localStorage is disabled')
+    })
+    try {
+      expect(() => localStorage.getItem(WEATHER_FORECAST_STORAGE_KEY)).toThrow('SecurityError')
+
+      const forecast = await fetchWeatherForecast('110000')
+
+      // 读不到缓存 = 当作没有缓存，本次照常走网络并把结果返回
+      expect(forecast.days).toHaveLength(4)
+      expect(forecast.city).toBe('北京市')
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('预报缓存是「合法 JSON 但不是对象」（如 null）时当作没有缓存，照常请求', async () => {
+    vi.stubEnv('VITE_AMAP_KEY', 'test-key')
+    // 手工改坏 / 旧版本写进去的格式，不能让它把整条预报链路带崩
+    localStorage.setItem(WEATHER_FORECAST_STORAGE_KEY, 'null')
+    const fetchMock = vi.fn(async () => mockJson(FORECAST_OK))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const forecast = await fetchWeatherForecast('110000')
+
+    expect(forecast.days).toHaveLength(4)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('返回体缺 province / city / reporttime 时逐项兜底，天数照常可用', async () => {
+    vi.stubEnv('VITE_AMAP_KEY', 'test-key')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        mockJson({ status: '1', info: 'OK', infocode: '10000', forecasts: [{ casts: [CAST] }] }),
+      ),
+    )
+
+    const forecast = await fetchWeatherForecast('110000')
+
+    // 省份缺失给 undefined（模板里整块不渲染），城市缺失给空串（不要渲染出 "undefined"）
+    expect(forecast.province).toBeUndefined()
+    expect(forecast.city).toBe('')
+    expect(forecast.reportTime).toBeUndefined()
+    expect(forecast.days).toHaveLength(1)
+  })
+
+  it('没有 window（SSR / 非浏览器宿主）时预报缓存整体降级为不读不写，功能不受影响', async () => {
+    vi.stubEnv('VITE_AMAP_KEY', 'test-key')
+    const fetchMock = vi.fn(async () => mockJson(FORECAST_OK))
+    vi.stubGlobal('fetch', fetchMock)
+    // 缓存只是省额度：拿不到 localStorage 时必须静默降级，而不是抛 ReferenceError
+    vi.stubGlobal('window', undefined)
+
+    const forecast = await fetchWeatherForecast('110000')
+
+    expect(forecast.days).toHaveLength(4)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    vi.unstubAllGlobals()
+  })
 })

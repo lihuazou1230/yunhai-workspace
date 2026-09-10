@@ -161,8 +161,61 @@ describe('sendWxPusherViaProxy', () => {
     })
   })
 
+  it('服务端只回了 message 字段（不是我们的 { error } 协议）：照样透传，不丢信息', async () => {
+    // 平台层 / relay 层自造的错误体用的是 message，丢掉它就只剩一句无信息量的「稍后重试」
+    installClient({
+      data: null,
+      error: invokeError(502, { message: 'WxPusher 网关繁忙，请稍后重试' }),
+    })
+
+    expect(await sendWxPusherViaProxy(payload)).toEqual({
+      ok: false,
+      error: 'WxPusher 网关繁忙，请稍后重试',
+    })
+
+    // message 是空白串时不能当成有效文案（否则 Toast 会弹出一个空框）
+    installClient({ data: null, error: invokeError(502, { message: '   ' }) })
+    expect(await sendWxPusherViaProxy(payload)).toEqual({
+      ok: false,
+      error: NOTIFY_MESSAGES.unavailable,
+    })
+  })
+
   it('网络层失败（FunctionsFetchError）：给「暂时不可用」而不是英文原文', async () => {
     installClient({ data: null, error: fetchError() })
+    expect(await sendWxPusherViaProxy(payload)).toEqual({
+      ok: false,
+      error: NOTIFY_MESSAGES.unavailable,
+    })
+  })
+
+  it('没有 HTTP 状态但错误文案里写着 not found 时，判为「函数未部署」', async () => {
+    // 不同版本的平台网关只给英文文案、不给 context.status，
+    // 这时只能靠文案判断，否则用户看到的是一句没用的「稍后重试」
+    installClient({
+      data: null,
+      error: Object.assign(new Error('Function not found'), { name: 'FunctionsRelayError' }),
+    })
+
+    expect(await sendWxPusherViaProxy(payload)).toEqual({
+      ok: false,
+      error: NOTIFY_MESSAGES.notDeployed,
+    })
+  })
+
+  it('抛出来的根本不是 Error（字符串）时也给中文兜底，不把原始值抛给用户', async () => {
+    installClient(() => Promise.reject('relay failed'))
+
+    expect(await sendWxPusherViaProxy(payload)).toEqual({
+      ok: false,
+      error: NOTIFY_MESSAGES.unavailable,
+    })
+  })
+
+  it('错误对象连 message 字段都没有（被序列化过的错误）时也落到「暂时不可用」', async () => {
+    // 只能靠 name 判断；拼文案时不能读出一个 undefined 塞进 Toast
+    installClient({ data: null, error: { name: 'FunctionsFetchError' } })
+
     expect(await sendWxPusherViaProxy(payload)).toEqual({
       ok: false,
       error: NOTIFY_MESSAGES.unavailable,

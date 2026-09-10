@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Todo } from '@/types/todo'
 import {
@@ -48,6 +48,30 @@ describe('todoSignature', () => {
 
   it('顺序变化也算变化（拖拽排序要能同步）', () => {
     expect(todoSignature(todo(), 1)).not.toBe(todoSignature(todo(), 0))
+  })
+
+  /**
+   * 第六阶段新增的字段必须全部参与指纹。
+   * 为什么单列一条：这些字段曾经漏在指纹之外，导致「只归档」「只 snooze」「只改标签」
+   * 在差异检测里看不见 —— 本机永远不推送，A 设备归档的任务在 B 设备还是「进行中」。
+   * 这条用例就是那次缺陷的回归保护：谁再把新字段漏掉，这里会立刻红。
+   */
+  it('归档 / 标签 / snooze / 提醒相关字段都参与指纹（漏掉就会同步不出去）', () => {
+    const base = todoSignature(todo(), 0)
+
+    expect(todoSignature(todo({ tags: ['work'] }), 0)).not.toBe(base)
+    expect(todoSignature(todo({ archived: true }), 0)).not.toBe(base)
+    expect(todoSignature(todo({ archivedAt: '2026-09-10T00:00:00.000Z' }), 0)).not.toBe(base)
+    expect(todoSignature(todo({ snoozedUntil: '2026-09-20' }), 0)).not.toBe(base)
+    expect(todoSignature(todo({ reminderAt: '2026-09-10T09:00:00.000Z' }), 0)).not.toBe(base)
+    // 「关掉这条任务的提醒」同样是用户可见的改动，不参与指纹就会在别的设备上继续提醒
+    expect(todoSignature(todo({ reminderOff: true }), 0)).not.toBe(base)
+  })
+
+  it('标签顺序不影响指纹（只是拖了顺序不该多推一次）', () => {
+    expect(todoSignature(todo({ tags: ['a', 'b'] }), 0)).toBe(
+      todoSignature(todo({ tags: ['b', 'a'] }), 0),
+    )
   })
 })
 
@@ -159,6 +183,10 @@ describe('migrationKey', () => {
 })
 
 describe('isOnline', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('跟随 navigator.onLine（浏览器断网时同步进入离线降级）', () => {
     expect(isOnline()).toBe(true)
 
@@ -167,5 +195,22 @@ describe('isOnline', () => {
 
     Object.defineProperty(navigator, 'onLine', { configurable: true, value: true })
     expect(isOnline()).toBe(true)
+  })
+
+  it('没有 navigator 时按在线处理（SSR / 纯函数单测环境不误判为离线）', () => {
+    vi.stubGlobal('navigator', undefined)
+    expect(isOnline()).toBe(true)
+  })
+})
+
+describe('子任务参与同步指纹', () => {
+  it('子任务勾选状态变化就改变指纹（完成的子步骤必须能同步到云端）', () => {
+    const undone = todo({ subtasks: [{ id: 's1', title: 'a', completed: false }] })
+    const done = todo({ subtasks: [{ id: 's1', title: 'a', completed: true }] })
+
+    expect(todoSignature(done, 0)).not.toBe(todoSignature(undone, 0))
+    // 指纹里存 1/0 而不是 true/false，跨设备比较时不会因为布尔序列化差异误判
+    expect(todoSignature(done, 0)).toContain('[["s1","a",1]]')
+    expect(diffTodos(snapshotTodos([undone]), [done]).upserts[0].todo.id).toBe('t1')
   })
 })

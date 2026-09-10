@@ -63,6 +63,23 @@ describe('tagStore', () => {
     expect(store.getTag(a.id)?.name).toBe('工作')
   })
 
+  it('只改名字或只改颜色时，另一个字段必须原样保留', () => {
+    const store = useTagStore()
+    const tag = store.addTag({ name: '工作', color: 'sky' })!
+
+    // 只改名（设置页的改名输入框）：颜色不能被顺手重置
+    expect(store.updateTag(tag.id, { name: '职场' })).toBe(true)
+    expect(store.getTag(tag.id)).toMatchObject({ name: '职场', color: 'sky' })
+
+    // 只改色（调色板）：名字不能被清掉
+    expect(store.updateTag(tag.id, { color: 'violet' })).toBe(true)
+    expect(store.getTag(tag.id)).toMatchObject({ name: '职场', color: 'violet' })
+
+    // 名字前后空白会被去掉（否则重名判定会出现「工作」与「工作 」两个标签）
+    expect(store.updateTag(tag.id, { name: '  工作  ' })).toBe(true)
+    expect(store.getTag(tag.id)?.name).toBe('工作')
+  })
+
   it('改不存在的标签返回 false', () => {
     const store = useTagStore()
     expect(store.updateTag('nope', { name: 'x' })).toBe(false)
@@ -85,5 +102,48 @@ describe('tagStore', () => {
 
     expect(store.getTags([b.id, 'missing', a.id]).map((t) => t.name)).toEqual(['B', 'A'])
     expect(store.getTags([])).toEqual([])
+  })
+
+  it('修改一个标签不会碰到其它标签（map 里没命中的原样返回）', () => {
+    const store = useTagStore()
+    const a = store.addTag({ name: '工作', color: 'sky' })!
+    const b = store.addTag({ name: '生活', color: 'rose' })!
+    const beforeB = { ...b }
+
+    expect(store.updateTag(a.id, { name: '职场' })).toBe(true)
+
+    // 改一个标签的名字/颜色，其它标签（以及它们的 id）必须一模一样
+    expect(store.getTag(b.id)).toEqual(beforeB)
+    expect(store.getTag(a.id)?.name).toBe('职场')
+    expect(store.tagCount).toBe(2)
+  })
+
+  it('clearTags 清空标签表并落盘（标签没了≠任务没了，任务上的引用由调用方摘）', async () => {
+    const store = useTagStore()
+    store.addTag({ name: '工作', color: 'sky' })
+    store.addTag({ name: '生活', color: 'rose' })
+
+    store.clearTags()
+
+    expect(store.tags).toEqual([])
+    expect(store.tagCount).toBe(0)
+    // 清空后重建同名标签不会被「重名」挡住（重名只看当前标签表）
+    expect(store.addTag({ name: '工作', color: 'sky' })).not.toBeNull()
+
+    await nextTick()
+    expect(JSON.parse(localStorage.getItem(TAG_STORAGE_KEY)!)).toHaveLength(1)
+  })
+
+  it('reset 与 clearTags 同口径：标签没有「默认项」，恢复默认只能是清空', async () => {
+    const store = useTagStore()
+    store.addTag({ name: '工作', color: 'sky' })
+    store.addTag({ name: '生活', color: 'rose' })
+
+    store.reset()
+
+    expect(store.tags).toEqual([])
+    expect(store.tagCount).toBe(0)
+    await nextTick()
+    expect(JSON.parse(localStorage.getItem(TAG_STORAGE_KEY)!)).toEqual([])
   })
 })

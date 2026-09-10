@@ -107,6 +107,14 @@ describe('toAuthUser（Supabase user → 应用用户模型）', () => {
     expect(toAuthUser({ id: '' })).toBeNull()
   })
 
+  it('email 不是字符串（Supabase 会给 null）时归一为空串，不把 null 塞进用户模型', () => {
+    const user = toAuthUser({ id: 'u1', email: null })
+
+    expect(user?.email).toBe('')
+    // 邮箱前缀这条回退也因此拿不到东西，最终落到「未命名用户」
+    expect(user?.displayName).toBe('未命名用户')
+  })
+
   it('emailPrefix 处理异常邮箱', () => {
     expect(emailPrefix('zhang@example.com')).toBe('zhang')
     expect(emailPrefix('no-at-sign')).toBe('no-at-sign')
@@ -142,9 +150,31 @@ describe('describeAuthError（英文报错 → 中文文案）', () => {
     expect(describeAuthError(new SupabaseUnavailableError())).toContain('.env.local')
   })
 
+  it('邮箱格式与「关闭注册」两句提示都要能翻译（注册失败时用户最容易懵的两种）', () => {
+    // 同一句话 GoTrue 有多套措辞，两个关键词都得认
+    expect(describeAuthError(new Error('Unable to validate email address: invalid format'))).toBe(
+      '邮箱格式不正确',
+    )
+    expect(describeAuthError(new Error('Invalid email'))).toBe('邮箱格式不正确')
+
+    expect(describeAuthError(new Error('Signups not allowed for this instance'))).toBe(
+      '当前项目已关闭注册，请使用已有账号登录',
+    )
+    expect(describeAuthError(new Error('Signup is disabled'))).toBe(
+      '当前项目已关闭注册，请使用已有账号登录',
+    )
+  })
+
   it('未知错误原样返回，空错误给兜底文案', () => {
     expect(describeAuthError(new Error('boom'))).toBe('boom')
     expect(describeAuthError(null)).toBe('认证失败，请稍后重试')
+  })
+
+  it('原始错误是字符串或没有 message 的对象时不能二次抛错', () => {
+    // SDK / fetch polyfill 有时直接把错误当字符串抛；读 .message 会得到 undefined
+    expect(describeAuthError('Invalid login credentials')).toBe('邮箱或密码不正确')
+    expect(describeAuthError({})).toBe('认证失败，请稍后重试')
+    expect(describeAuthError(new Error(''))).toBe('认证失败，请稍后重试')
   })
 })
 
@@ -241,6 +271,40 @@ describe('认证动作（已配置）', () => {
     expect(client.auth.signInWithOAuth).toHaveBeenCalledWith({
       provider: 'github',
       options: { redirectTo: 'https://app.example.com/login' },
+    })
+  })
+
+  it('不传 redirectTo 时默认回跳当前页面（location.href）', async () => {
+    const result = await signInWithGitHub()
+
+    expect(result.ok).toBe(true)
+    const client = holder.client as ReturnType<typeof fakeClient>
+    // 用 location.href 而不是 origin：GitHub Pages 部署在 /<repo>/ 子路径下也能回到原页面
+    expect(client.auth.signInWithOAuth).toHaveBeenCalledWith({
+      provider: 'github',
+      options: { redirectTo: location.href },
+    })
+  })
+
+  it('GitHub OAuth 返回错误（provider 没开后端、或网络不通）时返回失败结果而不是抛错', async () => {
+    holder.client = fakeClient({
+      signInWithOAuth: vi.fn(async () => ({ data: {}, error: { message: 'Failed to fetch' } })),
+    })
+
+    expect(await signInWithGitHub()).toEqual({
+      ok: false,
+      message: '网络不可用，请检查网络后重试',
+    })
+  })
+
+  it('退出登录接口报错时也返回失败结果（本地退不退由 store 决定）', async () => {
+    holder.client = fakeClient({
+      signOut: vi.fn(async () => ({ data: {}, error: { message: 'Failed to fetch' } })),
+    })
+
+    expect(await signOutUser()).toEqual({
+      ok: false,
+      message: '网络不可用，请检查网络后重试',
     })
   })
 
@@ -445,5 +509,46 @@ describe('认证动作（已配置）', () => {
     expect(client.auth.updateUser).toHaveBeenCalledWith({
       data: { avatar_url: 'https://x/a.webp?v=2' },
     })
+  })
+
+  it('写头像元数据失败时返回失败结果，让组件回滚本地展示', async () => {
+    holder.client = fakeClient({
+      updateUser: vi.fn(async () => ({
+        data: {},
+        error: { message: 'email rate limit exceeded' },
+      })),
+    })
+
+    expect(await updateAvatarMetadata('https://x/a.webp?v=2')).toEqual({
+      ok: false,
+      message: '操作过于频繁，请稍后再试',
+    })
+  })
+
+  it('重置密码接口自身抛错（断网 / SDK 异常）也返回失败结果，不把异常抛给组件', async () => {
+    // 组件层没有 try/catch，「不抛异常」是这个模块的契约：抛出去就是一屏白
+    holder.client = fakeClient({
+      resetPasswordForEmail: vi.fn(async () => {
+        throw new TypeError('Failed to fetch')
+      }),
+    })
+
+    const result = await sendPasswordReset('zhang@example.com')
+
+    expect(result.ok).toBe(false)
+    expect(result.message).toBe('网络不可用，请检查网络后重试')
+  })
+
+  it('改密接口自身抛错时同样兜住，并给出可展示的中文', async () => {
+    holder.client = fakeClient({
+      updateUser: vi.fn(async () => {
+        throw new TypeError('NetworkError when attempting to fetch resource')
+      }),
+    })
+
+    const result = await updateUserPassword('newpw123456')
+
+    expect(result.ok).toBe(false)
+    expect(result.message).toBe('网络不可用，请检查网络后重试')
   })
 })

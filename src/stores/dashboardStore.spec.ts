@@ -239,4 +239,29 @@ describe('dashboardStore', () => {
     expect(remountStore().hidden).toEqual(['my-day'])
     expect(remountStore().visibleCards).not.toContain('my-day')
   })
+
+  it('setCustomized 直接切换布局模式：只换模式，用户摆好的顺序与隐藏状态都留着', () => {
+    const store = useDashboardStore()
+    store.moveCard('link-dock', 'earnings')
+    store.toggleHidden('weather')
+    const order = [...store.order]
+
+    // 切回「精选 bento」模式
+    store.setCustomized(false)
+    expect(store.customized).toBe(false)
+    // 关掉自定义只是不再自动整理布局，不是「重置布局」——数据必须原样保留
+    expect(store.order).toEqual(order)
+    expect(store.hidden).toEqual(['weather'])
+
+    store.setCustomized(true)
+    expect(store.customized).toBe(true)
+  })
+
+  it('setCustomized 的取值会落盘（刷新后仍是用户选的那个模式）', async () => {
+    useDashboardStore().setCustomized(true)
+    await nextTick()
+
+    expect(readStored<boolean>(DASHBOARD_CUSTOMIZED_KEY)).toBe(true)
+    expect(remountStore().customized).toBe(true)
+  })
 })

@@ -185,6 +185,14 @@ describe('collectDueReminders（扫描 + 补发）', () => {
     // 第二次的时间点还没到，所以这里应当为空（验证不会把第 1 次再发一遍）
     expect(collectDueReminders(list, notified, AT(9, 30))).toEqual([])
   })
+
+  it('另一处已写过更晚的 lastAt（时钟回拨 / 多标签页）时不再重复补发', () => {
+    const list = [todo({ id: '1', dueDate: '2026-09-10' })]
+    // 第 2 次催办的计划时间是 10:00，但记录里已有 11:00 的发送痕迹（系统时间被调过，
+    // 或另一个标签页刚写过）→ 认定这条已经提醒过，宁可少发一次也不骚扰用户
+    const notified = { 1: { count: 1, lastAt: AT(11).toISOString() } }
+    expect(collectDueReminders(list, notified, AT(12))).toEqual([])
+  })
 })
 
 describe('markNotified / pruneNotified', () => {

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   fetchCurrentWeather,
+  getWeatherKey,
   locatePlace,
   normalizeWeather,
   resolveAdcode,
@@ -57,6 +58,34 @@ describe('weatherIcon', () => {
     expect(weatherIcon('晴转小雨')).toBe('🌧️')
     expect(weatherIcon('无法识别的现象')).toBe('🌡️')
   })
+
+  it('沙尘与大风单独成档：北方常见的这两种不该落到「无法识别」', () => {
+    expect(weatherIcon('扬沙')).toBe('🌪️')
+    expect(weatherIcon('浮尘')).toBe('🌪️')
+    expect(weatherIcon('大风')).toBe('💨')
+  })
+
+  it('天气描述缺失（脏数据）时按「无法识别」处理，不抛错', () => {
+    // 上游接口字段完整度不稳定，这里必须兜住，否则一个 undefined 就能让整张天气卡渲染失败
+    expect(weatherIcon(undefined as unknown as string)).toBe('🌡️')
+  })
+})
+
+describe('getWeatherKey（兼容两个环境变量名）', () => {
+  it('VITE_AMAP_KEY 没配时回落到规划文档里的 VITE_WEATHER_KEY', async () => {
+    // 用户照着规划文档配了 VITE_WEATHER_KEY 却提示「未配置 Key」是最容易劝退的一种失败
+    vi.stubEnv('VITE_AMAP_KEY', undefined as unknown as string)
+    vi.stubEnv('VITE_WEATHER_KEY', 'doc-key')
+    expect(getWeatherKey()).toBe('doc-key')
+
+    // 两个都空/都缺才返回 undefined，由 requireKey 抛出标识性错误
+    vi.stubEnv('VITE_WEATHER_KEY', '   ')
+    expect(getWeatherKey()).toBeUndefined()
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(resolveAdcode('苏州')).rejects.toThrow(WEATHER_KEY_MISSING_MESSAGE)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
 })
 
 describe('normalizeWeather', () => {
@@ -78,6 +107,27 @@ describe('normalizeWeather', () => {
     expect(w.temperature).toBe(0)
     expect(w.humidity).toBe(0)
     expect(w.description).toBe('未知')
+  })
+
+  it('字段大面积缺失时逐项兜底：city 退回省份、风向/风力留空、时间回落当前时刻', () => {
+    // 高德在不同接口/地区返回的字段完整度不一致，缺字段绝不能让整条天气挂掉。
+    // 这里刻意传残缺对象：类型上 AmapLive 字段全必填，用参数类型断言表达「运行时可能缺」
+    // （不为测试去放宽 normalizeWeather 的签名）
+    type LiveLike = Parameters<typeof normalizeWeather>[0]
+    const w = normalizeWeather({ province: '北京', weather: '晴' } as LiveLike)
+    expect(w.city).toBe('北京') // 没有 city 就用省份，界面上至少还有地方名
+    expect(w.windDirection).toBeUndefined()
+    expect(w.windPower).toBeUndefined()
+    expect(Math.abs(w.updatedAt - Date.now())).toBeLessThan(5000)
+
+    // 连省份都没有：city 给空串而不是 undefined（模板里直接插值，undefined 会渲染成 "undefined"）
+    expect(normalizeWeather({ weather: '晴' } as LiveLike).city).toBe('')
+  })
+
+  it('reporttime 是解析不了的脏字符串时回落当前时刻，而不是 NaN', () => {
+    const w = normalizeWeather({ ...LIVE, reporttime: '昨天下午' })
+    expect(Number.isNaN(w.updatedAt)).toBe(false)
+    expect(Math.abs(w.updatedAt - Date.now())).toBeLessThan(5000)
   })
 })
 
@@ -197,6 +247,50 @@ describe('locatePlace（逆地理编码，自动定位用）', () => {
     await expect(locatePlace(0, 0)).rejects.toThrow(/无法识别当前位置/)
   })
 
+  it('city 是数组时取第一项（高德文档里该字段既可能是字符串也可能是数组）', async () => {
+    vi.stubEnv('VITE_AMAP_KEY', 'test-key')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        mockJson({
+          status: '1',
+          info: 'OK',
+          infocode: '10000',
+          regeocode: {
+            addressComponent: {
+              province: '浙江省',
+              city: ['杭州市'],
+              district: '西湖区',
+              adcode: '330106',
+            },
+          },
+        }),
+      ),
+    )
+    await expect(locatePlace(30.246, 120.209)).resolves.toMatchObject({ city: '杭州市' })
+
+    // 数组里第一项是空白：归一为 undefined，而不是留下一个空字符串当地名
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        mockJson({
+          status: '1',
+          info: 'OK',
+          infocode: '10000',
+          regeocode: {
+            addressComponent: {
+              province: '浙江省',
+              city: ['  '],
+              district: '西湖区',
+              adcode: '330106',
+            },
+          },
+        }),
+      ),
+    )
+    await expect(locatePlace(30.246, 120.209)).resolves.toMatchObject({ city: undefined })
+  })
+
   it('未配置 Key 时抛出标识性错误', async () => {
     vi.stubEnv('VITE_AMAP_KEY', '')
     await expect(locatePlace(30.246, 120.209)).rejects.toThrow(WEATHER_KEY_MISSING_MESSAGE)
@@ -246,6 +340,19 @@ describe('fetchCurrentWeather', () => {
       vi.fn(async () => mockJson({ status: '0', info: 'SOME_NEW_ERROR', infocode: '99999' })),
     )
     await expect(fetchCurrentWeather('110000')).rejects.toThrow(/SOME_NEW_ERROR.*99999/)
+  })
+
+  it('连 infocode/info 都没给（高德偶发）时也要给一句能看懂的中文错误', async () => {
+    vi.stubEnv('VITE_AMAP_KEY', 'test-key')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => mockJson({ status: '0' })),
+    )
+
+    // 不能抛出「undefined（infocode undefined）」这种把用户当程序员看的文案
+    await expect(fetchCurrentWeather('110000')).rejects.toThrow(
+      '天气查询失败：未知错误（infocode -）',
+    )
   })
 
   it('成功时返回归一化天气数据', async () => {
