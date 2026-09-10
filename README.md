@@ -176,6 +176,7 @@ pnpm build
 
 # 测试 / Lint
 pnpm test
+pnpm test:coverage   # 覆盖率报告（核心逻辑行覆盖目标 ≥ 80%）
 pnpm lint
 ```
 
@@ -525,9 +526,33 @@ GitHub 的已知问题（[actions/deploy-pages#22](https://github.com/actions/de
 - **主题偏好跨设备同步**：目前留在 localStorage，后续可选挂到 `auth.users.user_metadata`（本期不做，不阻塞主线）
 - **冲突解决**：当前是"最后一次写入生效"（last-write-wins），多端同时编辑同一条任务可能互相覆盖；
   更严谨可引入 `updated_at` 版本号做乐观并发控制
-- PWA 离线、键盘快捷键（VueUse `useMagicKeys`）、数据导入导出、命令面板、迷你月历、连续打卡（Streak）
-- 拖拽排序用 `@vueuse/integrations` + `sortablejs`（`useSortable`）：同一套方案既服务任务列表，也服务仪表板卡片排序；换成列表库的好处是**移动端触摸拖拽同样可用**
-- 测试覆盖率提升（当前 **57 个测试文件 / 601 个用例**，覆盖纯函数、store 状态流转、路由守卫与关键组件交互）
+- **提醒的"关页面也能收"**：已完成到 Edge Function 代理这一层，但服务端定时扫描（Supabase pg_cron）
+  只在文档里给了方案没落地——它还需要把 UID 上服务端、service_role key 入 Vault 两个前置条件
+- PWA 离线、数据导入导出、命令面板完整版（聚合搜索是其雏形）、Bing 每日壁纸
+- **功能截图**：README 里的截图小节仍缺——它需要真实运行的界面截图（含暗色模式对比），
+  不该用占位图凑数，等部署到 Pages 后补
+- **法定节假日数据每年初需更新**（`src/data/holidays.json`，来源见 `src/utils/holidays.ts` 头注释）
+
+## 致谢
+
+- **设计灵感来源：[薪跳 PayDance](https://github.com/MrBaoboer/PayDance)**（AGPL-3.0）。
+  赚钱秒表的「薪资模式 / 状态机文案 / 诚实免责声明」等产品设计参考了它，但**没有使用其任何代码**，
+  本项目为自研实现，许可证仍为 MIT。
+- 生产热力图与迷你月历的视觉语言参考了 GitHub 贡献图与 Finexy 风格仪表板。
+
+## 与规划文档的已知差异
+
+施工过程中有几处**有意偏离**规划原文，都有具体理由；还有一处是规划写错了、按官方文档纠正：
+
+| 规划原文 | 实际实现 | 理由 |
+|---|---|---|
+| `layouts/MobileLayout.vue` | 无此文件，移动端由 `components/organisms/MobileBottomNav.vue` 承担 | 移动端与桌面端共用同一个 `DefaultLayout`，只是底部导航换成 bottom nav；再拆一个布局文件会带来两份几乎相同的骨架 |
+| `Login.vue` 用 ElForm 校验 | 自研 `BaseInput` + `utils/validation.ts` 纯函数校验 | 校验规则要复用到 TodoForm/ResetPassword，抽成纯函数才能单测；ElForm 的规则是运行时配置，测起来反而绕 |
+| 头像「方形裁剪框 + 圆形遮罩」 | 圆形引导环（无遮罩压暗），导出方形 256×256 + CSS `rounded-full` 显示 | 遮罩压暗后很难看清选区外的构图；导出方形是为了将来支持非圆形头像展示，圆形只在展示层做 |
+| `reminderAt`「默认策略自动生成」 | **不自动写入**，为空时由 `dueDate` 推导出默认提醒时间 | 可推导的字段写进每条任务只会让存储与云同步 payload 平白变胖；语义改为「用户改过才存」 |
+| WxPusher `contentType: 3`（HTML） | `contentType: 2`（HTML）+ `uids: [uid]` 数组 | 规划此处写错了：按 [WxPusher 官方文档](https://wxpusher.zjiecode.com/docs/api-reference.html)，`1`=文本 / `2`=HTML / `3`=Markdown，照抄会把 `<p>` 当 Markdown 渲染；且 POST 接收人字段是 `uids` 数组（单数 `uid` 只存在于 GET 查询参数） |
+| 侧边栏「帮助」入口 | 已实现（打开使用说明弹窗） | — |
+| 卡片拖拽「等槽化」 | 按规划实现：进入编辑布局即切等槽网格，默认仍是精调 bento | 变跨度卡片无法直接拖拽换位，等槽化是规划自己给出的取舍 |
 
 ## 许可证
 
