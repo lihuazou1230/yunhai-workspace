@@ -58,12 +58,12 @@ describe('深链', () => {
 
   it('带尾斜杠的部署地址：拼出单斜杠的规范地址', () => {
     expect(deepLink('t1', base)).toBe(
-      'https://lihuazou1230.github.io/vue3-smart-workspace/#/todos?focus=t1',
+      'https://lihuazou1230.github.io/vue3-smart-workspace/todos?focus=t1',
     )
   })
 
   it('不带尾斜杠同样只产生一个斜杠（GitHub Pages 子路径部署）', () => {
-    const expected = 'https://lihuazou1230.github.io/vue3-smart-workspace/#/todos?focus=t1'
+    const expected = 'https://lihuazou1230.github.io/vue3-smart-workspace/todos?focus=t1'
     expect(deepLink('t1', 'https://lihuazou1230.github.io/vue3-smart-workspace')).toBe(expected)
     expect(deepLink('t1', base.replace(/\/$/, ''))).toBe(expected)
     // 多个尾斜杠也只留一个
@@ -72,17 +72,23 @@ describe('深链', () => {
 
   it('根目录部署（本地 / Vercel）也对', () => {
     expect(deepLink('t1', 'https://app.example.com/')).toBe(
-      'https://app.example.com/#/todos?focus=t1',
+      'https://app.example.com/todos?focus=t1',
     )
-    expect(deepLink('t1', 'https://app.example.com')).toBe(
-      'https://app.example.com/#/todos?focus=t1',
-    )
+    expect(deepLink('t1', 'https://app.example.com')).toBe('https://app.example.com/todos?focus=t1')
   })
 
   it('任务 id 做 URL 编码（脏 id 不会把 query 拆坏）', () => {
     expect(deepLink('a b&c=d', base)).toBe(
-      'https://lihuazou1230.github.io/vue3-smart-workspace/#/todos?focus=a%20b%26c%3Dd',
+      'https://lihuazou1230.github.io/vue3-smart-workspace/todos?focus=a%20b%26c%3Dd',
     )
+  })
+
+  it('是**路径式**深链而不是 hash 式（history 路由不认 hash）', () => {
+    const url = deepLink('t1', base)
+    // 这条断言是在保护一个真实的坑：改成 `#/todos?focus=` 后，
+    // 用户从微信点进来会落在仪表板——vue-router 的 history 模式根本不会读 hash。
+    expect(url).not.toContain('#')
+    expect(url).toContain('/todos?focus=t1')
   })
 
   it('空 id / 空基地址：原样返回基地址，不产生坏链接', () => {
@@ -101,7 +107,7 @@ describe('推送文案拼装', () => {
     const message = buildReminderMessage({ id: 't1', title: '写周报', dueDate: '2026-09-10' }, base)
 
     expect(message.title).toBe('写周报')
-    expect(message.url).toBe('https://lihuazou1230.github.io/vue3-smart-workspace/#/todos?focus=t1')
+    expect(message.url).toBe('https://lihuazou1230.github.io/vue3-smart-workspace/todos?focus=t1')
     expect(message.content).toContain('写周报')
     expect(message.content).toContain('截止：2026-09-10')
     expect(message.content).toContain(`href="${message.url}"`)

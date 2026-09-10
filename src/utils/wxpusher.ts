@@ -84,14 +84,18 @@ export interface WxPusherMessage {
 export const EMPTY_TODO_TITLE = '未命名任务'
 
 /**
- * 深链：`<应用地址>#/todos?focus=<id>`。
+ * 深链：`<应用地址>/todos?focus=<id>`（**路径式，不是 hash 式**）。
+ *
+ * 为什么必须是路径式：本项目用 `createWebHistory`（history 路由），
+ * `#/todos?focus=x` 只会变成地址栏上的一个无用片段，vue-router 不会据此导航，
+ * 用户从微信点进来会落在仪表板而不是那条任务上。
+ * （Pages 侧靠 `public/404.html` 回退把子路径请求接回应用，所以路径式深链可用。）
  *
  * 应用可能挂在子路径下（GitHub Pages 的 `/<repo>/`），所以基地址由调用方给
  * ——默认取 `appUrl()`（见 `src/utils/appUrl.ts`，它已经算好了部署前缀）。
- * 有 id 时先把尾斜杠统一去掉再补一个，避免拼出 `.../repo//#/todos` 这种两种写法都不认的地址。
  *
  * 空 id 或空基地址时**原样返回基地址**：没有任务可聚焦时给应用首页，
- * 总好过给出一个 `#/todos?focus=` 的坏链接。
+ * 总好过给出一个 `todos?focus=` 的坏链接。
  */
 export function deepLink(todoId: string, baseUrl: string = appUrl()): string {
   const base = typeof baseUrl === 'string' ? baseUrl.trim() : ''
@@ -99,7 +103,7 @@ export function deepLink(todoId: string, baseUrl: string = appUrl()): string {
   const id = typeof todoId === 'string' ? todoId.trim() : ''
   // 没有 id 就原样返回（保留调用方给的尾斜杠，那才是应用首页的规范地址）
   if (!id) return base
-  return `${base.replace(/\/+$/, '')}/#/todos?focus=${encodeURIComponent(id)}`
+  return `${base.replace(/\/+$/, '')}/todos?focus=${encodeURIComponent(id)}`
 }
 
 /**
