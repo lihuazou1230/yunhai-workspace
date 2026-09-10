@@ -14,6 +14,7 @@ import { computed, ref } from 'vue'
 
 import AvatarUpload from '@/components/organisms/AvatarUpload.vue'
 import SettingsPanel from '@/components/organisms/SettingsPanel.vue'
+import WallpaperSettings from '@/components/organisms/WallpaperSettings.vue'
 import BaseBadge from '@/components/atoms/BaseBadge.vue'
 import BaseButton from '@/components/atoms/BaseButton.vue'
 import { SUPABASE_SETUP_HINT, checkSupabaseConnection } from '@/api/supabase'
@@ -273,6 +274,12 @@ async function testConnection() {
     <section class="card p-5" aria-label="外观自定义">
       <h2 class="mb-4 text-sm font-semibold text-slate-500 dark:text-slate-400">外观自定义</h2>
       <SettingsPanel />
+
+      <!-- 壁纸（第六阶段 6.4）：纯色 / 渐变预设 + 本地上传 -->
+      <div class="mt-5 border-t border-slate-100 pt-4 dark:border-slate-700">
+        <h3 class="mb-3 text-xs font-semibold text-slate-500 dark:text-slate-400">背景壁纸</h3>
+        <WallpaperSettings />
+      </div>
     </section>
 
     <!-- 标签管理（第六阶段 6.1）：改名 / 改色 / 删除 -->

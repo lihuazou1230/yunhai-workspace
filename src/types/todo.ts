@@ -7,7 +7,7 @@ export type TodoStatus = 'active' | 'completed'
 export type TodoPriority = 'low' | 'medium' | 'high'
 
 /** 列表筛选条件 */
-export type TodoFilter = 'all' | 'active' | 'completed' | 'today' | 'week'
+export type TodoFilter = 'all' | 'active' | 'completed' | 'today' | 'week' | 'date'
 
 /**
  * 列表视图（与「筛选 tab」是两条正交的轴）：

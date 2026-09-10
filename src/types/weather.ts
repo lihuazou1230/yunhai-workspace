@@ -29,6 +29,40 @@ export interface WeatherData {
   updatedAt: number
 }
 
+/** 未来单日预报（高德 `extensions=all` 的 casts 元素，已归一化） */
+export interface WeatherForecastDay {
+  /** 日期，如 2026-09-11 */
+  date: string
+  /** 周几 */
+  week: string
+  /** 白天天气现象，如「晴」 */
+  dayWeather: string
+  /** 夜间天气现象，如「多云」 */
+  nightWeather: string
+  /** 白天最高气温（摄氏度） */
+  dayTemp: number
+  /** 夜间最低气温（摄氏度） */
+  nightTemp: number
+  /** 白天风向，如「西北」 */
+  dayWind: string
+  /** 白天风力级别，如「≤3」 */
+  dayPower: string
+  /** 展示图标（emoji，由白天天气描述映射） */
+  icon: string
+}
+
+/** 未来天气预报（高德免费档上限：当日 + 未来 3 天） */
+export interface WeatherForecast {
+  /** 省份/上级区域名，如「北京」 */
+  province?: string
+  /** 城市名，如「北京市」 */
+  city: string
+  /** 数据发布时间，如 2026-09-10 11:00:00 */
+  reportTime?: string
+  /** 逐日预报（按时间正序，首条为当天） */
+  days: WeatherForecastDay[]
+}
+
 /** 天气加载状态 */
 export type WeatherLoadState = 'loading' | 'success' | 'error'
 

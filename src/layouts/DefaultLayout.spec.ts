@@ -61,11 +61,11 @@ describe('DefaultLayout', () => {
     avatarStub.fallbackInitial = ref('访客')
   })
 
-  it('装配侧边栏、顶栏搜索、页面标题、内容区与移动端底部导航', async () => {
+  it('装配侧边栏、顶栏聚合搜索、页面标题、内容区与移动端底部导航', async () => {
     const { wrapper } = await mountLayout('/todos')
 
     expect(wrapper.find('[data-testid="sidebar"]').exists()).toBe(true)
-    expect(wrapper.find('input[placeholder="搜索任务…"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="aggregate-search-input"]').exists()).toBe(true)
     expect(wrapper.find('h1').text()).toBe('任务')
     expect(wrapper.find('[data-testid="page-child"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="bottom-nav-dashboard"]').exists()).toBe(true)
@@ -74,42 +74,87 @@ describe('DefaultLayout', () => {
     expect(wrapper.find('[data-testid="bottom-nav-settings"]').exists()).toBe(true)
   })
 
-  it('顶栏搜索直接写进 todoStore，并把用户带到任务页（否则结果无处可见）', async () => {
+  it('顶栏搜索写进 todoStore，但**不**在打字时把人搬走（结果就地出弹层）', async () => {
     const { wrapper, router } = await mountLayout('/')
     const store = useTodoStore()
     expect(router.currentRoute.value.name).toBe('dashboard')
 
-    await wrapper.find('input[placeholder="搜索任务…"]').setValue('周报')
-    // 导航是异步的（要走守卫），等微任务跑完
+    await wrapper.find('[data-testid="aggregate-search-input"]').setValue('周报')
     await flushPromises()
 
     expect(store.keyword).toBe('周报')
-    expect(router.currentRoute.value.name).toBe('todos')
+    // 6.4 起改用结果弹层：输入过程不再触发跳转
+    expect(router.currentRoute.value.name).toBe('dashboard')
+    expect(wrapper.find('[data-testid="aggregate-search-panel"]').exists()).toBe(true)
   })
 
-  it('已在任务页输入搜索词：不重复跳转（不打断当前操作）', async () => {
-    const { wrapper, router } = await mountLayout('/todos')
-    const pushSpy = vi.spyOn(router, 'push')
+  it('弹层里列出命中的任务，点一条跳到任务页', async () => {
+    const { wrapper, router } = await mountLayout('/')
+    const store = useTodoStore()
+    store.addTodo({ title: '写周报', priority: 'high' })
 
-    await wrapper.find('input[placeholder="搜索任务…"]').setValue('周报')
+    await wrapper.find('[data-testid="aggregate-search-input"]').setValue('周报')
     await flushPromises()
 
-    expect(useTodoStore().keyword).toBe('周报')
-    expect(pushSpy).not.toHaveBeenCalled()
+    const result = wrapper.find(`[data-testid="aggregate-result-${store.todos[0].id}"]`)
+    expect(result.exists()).toBe(true)
+    expect(result.text()).toContain('写周报')
+
+    await result.trigger('click')
+    await flushPromises()
+
     expect(router.currentRoute.value.name).toBe('todos')
   })
 
-  it('清空搜索词不触发跳转（在设置页清空应留在设置页）', async () => {
+  it('弹层提供「用某引擎搜索网页」的入口，点引擎按钮轮换', async () => {
+    const { wrapper } = await mountLayout('/')
+    const store = useTodoStore()
+    const openSpy = vi.fn()
+    vi.stubGlobal('open', openSpy)
+
+    await wrapper.find('[data-testid="aggregate-search-input"]').setValue('vue3')
+    await flushPromises()
+
+    // 默认百度 → 点一次切到谷歌
+    const engineButton = wrapper.find('[data-testid="aggregate-search-engine"]')
+    expect(engineButton.text()).toBe('百度')
+    await engineButton.trigger('click')
+    expect(engineButton.text()).toBe('谷歌')
+
+    await wrapper.find('[data-testid="aggregate-search-web"]').trigger('click')
+    expect(openSpy).toHaveBeenCalledWith(
+      'https://www.google.com/search?q=vue3',
+      '_blank',
+      'noopener,noreferrer',
+    )
+    // 跳站外搜索不应改变当前路由
+    expect(store.keyword).toBe('vue3')
+    vi.unstubAllGlobals()
+  })
+
+  it('已配置过的搜索引擎选择会被记住', async () => {
+    // useLocalStorage 存的是 JSON，所以要带引号（裸字符串解析会失败并回落默认值）
+    localStorage.setItem('smart-workspace:search-engine', JSON.stringify('bing'))
+    const { wrapper } = await mountLayout('/')
+    expect(wrapper.find('[data-testid="aggregate-search-engine"]').text()).toBe('必应')
+  })
+
+  it('持久化的引擎值被写脏时回落百度（不崩、不显示空白）', async () => {
+    localStorage.setItem('smart-workspace:search-engine', JSON.stringify('sogou'))
+    const { wrapper } = await mountLayout('/')
+    expect(wrapper.find('[data-testid="aggregate-search-engine"]').text()).toBe('百度')
+  })
+
+  it('排序与折叠状态不受搜索影响（清空关键字留在当前页）', async () => {
     const { wrapper, router } = await mountLayout('/settings')
 
-    await wrapper.find('input[placeholder="搜索任务…"]').setValue('周报')
+    await wrapper.find('[data-testid="aggregate-search-input"]').setValue('周报')
     await flushPromises()
-    expect(router.currentRoute.value.name).toBe('todos')
+    expect(useTodoStore().keyword).toBe('周报')
+    expect(router.currentRoute.value.name).toBe('settings')
 
-    await router.push('/settings')
-    await wrapper.find('input[placeholder="搜索任务…"]').setValue('')
+    await wrapper.find('[data-testid="aggregate-search-input"]').setValue('')
     await flushPromises()
-
     expect(router.currentRoute.value.name).toBe('settings')
     expect(useTodoStore().keyword).toBe('')
   })

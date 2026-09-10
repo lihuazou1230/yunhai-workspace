@@ -62,4 +62,24 @@ describe('DailyGreeting', () => {
     expect(wrapper.text()).toContain(quoteOfDay('2026-09-11').text)
     expect(before.length).toBeGreaterThan(0)
   })
+
+  // ---- 第六阶段 6.4：页头当前时间 ----
+
+  it('页头显示当前时间 HH:mm:ss', () => {
+    freezeTime(9, 5)
+    const wrapper = mount(DailyGreeting)
+    expect(wrapper.find('[data-testid="header-clock"]').text()).toBe('09:05:00')
+  })
+
+  it('切回标签页后时间跟着校准（不是冻结在挂载那一刻）', async () => {
+    freezeTime(9, 5)
+    const wrapper = mount(DailyGreeting)
+    expect(wrapper.find('[data-testid="header-clock"]').text()).toBe('09:05:00')
+
+    vi.setSystemTime(new Date(2026, 8, 10, 18, 42, 7))
+    document.dispatchEvent(new Event('visibilitychange'))
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="header-clock"]').text()).toBe('18:42:07')
+  })
 })

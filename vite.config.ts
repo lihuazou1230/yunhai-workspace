@@ -59,6 +59,14 @@ export default defineConfig({
     include: ['src/**/*.{test,spec}.ts'],
     setupFiles: ['src/test/setup.ts'],
     css: true,
+    /**
+     * 默认 5 秒对「整站挂载」类集成测试太紧：App / authFlow 要跑完路由守卫 + 会话恢复 +
+     * 首屏组件树，本机负载一高（并行跑别的任务时）就会从 ~3.5s 抖到 5s+ 而假失败。
+     * 放宽到 20 秒——它只影响「失败要等多久才判定」，不会让慢测试变快，
+     * 但能把负载导致的假红消掉（真正的死循环仍会被 20 秒截住）。
+     */
+    testTimeout: 20_000,
+    hookTimeout: 20_000,
     server: {
       deps: {
         inline: ['element-plus'],

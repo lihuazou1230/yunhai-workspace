@@ -11,10 +11,20 @@ export interface TodoFilterQuery {
   tags?: string[]
   /** 用于 today/week 筛选的日期键（默认今天） */
   today?: string
+  /**
+   * `filter: 'date'` 时按哪个日期筛（迷你月历点某天跳过来用这个）。
+   * 与 today 分开：today 是「今天是哪天」的基准，date 是「用户想看哪天」的目标。
+   */
+  date?: string
 }
 
 /** 按状态过滤（不含 keyword） */
-export function filterByStatus(todos: Todo[], filter: TodoFilter, today = todayKey()): Todo[] {
+export function filterByStatus(
+  todos: Todo[],
+  filter: TodoFilter,
+  today = todayKey(),
+  date?: string,
+): Todo[] {
   switch (filter) {
     case 'active':
       return todos.filter((t) => t.status === 'active')
@@ -22,6 +32,9 @@ export function filterByStatus(todos: Todo[], filter: TodoFilter, today = todayK
       return todos.filter((t) => t.status === 'completed')
     case 'today':
       return todos.filter((t) => t.dueDate === today)
+    case 'date':
+      // 没给目标日期时退回今天，避免出现「筛出来是空但没人知道为什么」
+      return todos.filter((t) => t.dueDate === (date ?? today))
     case 'week': {
       const base = new Date(`${today}T00:00:00`)
       return todos.filter((t) => t.dueDate && isInCurrentWeek(t.dueDate, base))
@@ -55,11 +68,11 @@ export function filterByTags(todos: Todo[], tags?: string[]): Todo[] {
 
 /** 复合过滤：先按状态，再按优先级与标签，最后按关键字 */
 export function filterTodos(todos: Todo[], query: TodoFilterQuery): Todo[] {
-  const { filter, keyword, priority, tags, today } = query
-  return filterByTags(
-    filterByPriority(filterByStatus(todos, filter, today), priority),
-    tags,
-  ).filter((t) => matchesKeyword(t, keyword))
+  const { filter, keyword, priority, tags, today, date } = query
+  const byStatus = filterByStatus(todos, filter, today, date)
+  return filterByTags(filterByPriority(byStatus, priority), tags).filter((t) =>
+    matchesKeyword(t, keyword),
+  )
 }
 
 /**

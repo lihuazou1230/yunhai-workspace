@@ -11,6 +11,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AggregateSearch: typeof import('./components/molecules/AggregateSearch.vue')['default']
     AiBreakdownDialog: typeof import('./components/organisms/AiBreakdownDialog.vue')['default']
     AiTodoInput: typeof import('./components/organisms/AiTodoInput.vue')['default']
     AvatarUpload: typeof import('./components/organisms/AvatarUpload.vue')['default']
@@ -18,13 +19,17 @@ declare module 'vue' {
     BaseButton: typeof import('./components/atoms/BaseButton.vue')['default']
     BaseCheckbox: typeof import('./components/atoms/BaseCheckbox.vue')['default']
     BaseInput: typeof import('./components/atoms/BaseInput.vue')['default']
+    CountdownCard: typeof import('./components/organisms/CountdownCard.vue')['default']
     DailyGreeting: typeof import('./components/organisms/DailyGreeting.vue')['default']
+    DashboardOverview: typeof import('./components/organisms/DashboardOverview.vue')['default']
     DigitRoll: typeof import('./components/atoms/DigitRoll.vue')['default']
     EarningsClock: typeof import('./components/organisms/EarningsClock.vue')['default']
     ElColorPicker: typeof import('element-plus/es')['ElColorPicker']
     ElConfigProvider: typeof import('element-plus/es')['ElConfigProvider']
     ElDatePicker: typeof import('element-plus/es')['ElDatePicker']
     ElDialog: typeof import('element-plus/es')['ElDialog']
+    LinkDock: typeof import('./components/organisms/LinkDock.vue')['default']
+    MiniCalendar: typeof import('./components/organisms/MiniCalendar.vue')['default']
     MobileBottomNav: typeof import('./components/organisms/MobileBottomNav.vue')['default']
     MyDay: typeof import('./components/organisms/MyDay.vue')['default']
     ProductivityHeatmap: typeof import('./components/organisms/ProductivityHeatmap.vue')['default']
@@ -35,12 +40,14 @@ declare module 'vue' {
     SettingsPanel: typeof import('./components/organisms/SettingsPanel.vue')['default']
     SidebarNav: typeof import('./components/organisms/SidebarNav.vue')['default']
     StatisticsCard: typeof import('./components/organisms/StatisticsCard.vue')['default']
+    StreakCard: typeof import('./components/organisms/StreakCard.vue')['default']
     ThemeToggle: typeof import('./components/molecules/ThemeToggle.vue')['default']
     TodayProgressCard: typeof import('./components/organisms/TodayProgressCard.vue')['default']
     TodoForm: typeof import('./components/organisms/TodoForm.vue')['default']
     TodoItem: typeof import('./components/molecules/TodoItem.vue')['default']
     TodoList: typeof import('./components/organisms/TodoList.vue')['default']
     TrendBadge: typeof import('./components/atoms/TrendBadge.vue')['default']
+    WallpaperSettings: typeof import('./components/organisms/WallpaperSettings.vue')['default']
     WeatherWidget: typeof import('./components/organisms/WeatherWidget.vue')['default']
   }
 }

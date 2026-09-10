@@ -6,15 +6,19 @@
  *   输入框 + 六个常用城市快捷键；切换成功后记为「上次的位置」
  * - 定位不可用时按「上次的位置 → 默认城市」逐级回落，并在卡片内说明原因
  * - 本地缓存：30 分钟内命中缓存不请求接口（显示「缓存」标记，可手动刷新）
+ * - **未来 3 日预报条**：与实况并行请求，跟随当前城市；拿不到就不渲染，绝不影响实况卡片
  * - 未配置 API Key 时给出配置指引
  */
 
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import type { Ref } from 'vue'
 
-import { CITY_ADCODE } from '@/api/weather'
+import { CITY_ADCODE, fetchWeatherForecast } from '@/api/weather'
 import { useWeather } from '@/composables/useWeather'
+import type { WeatherForecast } from '@/types/weather'
 import BaseButton from '@/components/atoms/BaseButton.vue'
 
+const weatherApi = useWeather()
 const {
   weather,
   state,
@@ -30,10 +34,75 @@ const {
   setCity,
   refresh,
   retry,
-} = useWeather()
+} = weatherApi
+
+/**
+ * useWeather 实例上可选的预报能力。
+ * 若集成方已经在 useWeather 里加载好预报，这里直接复用，避免同一份数据请求两次；
+ * 当前它只提供实况，取不到时由本组件自行请求（见 loadForecast）——两条路径对模板完全一致。
+ */
+const sharedForecast = (weatherApi as { forecast?: Ref<WeatherForecast | null> }).forecast
+
+/** 本组件自己请求到的预报 */
+const localForecast = ref<WeatherForecast | null>(null)
+
+/** 预报数据源：两处只可能有一处是「活」的（见上方注释） */
+const forecast = computed<WeatherForecast | null>(() =>
+  sharedForecast ? sharedForecast.value : localForecast.value,
+)
+
+/**
+ * 预报条最多 3 列（「未来 3 日」的口径）。
+ * 高德免费档返回「当天 + 未来 3 天」共 4 条，这里只渲染前 3 条，保证一行三列不换行；
+ * 数据条数不足（接口只给 2 条/测试数据）就有几条显示几条。
+ */
+const forecastDays = computed(() => {
+  const days = forecast.value?.days
+  return Array.isArray(days) ? days.slice(0, 3) : []
+})
+
+/** 当前查询目标（adcode 或城市名）：预报必须和实况查同一个城市，否则两处对不上 */
+function currentTarget(): string {
+  const target = (weatherApi as { query?: Ref<string> }).query
+  return typeof target?.value === 'string' ? target.value.trim() : ''
+}
+
+/** 已经成功请求过的目标：免费 Key 的 QPS 很紧，同一个城市不重复请求 */
+let loadedTarget = ''
+
+/**
+ * 拉取未来 3 日预报。预报是增强信息：未配置 Key / 限流 / 该地区无预报数据，
+ * 都只是「不显示预报条」，绝不改 state/error —— 预报失败不能把实况卡片一起拖下水。
+ */
+async function loadForecast(): Promise<void> {
+  if (sharedForecast) return
+  const target = currentTarget()
+  if (!target || target === loadedTarget) return
+  try {
+    localForecast.value = await fetchWeatherForecast(target)
+    loadedTarget = target
+  } catch {
+    localForecast.value = null
+  }
+}
+
+// 切换城市 / 重新定位 / 刷新后查询目标会变，预报跟着换城市
+watch(currentTarget, () => void loadForecast())
+
+/**
+ * 「↻ 刷新」：实况强制刷新；预报只在还没拿到时顺带重试
+ * （已经拿到就不重复占额度 —— 免费 Key 一天 5000 次，省着点用）。
+ */
+function onRefresh(): Promise<boolean> {
+  void loadForecast()
+  return refresh()
+}
 
 onMounted(() => {
-  if (configured.value) void init()
+  if (!configured.value) return
+  // 预报与实况并行发起：预报慢或失败都不阻塞实况出内容
+  void loadForecast()
+  void init()
 })
 
 function formatTime(ms: number): string {
@@ -120,7 +189,7 @@ async function onQuickCity(name: string) {
           class="rounded px-1 transition-colors hover:text-[var(--el-color-primary)]"
           title="跳过缓存，重新获取"
           aria-label="刷新天气"
-          @click="refresh"
+          @click="onRefresh"
         >
           ↻ 刷新
         </button>
@@ -222,6 +291,29 @@ async function onQuickCity(name: string) {
           </span>
         </div>
         <p class="text-[10px] text-slate-400 dark:text-slate-500">数据来源：高德地图</p>
+
+        <!-- 未来 3 日预报条：拿不到预报（未配置 / 请求失败 / 无数据）整块不渲染，实况卡片照常 -->
+        <div
+          v-if="forecastDays.length > 0"
+          class="grid grid-cols-3 gap-2 border-t border-slate-100 pt-3 dark:border-slate-700/60"
+          data-testid="weather-forecast"
+        >
+          <div
+            v-for="day in forecastDays"
+            :key="day.date"
+            class="min-w-0 text-center"
+            :data-testid="`forecast-day-${day.date}`"
+          >
+            <p class="text-xs text-slate-400 dark:text-slate-500">{{ day.week }}</p>
+            <p class="text-base leading-tight" aria-hidden="true">{{ day.icon }}</p>
+            <p class="text-xs tabular-nums text-slate-600 dark:text-slate-300">
+              {{ day.dayTemp }}°/{{ day.nightTemp }}°
+            </p>
+            <p class="truncate text-xs text-slate-400 dark:text-slate-500" :title="day.dayWeather">
+              {{ day.dayWeather }}
+            </p>
+          </div>
+        </div>
       </div>
     </template>
   </section>

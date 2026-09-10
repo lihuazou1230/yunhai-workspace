@@ -18,6 +18,7 @@ import { useTodoStore } from '@/stores/todoStore'
 import { PRIORITY_ORDER } from '@/utils/priorityHelper'
 import { priorityLabel } from '@/utils/priorityHelper'
 import { resolveSortMove } from '@/utils/sortableMove'
+import { formatShortDate } from '@/utils/dateFormatter'
 import SearchBar from '@/components/molecules/SearchBar.vue'
 import TodoItem from '@/components/molecules/TodoItem.vue'
 import AiBreakdownDialog from '@/components/organisms/AiBreakdownDialog.vue'
@@ -51,7 +52,21 @@ const PRIORITY_TABS: Array<{ key: TodoPriority; label: string }> = PRIORITY_ORDE
   label: priorityLabel(p),
 }))
 
-const filterLabel = computed(() => FILTER_TABS.find((t) => t.key === store.filter)?.label ?? '全部')
+const filterLabel = computed(() => {
+  if (store.filter === 'date') {
+    return store.filterDate ? `${formatShortDate(store.filterDate)}（选中日期）` : '指定日期'
+  }
+  return FILTER_TABS.find((t) => t.key === store.filter)?.label ?? '全部'
+})
+
+/**
+ * 筛选 tab 列表：`date` 是「迷你月历点进来的临时视图」，不是常驻 tab，
+ * 所以只在它真的生效时才插进来——否则会多出一个平时点不到、含义又说不清的按钮。
+ */
+const filterTabs = computed<Array<{ key: TodoFilter; label: string }>>(() => {
+  if (store.filter !== 'date' || !store.filterDate) return FILTER_TABS
+  return [...FILTER_TABS, { key: 'date', label: formatShortDate(store.filterDate) }]
+})
 
 /** 撤销条剩余秒数展示（纯 UI，每秒刷新） */
 const remainingSeconds = ref(0)
@@ -307,7 +322,7 @@ watch(
       <!-- 完成状态筛选只在主列表有意义（归档/已隐藏视图看的是生命周期状态） -->
       <div v-if="store.listView === 'main'" class="flex gap-1" role="tablist" aria-label="任务筛选">
         <BaseButton
-          v-for="tab in FILTER_TABS"
+          v-for="tab in filterTabs"
           :key="tab.key"
           size="sm"
           :variant="store.filter === tab.key ? 'primary' : 'secondary'"

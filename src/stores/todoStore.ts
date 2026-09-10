@@ -63,6 +63,8 @@ export const useTodoStore = defineStore('todo', () => {
   const priority = ref<PrioritySelection>([])
   /** 搜索关键字 */
   const keyword = ref('')
+  /** `filter === 'date'` 时要看的日期键（迷你月历点某天跳过来） */
+  const filterDate = ref<string | null>(null)
   /** 是否处于多选模式（批量操作；运行时） */
   const selectionMode = ref(false)
   /** 已选中的任务 id（多选；运行时） */
@@ -114,6 +116,7 @@ export const useTodoStore = defineStore('todo', () => {
       keyword: keyword.value,
       priority: priority.value,
       tags: tagFilter.value,
+      date: filterDate.value ?? undefined,
     })
     return manualOrder.value ? base : sortTodos(base)
   })
@@ -215,6 +218,18 @@ export const useTodoStore = defineStore('todo', () => {
 
   function setFilter(next: TodoFilter) {
     filter.value = next
+    manualOrder.value = false
+    clearSelection()
+  }
+
+  /**
+   * 按指定日期筛选（迷你月历点某天 → 任务页看那天的事）。
+   * 会顺手把视图切回主列表，否则用户从「已归档」点过去会看到一个空的归档视图。
+   */
+  function setFilterDate(dateKey: string) {
+    filterDate.value = dateKey
+    filter.value = 'date'
+    listView.value = 'main'
     manualOrder.value = false
     clearSelection()
   }
@@ -632,6 +647,7 @@ export const useTodoStore = defineStore('todo', () => {
     filter,
     priority,
     keyword,
+    filterDate,
     pendingDeletes,
     latestPendingDelete,
     selectionMode,
@@ -660,6 +676,7 @@ export const useTodoStore = defineStore('todo', () => {
     commitDelete,
     flushPendingDeletes,
     setFilter,
+    setFilterDate,
     togglePriority,
     clearPriority,
     setKeyword,

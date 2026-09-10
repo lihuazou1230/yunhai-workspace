@@ -9,10 +9,15 @@
  */
 
 import { httpClient } from './httpClient'
-import { normalizeCityKey, weatherCache } from './weatherCache'
+import { isFresh, normalizeCityKey, weatherCache, WEATHER_CACHE_TTL } from './weatherCache'
 import type { WeatherCache } from './weatherCache'
 import { DEFAULT_WEATHER_CITY } from '@/types/weather'
-import type { LocatedPlace, WeatherData } from '@/types/weather'
+import type {
+  LocatedPlace,
+  WeatherData,
+  WeatherForecast,
+  WeatherForecastDay,
+} from '@/types/weather'
 
 const AMAP_BASE = 'https://restapi.amap.com/v3'
 const WEATHER_URL = `${AMAP_BASE}/weather/weatherInfo`
@@ -51,6 +56,34 @@ interface AmapLive {
 interface AmapWeatherResponse extends AmapBase {
   count?: string
   lives?: AmapLive[]
+}
+
+/**
+ * 预报中的单日（extensions=all 的 `forecasts[0].casts` 元素）。
+ * 高德把气温、风力也返回成字符串，字段还可能缺省，映射时统一归一化。
+ */
+export interface AmapCast {
+  date: string
+  week: string
+  dayweather: string
+  nightweather: string
+  daytemp: string
+  nighttemp: string
+  daywind: string
+  daypower: string
+}
+
+/** 预报天气（extensions=all）：免费档返回「当日实况 + 未来 3 天」共 4 条 casts */
+interface AmapForecast {
+  province?: string
+  city?: string
+  reporttime?: string
+  casts?: AmapCast[]
+}
+
+interface AmapForecastResponse extends AmapBase {
+  count?: string
+  forecasts?: AmapForecast[]
 }
 
 interface AmapGeocode {
@@ -218,6 +251,35 @@ export function normalizeWeather(live: AmapLive): WeatherData {
   }
 }
 
+/** 预报字段容错：高德偶有缺字段/脏数据，非字符串一律当空串处理 */
+function castText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+/**
+ * 归一化：高德预报 casts -> 应用内逐日预报。
+ * 响应里的 casts 直接映射（免费档最多 4 条：当天 + 未来 3 天），不做增删，
+ * 展示几条由 UI 决定；字段缺失/非法时兜底成空串或 0，绝不抛异常。
+ */
+export function normalizeForecast(casts: AmapCast[]): WeatherForecastDay[] {
+  if (!Array.isArray(casts)) return []
+  return casts.map((cast) => {
+    const dayWeather = castText(cast?.dayweather) || '未知'
+    return {
+      date: castText(cast?.date),
+      week: castText(cast?.week),
+      dayWeather,
+      nightWeather: castText(cast?.nightweather) || '未知',
+      dayTemp: toNumber(cast?.daytemp),
+      nightTemp: toNumber(cast?.nighttemp),
+      dayWind: castText(cast?.daywind),
+      dayPower: castText(cast?.daypower),
+      // 图标按白天天气取：预报条一行三个，用夜间图标反而对不上用户的直觉
+      icon: weatherIcon(dayWeather),
+    }
+  })
+}
+
 /** 6 位纯数字视为 adcode */
 const ADCODE_PATTERN = /^\d{6}$/
 
@@ -348,4 +410,98 @@ export async function fetchCurrentWeather(
   const data = normalizeWeather(live)
   cache.setWeather(adcode, data)
   return { data, fromCache: false }
+}
+
+/** 预报缓存键：与实况缓存分开存（见下方说明） */
+export const WEATHER_FORECAST_STORAGE_KEY = 'smart-workspace:weather-forecast'
+
+/** adcode -> { 预报, 写入时间 } */
+type ForecastCacheState = Record<string, { data: WeatherForecast; cachedAt: number }>
+
+/**
+ * 预报缓存为什么不复用 weatherCache：
+ * 那边的 weather 字段存的是实况（WeatherData），这边是预报（WeatherForecast），
+ * 两份结构不同，共用一个键必然互相覆盖（谁后写谁把对方挤掉）。
+ * 所以只借用它的 isFresh/TTL 判定，键与结构各用各的。
+ */
+function forecastCacheState(storage: Storage | null): ForecastCacheState {
+  if (!storage) return {}
+  try {
+    const raw = storage.getItem(WEATHER_FORECAST_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as ForecastCacheState
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    // 存储不可用（隐私模式/容量超限）或数据损坏：当作没有缓存
+    return {}
+  }
+}
+
+function defaultStorage(): Storage | null {
+  return typeof window !== 'undefined' ? window.localStorage : null
+}
+
+/** 读预报缓存（命中且未过期才返回） */
+function readForecastCache(adcode: string, now: number = Date.now()): WeatherForecast | undefined {
+  const entry = forecastCacheState(defaultStorage())[adcode]
+  return entry && isFresh(entry.cachedAt, now, WEATHER_CACHE_TTL) ? entry.data : undefined
+}
+
+/** 写预报缓存（写入失败静默忽略，下次照常走网络） */
+function writeForecastCache(adcode: string, data: WeatherForecast, now: number = Date.now()): void {
+  const storage = defaultStorage()
+  if (!storage) return
+  try {
+    const state = forecastCacheState(storage)
+    state[adcode] = { data, cachedAt: now }
+    storage.setItem(WEATHER_FORECAST_STORAGE_KEY, JSON.stringify(state))
+  } catch {
+    // 忽略：缓存只是省额度，写不进去不影响本次结果
+  }
+}
+
+/**
+ * 获取指定城市未来天气预报（高德 `extensions=all`，免费档上限：当日 + 未来 3 天）。
+ *
+ * 与实况的分工：实况走 `extensions=base`（每小时多次更新，30 分钟缓存），
+ * 预报走 `extensions=all`（一天更新几次足够），两者缓存互不干扰。
+ * @param city 城市名（中文）或 6 位 adcode，默认北京
+ * @param options force 跳过缓存；cache 注入 adcode 缓存实现
+ */
+export async function fetchWeatherForecast(
+  city: string = DEFAULT_WEATHER_CITY,
+  options: WeatherQueryOptions = {},
+): Promise<WeatherForecast> {
+  const cache = options.cache ?? weatherCache
+  // adcode 缓存与实况共用：城市名 -> adcode 的换算两边一模一样，没必要各查一次
+  const adcode = await resolveAdcode(city, cache)
+
+  if (!options.force) {
+    const cached = readForecastCache(adcode)
+    if (cached) return cached
+  }
+
+  const key = requireKey()
+  const params = new URLSearchParams({ key, city: adcode, extensions: 'all', output: 'JSON' })
+  // 同实况：assertAmapOk 必须在 withRetry 内部，否则限流错误不会触发重试
+  const raw = await withRetry(async () => {
+    const res = await httpClient<AmapForecastResponse>(`${WEATHER_URL}?${params.toString()}`, {
+      timeoutMs: 10_000,
+    })
+    assertAmapOk(res, '天气预报查询')
+    return res
+  })
+
+  const forecast = raw.forecasts?.[0]
+  const days = normalizeForecast(forecast?.casts ?? [])
+  if (days.length === 0) throw new Error('该地区暂无天气预报数据')
+
+  const result: WeatherForecast = {
+    province: forecast?.province?.trim() || undefined,
+    city: forecast?.city?.trim() || '',
+    reportTime: forecast?.reporttime?.trim() || undefined,
+    days,
+  }
+  writeForecastCache(adcode, result)
+  return result
 }
