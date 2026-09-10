@@ -23,7 +23,6 @@ declare module 'vue' {
     ElConfigProvider: typeof import('element-plus/es')['ElConfigProvider']
     ElDatePicker: typeof import('element-plus/es')['ElDatePicker']
     ElDialog: typeof import('element-plus/es')['ElDialog']
-    ElSwitch: typeof import('element-plus/es')['ElSwitch']
     MobileBottomNav: typeof import('./components/organisms/MobileBottomNav.vue')['default']
     MyDay: typeof import('./components/organisms/MyDay.vue')['default']
     ProductivityHeatmap: typeof import('./components/organisms/ProductivityHeatmap.vue')['default']

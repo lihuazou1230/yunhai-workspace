@@ -14,6 +14,8 @@ import {
   formatFen,
   hourlyEarnedFen,
   isEarningsConfigured,
+  isNightShift,
+  isPaidDay,
   lastMonthSamePeriodFen,
   monthlyEarnedFen,
   nextChange,
@@ -90,9 +92,84 @@ describe('每日计薪时长', () => {
     expect(dailyWorkSeconds({ ...CONFIG, lunchStart: '08:30', lunchEnd: '09:30' })).toBe(8.5 * 3600)
   })
 
-  it('下班早于上班（配置非法）返回 0', () => {
-    expect(dailyWorkSeconds({ ...CONFIG, workStart: '18:00', workEnd: '09:00' })).toBe(0)
+  it('零长度班次（上下班时间相同）与非法时间返回 0', () => {
+    expect(dailyWorkSeconds({ ...CONFIG, workStart: '09:00', workEnd: '09:00' })).toBe(0)
     expect(dailyWorkSeconds({ ...CONFIG, workStart: '', workEnd: '18:00' })).toBe(0)
+  })
+
+  // ---- 跨零点夜班（第六阶段 6.2） ----
+
+  it('夜班：下班早于上班时按「次日下班」算班次总长', () => {
+    // 22:00 → 06:00 = 8 小时；午休 12:00-13:00 不在班次内，不扣
+    const night = { ...CONFIG, workStart: '22:00', workEnd: '06:00' }
+    expect(isNightShift(night)).toBe(true)
+    expect(dailyWorkSeconds(night)).toBe(8 * 3600)
+  })
+
+  it('夜班：午休落在凌晨也能正确扣除', () => {
+    // 22:00 → 06:00，午休 02:00-03:00（班次坐标 4h~5h）→ 计薪 7 小时
+    const night = {
+      ...CONFIG,
+      workStart: '22:00',
+      workEnd: '06:00',
+      lunchStart: '02:00',
+      lunchEnd: '03:00',
+    }
+    expect(dailyWorkSeconds(night)).toBe(7 * 3600)
+  })
+
+  it('夜班：白天班次不适用（isNightShift 为 false）', () => {
+    expect(isNightShift(CONFIG)).toBe(false)
+  })
+})
+
+describe('跨零点夜班的已计薪时长与状态', () => {
+  const NIGHT = { ...CONFIG, workStart: '22:00', workEnd: '06:00' }
+
+  it('班次内：22:30 已计薪 30 分钟，凌晨 03:00 已计薪 5 小时', () => {
+    expect(elapsedWorkSeconds(NIGHT, at(22, 30))).toBe(1800)
+    // 凌晨属于「昨天 22:00 开始」的班次
+    expect(elapsedWorkSeconds(NIGHT, at(3, 0))).toBe(5 * 3600)
+  })
+
+  it('班次结束后封顶到总时长（07:00 显示满勤 8 小时）', () => {
+    expect(elapsedWorkSeconds(NIGHT, at(7, 0))).toBe(8 * 3600)
+    expect(elapsedWorkSeconds(NIGHT, at(20, 0))).toBe(8 * 3600)
+  })
+
+  it('状态：班次内 working，班次结束后 after-work，月初 21:00 也已是「收工」', () => {
+    expect(resolveEarningsStatus(NIGHT, at(23, 0))).toBe('working')
+    expect(resolveEarningsStatus(NIGHT, at(3, 0))).toBe('working')
+    expect(resolveEarningsStatus(NIGHT, at(7, 0))).toBe('after-work')
+    expect(resolveEarningsStatus(NIGHT, at(21, 0))).toBe('after-work')
+  })
+
+  it('状态：凌晨午休时段是 lunch', () => {
+    const withLunch = { ...NIGHT, lunchStart: '02:00', lunchEnd: '03:00' }
+    expect(resolveEarningsStatus(withLunch, at(2, 30))).toBe('lunch')
+    expect(resolveEarningsStatus(withLunch, at(4, 0))).toBe('working')
+  })
+
+  it('金额：凌晨 03:00 = 满勤的 5/8', () => {
+    // 日薪 1000 元 → 5/8 = 625 元
+    expect(earnedFen(NIGHT, at(3, 0))).toBe(62500)
+    expect(earnedFen(NIGHT, at(7, 0))).toBe(100000)
+  })
+
+  it('计薪日按班次开始那天算：周五晚的夜班到周六凌晨仍计薪', () => {
+    // 2026-09-11 是周五，2026-09-12 是周六
+    const fridayNight = at(23, 0, 0, 11)
+    const saturdayDawn = at(3, 0, 0, 12)
+    expect(isPaidDay(NIGHT, fridayNight)).toBe(true)
+    expect(isPaidDay(NIGHT, saturdayDawn)).toBe(true)
+    // 而周六晚上开始的班次（周六 23:00）不计薪
+    expect(isPaidDay(NIGHT, at(23, 0, 0, 12))).toBe(false)
+  })
+
+  it('倒计时：工作中显示距下班剩余（凌晨 03:00 → 还剩 3 小时）', () => {
+    const change = nextChange(NIGHT, at(3, 0))
+    expect(change.target).toBe('off-work')
+    expect(change.seconds).toBe(3 * 3600)
   })
 })
 
@@ -186,11 +263,25 @@ describe('状态判定', () => {
     expect(resolveEarningsStatus(CONFIG, at(18, 0))).toBe('after-work')
   })
 
-  it('周末 → weekend（仅在开启 weekdaysOnly 时）', () => {
+  it('非计薪日 → weekend（按 workDays 判定，覆盖单休/轮休）', () => {
     const saturday = at(10, 0, 0, 12)
     expect(saturday.getDay()).toBe(6)
+    // 默认周一~周五：周六不计薪
     expect(resolveEarningsStatus(CONFIG, saturday)).toBe('weekend')
-    expect(resolveEarningsStatus({ ...CONFIG, weekdaysOnly: false }, saturday)).toBe('working')
+    // 每天都计薪
+    expect(resolveEarningsStatus({ ...CONFIG, workDays: [0, 1, 2, 3, 4, 5, 6] }, saturday)).toBe(
+      'working',
+    )
+    // 单休（周日休）：周六照常计薪
+    expect(resolveEarningsStatus({ ...CONFIG, workDays: [1, 2, 3, 4, 5, 6] }, saturday)).toBe(
+      'working',
+    )
+    // 轮休：周三不上班
+    const wednesday = at(10, 0, 0, 9)
+    expect(wednesday.getDay()).toBe(3)
+    expect(resolveEarningsStatus({ ...CONFIG, workDays: [1, 2, 4, 5, 6] }, wednesday)).toBe(
+      'weekend',
+    )
   })
 
   it('无午休配置时午休时段算作工作中', () => {
@@ -199,7 +290,8 @@ describe('状态判定', () => {
   })
 
   it('工作时段非法 → not-configured', () => {
-    expect(resolveEarningsStatus({ ...CONFIG, workStart: '18:00', workEnd: '09:00' }, at(10))).toBe(
+    // 上下班时间相同 = 零长度班次
+    expect(resolveEarningsStatus({ ...CONFIG, workStart: '09:00', workEnd: '09:00' }, at(10))).toBe(
       'not-configured',
     )
   })
@@ -231,8 +323,8 @@ describe('下一次状态切换', () => {
 describe('本月已赚（次要指标）', () => {
   it('本月计薪天数 = 当月周一~周五的天数（2026-09 为 22 天）', () => {
     expect(paidDaysInMonth(CONFIG, at(10))).toBe(22)
-    // 关闭「仅工作日计薪」则为整月天数
-    expect(paidDaysInMonth({ ...CONFIG, weekdaysOnly: false }, at(10))).toBe(30)
+    // 每天都计薪则为整月天数
+    expect(paidDaysInMonth({ ...CONFIG, workDays: [0, 1, 2, 3, 4, 5, 6] }, at(10))).toBe(30)
   })
 
   it('已完整过去的计薪天数只数到昨天', () => {

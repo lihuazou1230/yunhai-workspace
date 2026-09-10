@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 
-import { DEFAULT_EARNINGS_CONFIG, EARNINGS_STORAGE_KEY } from '@/types/earnings'
+import {
+  DEFAULT_EARNINGS_CONFIG,
+  EARNINGS_COMPACT_KEY,
+  EARNINGS_STORAGE_KEY,
+} from '@/types/earnings'
 import type { EarningsConfig } from '@/types/earnings'
 import { useEarnings } from './useEarnings'
 
@@ -154,5 +158,108 @@ describe('useEarnings', () => {
     current = at(18, 0, 0)
     vi.advanceTimersByTime(5000)
     expect(earnings.amountText.value).toBe('375.00')
+  })
+
+  // ---- 第六阶段 6.2 ----
+
+  it('默认 tick 提升到 100ms（毫秒级更新，显示仍精准到分）', () => {
+    vi.useFakeTimers()
+    let current = at(10, 0, 0)
+    const earnings = useEarnings({
+      storage: createMemoryStorage({ [EARNINGS_STORAGE_KEY]: JSON.stringify(CONFIG) }),
+      clock: () => current,
+      autoTick: true,
+    })
+
+    expect(earnings.amountText.value).toBe('125.00')
+
+    // 只推进 100ms：定时器已经跑过一轮，金额按新时间戳重算
+    current = at(10, 0, 1)
+    vi.advanceTimersByTime(100)
+    expect(earnings.amountText.value).toBe('125.03')
+
+    earnings.stop()
+  })
+
+  it('可切 requestAnimationFrame 模式：用 rAF 而不是定时器驱动', () => {
+    const rafCallbacks: Array<() => void> = []
+    const rafSpy = vi.fn((cb: () => void) => {
+      rafCallbacks.push(cb)
+      return rafCallbacks.length
+    })
+    vi.stubGlobal('requestAnimationFrame', rafSpy)
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+
+    let current = at(10, 0, 0)
+    const earnings = useEarnings({
+      storage: createMemoryStorage({ [EARNINGS_STORAGE_KEY]: JSON.stringify(CONFIG) }),
+      clock: () => current,
+      autoTick: true,
+      useRaf: true,
+    })
+
+    expect(rafSpy).toHaveBeenCalled()
+
+    // 手动触发一帧（模拟浏览器回调），金额按新时间戳重算
+    current = at(10, 0, 2)
+    rafCallbacks.shift()?.()
+    // 2 秒 × 125 元/时 ÷ 3600 ≈ 0.069 元 → 进位到 0.07
+    expect(earnings.amountText.value).toBe('125.07')
+
+    earnings.stop()
+    vi.unstubAllGlobals()
+  })
+
+  it('迷你折叠模式：toggleCompact 切换并持久化到独立键', async () => {
+    const storage = createMemoryStorage()
+    const earnings = useEarnings({ storage, clock: () => at(10), autoTick: false })
+
+    expect(earnings.compact.value).toBe(false)
+    earnings.toggleCompact()
+    await nextTick()
+
+    expect(earnings.compact.value).toBe(true)
+    expect(storage.getItem(EARNINGS_COMPACT_KEY)).toBe('true')
+
+    earnings.toggleCompact()
+    await nextTick()
+    expect(earnings.compact.value).toBe(false)
+  })
+
+  it('读取老配置时自动迁移（weekdaysOnly → workDays）并写回存储', async () => {
+    const legacy = {
+      monthlySalary: 21750,
+      workStart: '09:00',
+      workEnd: '18:00',
+      lunchStart: '12:00',
+      lunchEnd: '13:00',
+      monthWorkDays: 21.75,
+      weekdaysOnly: false,
+    }
+    const storage = createMemoryStorage({ [EARNINGS_STORAGE_KEY]: JSON.stringify(legacy) })
+    const earnings = useEarnings({ storage, clock: () => at(10), autoTick: false })
+
+    // 迁移成「每天都计薪」，并且补上薪资模式
+    expect(earnings.config.value.workDays).toEqual([0, 1, 2, 3, 4, 5, 6])
+    expect(earnings.config.value.salaryMode).toBe('monthly')
+    expect(earnings.config.value.monthlySalary).toBe(21750)
+
+    // 迁移结果写回存储要跨两层 watcher（config → stored → storage）
+    await nextTick()
+    await nextTick()
+    const persisted = JSON.parse(storage.getItem(EARNINGS_STORAGE_KEY)!)
+    expect(persisted.workDays).toEqual([0, 1, 2, 3, 4, 5, 6])
+    expect(persisted.weekdaysOnly).toBeUndefined()
+  })
+
+  it('updateConfig 会收敛脏值（非法时间回落默认）', () => {
+    const earnings = useEarnings({
+      storage: createMemoryStorage({ [EARNINGS_STORAGE_KEY]: JSON.stringify(CONFIG) }),
+      clock: () => at(10),
+      autoTick: false,
+    })
+
+    earnings.updateConfig({ workStart: '不是时间' })
+    expect(earnings.config.value.workStart).toBe('09:00')
   })
 })

@@ -4,6 +4,7 @@ import { nextTick } from 'vue'
 
 import {
   DEFAULT_EARNINGS_CONFIG,
+  EARNINGS_COMPACT_KEY,
   EARNINGS_STATUS_TEXT,
   EARNINGS_STORAGE_KEY,
 } from '@/types/earnings'
@@ -87,8 +88,8 @@ describe('EarningsClock', () => {
     // 层级：今日金额 text-4xl 起步，月金额是 text-sm
     expect(amountElement(wrapper).classes().join(' ')).toContain('text-4xl')
     expect(monthElement(wrapper).classes().join(' ')).toContain('text-sm')
-    // 深绿强调卡（C 位）
-    expect(wrapper.classes()).toContain('card-accent')
+    // 深绿强调卡（C 位）；组件是多根（迷你模式与完整卡二选一），所以定位到 section 再取类名
+    expect(wrapper.find('section[aria-label="赚钱秒表"]').classes()).toContain('card-accent')
   })
 
   it('今日金额逐位上滑滚动（odometer）：每位停在正确的数字上', () => {
@@ -253,5 +254,136 @@ describe('EarningsClock', () => {
       .find((b) => b.text() === '收起设置')!
       .trigger('click')
     expect(wrapper.text()).not.toContain('月薪（元）')
+  })
+
+  // ---- 第六阶段 6.2：秒表 Pro ----
+
+  it('薪资模式可切换：切到时薪后日薪随时长反推，标签也跟着变', async () => {
+    seed(CONFIG)
+    freezeTime(10)
+    const wrapper = mount(EarningsClock)
+    await openSettings(wrapper)
+
+    await wrapper.find('[data-testid="earnings-mode-hourly"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.text()).toContain('时薪（元）')
+    expect(wrapper.text()).not.toContain('月薪（元）')
+
+    // 输入时薪 125 → 每日 8 小时 → 日薪 1000，今日（1 小时）125
+    const salaryInput = wrapper.find('input[type="number"]')
+    await salaryInput.setValue('125')
+    await nextTick()
+
+    expect(wrapper.text()).toContain('日薪 ¥1,000.00')
+    expect(amountElement(wrapper).text()).toContain('125.00')
+  })
+
+  it('切换模式不改动另外两个模式的输入值（切回去还在）', async () => {
+    seed(CONFIG)
+    freezeTime(10)
+    const wrapper = mount(EarningsClock)
+    await openSettings(wrapper)
+
+    await wrapper.find('[data-testid="earnings-mode-daily"]').trigger('click')
+    await nextTick()
+    await wrapper.find('input[type="number"]').setValue('800')
+    await nextTick()
+
+    await wrapper.find('[data-testid="earnings-mode-monthly"]').trigger('click')
+    await nextTick()
+    // 月薪仍是原值 21750 → 今日 125 元
+    expect(amountElement(wrapper).text()).toContain('125.00')
+
+    await wrapper.find('[data-testid="earnings-mode-daily"]').trigger('click')
+    await nextTick()
+    expect((wrapper.find('input[type="number"]').element as HTMLInputElement).value).toBe('800')
+  })
+
+  it('自定义每周计薪日：点掉周五后周五变成不计薪（weekend）', async () => {
+    seed(CONFIG)
+    const wrapper = mount(EarningsClock)
+    await openSettings(wrapper)
+
+    // 2026-09-11 是周五，默认计薪 → working
+    freezeTime(10, 0, 0, 11)
+    await nextTick()
+    expect(wrapper.text()).not.toContain(EARNINGS_STATUS_TEXT.weekend)
+
+    // 去掉周五
+    await wrapper.find('[data-testid="earnings-day-5"]').trigger('click')
+    await nextTick()
+    expect(wrapper.text()).toContain(EARNINGS_STATUS_TEXT.weekend)
+
+    // 再加回来 → 恢复计薪
+    await wrapper.find('[data-testid="earnings-day-5"]').trigger('click')
+    await nextTick()
+    expect(wrapper.text()).not.toContain(EARNINGS_STATUS_TEXT.weekend)
+  })
+
+  it('不允许把计薪日全部点掉（否则整个秒表归零）', async () => {
+    seed({ ...CONFIG, workDays: [1] })
+    freezeTime(10, 0, 0, 7) // 2026-09-07 是周一
+    const wrapper = mount(EarningsClock)
+    await openSettings(wrapper)
+
+    await wrapper.find('[data-testid="earnings-day-1"]').trigger('click')
+    await nextTick()
+
+    // 最后一天被拦下，仍是计薪日
+    expect(wrapper.text()).not.toContain(EARNINGS_STATUS_TEXT.weekend)
+  })
+
+  it('夜班：显示「夜班」标记且凌晨仍在工作中', async () => {
+    seed({ ...CONFIG, workStart: '22:00', workEnd: '06:00' })
+    freezeTime(3)
+    const wrapper = mount(EarningsClock)
+
+    expect(wrapper.find('[data-testid="earnings-night"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain(EARNINGS_STATUS_TEXT.working)
+    // 凌晨 3 点 = 满勤 5/8 → 625 元
+    expect(amountElement(wrapper).text()).toContain('625.00')
+  })
+
+  it('迷你折叠模式：折成小条后只显示金额，状态持久化且可还原', async () => {
+    seed(CONFIG)
+    freezeTime(10)
+    const wrapper = mount(EarningsClock)
+
+    expect(wrapper.find('[data-testid="earnings-compact"]').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="earnings-compact-toggle"]').trigger('click')
+    await nextTick()
+
+    const bar = wrapper.find('[data-testid="earnings-compact"]')
+    expect(bar.exists()).toBe(true)
+    expect(bar.find('[data-testid="earnings-compact-amount"]').text()).toContain('125.00')
+    // 完整卡不再渲染
+    expect(wrapper.find('[data-testid="earnings-month"]').exists()).toBe(false)
+
+    // 状态落盘
+    await nextTick()
+    expect(window.localStorage.getItem(EARNINGS_COMPACT_KEY)).toBe('true')
+
+    await wrapper.find('[data-testid="earnings-expand"]').trigger('click')
+    await nextTick()
+    expect(wrapper.find('[data-testid="earnings-compact"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="earnings-month"]').exists()).toBe(true)
+  })
+
+  it('迷你模式状态从本地恢复（刷新后仍然是迷你条）', async () => {
+    seed(CONFIG)
+    window.localStorage.setItem(EARNINGS_COMPACT_KEY, 'true')
+    freezeTime(10)
+    const wrapper = mount(EarningsClock)
+
+    expect(wrapper.find('[data-testid="earnings-compact"]').exists()).toBe(true)
+  })
+
+  it('底部有免责声明', () => {
+    seed(CONFIG)
+    freezeTime(10)
+    const wrapper = mount(EarningsClock)
+    expect(wrapper.find('[data-testid="earnings-disclaimer"]').text()).toContain('估算值')
   })
 })
