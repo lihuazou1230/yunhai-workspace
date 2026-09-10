@@ -20,6 +20,7 @@ import { priorityLabel } from '@/utils/priorityHelper'
 import { resolveSortMove } from '@/utils/sortableMove'
 import SearchBar from '@/components/molecules/SearchBar.vue'
 import TodoItem from '@/components/molecules/TodoItem.vue'
+import AiBreakdownDialog from '@/components/organisms/AiBreakdownDialog.vue'
 import BaseButton from '@/components/atoms/BaseButton.vue'
 
 const store = useTodoStore()
@@ -143,6 +144,28 @@ function onUnsnooze(id: string) {
 function onPurge(id: string) {
   store.removeTodo(id)
   onPendingChange()
+}
+
+// ---- AI 拆解（第六阶段 6.3） ----
+/** 拆解弹窗的目标任务 id（null = 关闭） */
+const breakdownTodoId = ref<string | null>(null)
+const breakdownTodo = computed(
+  () => store.todos.find((t) => t.id === breakdownTodoId.value) ?? null,
+)
+const breakdownOpen = computed({
+  get: () => breakdownTodoId.value !== null,
+  set: (value: boolean) => {
+    if (!value) breakdownTodoId.value = null
+  },
+})
+
+function onAiBreakdown(id: string) {
+  breakdownTodoId.value = id
+}
+
+/** 确认写入子任务（用户已在预览里勾选/编辑/删减过） */
+function onBreakdownConfirm(todoId: string, titles: string[]) {
+  titles.forEach((title) => store.addSubtask(todoId, title))
 }
 
 /** 批量归档当前选中的任务 */
@@ -447,6 +470,7 @@ watch(
         @snooze="onSnooze"
         @unsnooze="onUnsnooze"
         @purge="onPurge"
+        @ai-breakdown="onAiBreakdown"
       />
     </ul>
 
@@ -460,5 +484,12 @@ watch(
       <template v-else-if="store.listView === 'snoozed'">💤 没有被藏起来的任务</template>
       <template v-else>🎉 暂无任务，添加一个开始吧</template>
     </div>
+
+    <!-- AI 拆解弹窗（放在列表之外，避免被列表项的动画/拖拽容器影响） -->
+    <AiBreakdownDialog
+      v-model="breakdownOpen"
+      :todo="breakdownTodo"
+      @confirm="onBreakdownConfirm"
+    />
   </section>
 </template>

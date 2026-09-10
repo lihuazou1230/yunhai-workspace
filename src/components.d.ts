@@ -11,6 +11,8 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AiBreakdownDialog: typeof import('./components/organisms/AiBreakdownDialog.vue')['default']
+    AiTodoInput: typeof import('./components/organisms/AiTodoInput.vue')['default']
     AvatarUpload: typeof import('./components/organisms/AvatarUpload.vue')['default']
     BaseBadge: typeof import('./components/atoms/BaseBadge.vue')['default']
     BaseButton: typeof import('./components/atoms/BaseButton.vue')['default']

@@ -83,6 +83,8 @@ const emit = defineEmits<{
   (e: 'snooze', id: string, until: string): void
   (e: 'unsnooze', id: string): void
   (e: 'purge', id: string): void
+  /** AI 拆解（第六阶段 6.3）：弹窗与调用链路由父级持有 */
+  (e: 'ai-breakdown', id: string): void
 }>()
 
 const isDone = computed(() => props.todo.status === 'completed')
@@ -284,6 +286,12 @@ function onUnarchive() {
 function onUnsnooze() {
   menuOpen.value = false
   emit('unsnooze', props.todo.id)
+}
+
+/** AI 拆解：弹窗由父级持有，这里只抛意图 */
+function onAiBreakdown() {
+  menuOpen.value = false
+  emit('ai-breakdown', props.todo.id)
 }
 
 function onSnooze(until: string) {
@@ -667,6 +675,15 @@ function onPurge() {
               @click="snoozeOpen = !snoozeOpen"
             >
               💤 稍后再做
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              class="w-full rounded-lg px-2 py-1.5 text-left text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
+              data-testid="todo-ai-breakdown"
+              @click="onAiBreakdown"
+            >
+              ✨ AI 拆解
             </button>
 
             <!-- 稍后再做子菜单：默认明天，可选后天 / 下周一 / 自定义 -->
