@@ -7,7 +7,8 @@
  * 代价是窗口的三键与拖拽得自己实现——就是本组件。
  *
  * 三个细节对齐 Windows 11 原生行为：
- * - 中部整条空白区可拖拽移动，**双击切换最大化**（`data-tauri-drag-region`）
+ * - 中部整条空白区可拖拽移动，**双击切换最大化**——两者都由 Tauri 注入的 drag.js 负责，
+ *   本组件只提供 `data-tauri-drag-region` 标记（详见模板里的注释：自己再绑一次会抵消）
  * - 三键尺寸 46×32，hover 浅灰底，关闭键 hover 红底白字
  * - 最大化/还原图标跟随窗口状态切换（监听 resize 而不是只查一次）
  *
@@ -74,14 +75,17 @@ onUnmounted(() => unlisten?.())
 
     <!--
       中：整条空白区可拖拽移动窗口，双击最大化/还原。
-      `data-tauri-drag-region` 由 Tauri 自身识别，不需要写 JS。
+
+      ⚠️ 这里**绝对不能**再绑 `@dblclick="toggleMaximize"`：
+      Tauri（2.11.5 `src/window/scripts/drag.js`）会为每个窗口注入一段脚本，
+      它自己在 document 的 mousedown 上判断 `data-tauri-drag-region`——
+      `e.detail === 1` 调 start_dragging、`e.detail === 2` 调 internal_toggle_maximize。
+      我们再绑一个 dblclick 就是第二次切换，两次抵消 → 双击看起来毫无反应。
+      该内部命令的权限（core:window:allow-internal-toggle-maximize）已含在
+      core:window:default 里，而 capabilities 申请了 core:default，所以原生路径本来就是通的。
+      顺带白拿 Tauri 对「双击拖拽区边缘」的修复（tauri#2549）。
     -->
-    <div
-      class="h-full flex-1"
-      data-tauri-drag-region
-      data-testid="title-bar-drag-region"
-      @dblclick="onAction('toggleMaximize')"
-    ></div>
+    <div class="h-full flex-1" data-tauri-drag-region data-testid="title-bar-drag-region"></div>
 
     <!-- 右：最小化 / 最大化 / 关闭（尺寸与 hover 语义对齐 Windows 11） -->
     <div class="flex shrink-0 items-stretch">

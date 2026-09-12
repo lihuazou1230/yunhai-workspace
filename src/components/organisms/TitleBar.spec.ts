@@ -86,13 +86,16 @@ describe('TitleBar', () => {
     expect(win.close).toHaveBeenCalledTimes(1)
   })
 
-  it('双击拖拽区 = 切换最大化（对齐 Windows 原生行为）', async () => {
+  it('拖拽区**不自己**处理双击：Tauri 注入的 drag.js 已负责，再绑一次会两次切换互相抵消', async () => {
     const wrapper = await mountBar()
 
+    // 这是一条防回归断言：Tauri 的 drag.js 在 mousedown 上按 `e.detail === 2` 调
+    // internal_toggle_maximize。如果这里再绑 @dblclick="toggleMaximize"，
+    // 双击就会「最大化 → 立刻还原」，用户看到的是双击没反应。
     await wrapper.find('[data-testid="title-bar-drag-region"]').trigger('dblclick')
     await flushPromises()
 
-    expect(win.toggleMaximize).toHaveBeenCalledTimes(1)
+    expect(win.toggleMaximize).not.toHaveBeenCalled()
   })
 
   it('最大化状态下图标与 aria-label 变成「还原」', async () => {
