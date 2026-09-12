@@ -113,8 +113,12 @@ export function useReminder(options: UseReminderOptions): UseReminderReturn {
                 ? '任务到期提醒'
                 : `催办：${reminderTimingText(reminder.at, clock())}`,
           })
-          // 原生 Toast 的点击回调不由插件暴露（跨平台差异大），
-          // 所以桌面版的通知点击不深链 —— 应用内兜底那条路径仍会高亮对应任务。
+          // 原生 Toast 的点击回调在 Windows 桌面端拿不到：
+          // 查过插件源码（tauri-plugin-notification 2.4.0），桌面端的 invoke_handler 只注册了
+          // notify / request_permission / is_permission_granted，`register_listener`
+          // （即 JS 侧 onAction / onNotificationReceived 的后端命令）与 desktop.rs 的点击处理
+          // 都只在移动端存在。故桌面版不做「点通知深链」，但**应用内兜底**那条路径
+          // （onOpenTodo → 高亮对应任务）照旧生效。
         } catch {
           // 插件不可用/权限被拒：静默降级到应用内兜底，绝不打断提醒流程
         }

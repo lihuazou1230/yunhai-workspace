@@ -597,9 +597,12 @@ pnpm tauri build    # 产出 exe
 产物：
 
 ```
-src-tauri/target/release/智能工作台.exe                    ← 绿色版，双击即用
-src-tauri/target/release/bundle/nsis/*-setup.exe           ← 安装版（可选安装目录）
+src-tauri/target/release/smart-workspace.exe                ← 绿色版，双击即用（4.91 MB）
+src-tauri/target/release/bundle/nsis/智能工作台_0.1.0_x64-setup.exe  ← 安装版（2.01 MB，可选安装目录）
 ```
+
+> 绿色版文件名来自 Cargo 的 `name`（Rust crate 名只能是 ASCII），窗口标题与安装包名来自
+> `productName: 智能工作台`，所以两者不同名——这是 Cargo 的硬约束，不是配置漏了。
 
 ### 桌面版做了什么增量（全部经 `utils/platform.ts` 一处判定，Web 版零影响）
 
@@ -621,15 +624,19 @@ src-tauri/target/release/bundle/nsis/*-setup.exe           ← 安装版（可�
 
 ### 数据隔离（要知道的一件事）
 
-桌面版的 localStorage / IndexedDB 落在 `%APPDATA%/<identifier>/EBWebView`，**与浏览器数据天然不共享**；
-卸载即清。想在两个渠道之间搬数据，可用未来要做的 JSON 导入导出，或直接登录 Supabase 云同步。
+桌面版的 localStorage / IndexedDB 落在 `%LOCALAPPDATA%\<identifier>\EBWebView`（WebView2 的用户数据目录），
+**与浏览器数据天然不共享**；卸载即清。想在两个渠道之间搬数据，可用未来要做的 JSON 导入导出，或直接登录 Supabase 云同步。
+
+> 两个目录别混：**Web 数据**在 `%LOCALAPPDATA%\com.smartworkspace.desktop\EBWebView`，
+> 而**窗口位置尺寸**在 `%APPDATA%\com.smartworkspace.desktop\.window-state.json`——
+> 前者由 WebView2 管，后者由 window-state 插件管。
 
 ### CI（可选，与 Pages 双流水线）
 
 `.github/workflows/build-desktop.yml`：打 tag（如 `v0.2.0`）自动构建 Windows 安装包并上传 Release——
 同一个仓库，push 主分支发 Pages、打 tag 发桌面版。
 
-### 验收记录（本机实测，2026-09-12）
+### 验收记录（本机实测，2026-09-12 ~ 09-13）
 
 | 验收项 | 实测结果 |
 |---|---|
@@ -640,10 +647,27 @@ src-tauri/target/release/bundle/nsis/*-setup.exe           ← 安装版（可�
 | 窗口标题 | `智能工作台`（配置生效） |
 | 前端已加载 | `msedgewebview2` 宿主进程挂在应用进程下（WebView2 载入成功，非白屏空壳） |
 | 单实例锁 | 连续启动两次，进程数始终为 **1** → 第二次启动被拦截并聚焦已有窗口 |
+| **关闭 = 最小化到托盘** | 向主窗口发 `WM_CLOSE` 后进程仍在（进程数 1）→ 关闭键不退出应用，秒表/提醒留在后台继续跑 |
+| **窗口位置/尺寸记忆** | `MoveWindow` 到 (210,190,1020,690) → 关闭 → 状态文件写下 `x:210 y:190`（宽高存**客户区** 1004×681）→ 重启后 `GetWindowRect` 精确回到 (210,190,1020,690) |
+| **CSP 与真实调用域名一致** | `connect-src` 覆盖高德 `restapi.amap.com`、`*.supabase.co`、`wxpusher.zjiecode.com`、`api.deepseek.com`、`open.bigmodel.cn`；`img-src https:` 覆盖 Google favicon 服务与 GitHub 头像 |
+| **新 CSP 下前端真的跑起来** | 启动后 `%LOCALAPPDATA%\com.smartworkspace.desktop\EBWebView\Default\Local Storage\leveldb\*.log` 被写入 `smart-workspace:theme` = `compact` → 打包产物在主进程 CSP 下执行成功（不是白屏空壳），桌面默认紧凑密度也按预期落盘 |
+| **CSP 已随构建生效** | 反查产物二进制：生产 CSP 为 `connect-src 'self' ipc: http://ipc.localhost https:`，`devCsp` 另含 `ws://localhost:5173`；旧的域名白名单字符串已不存在于二进制中 |
 | Web 版不受影响 | 全量 1512 例测试通过；`title-bar` 只在 `platform=desktop` 下渲染 |
 
-> 说明：`decorations: false` 无法用「有没有 `WS_CAPTION` 样式位」来判断——tao 保留了该位用于尺寸计算，
+> 说明 1：`decorations: false` 无法用「有没有 `WS_CAPTION` 样式位」来判断——tao 保留了该位用于尺寸计算，
 > 真正去掉标题栏靠的是 `WM_NCCALCSIZE`。所以判据是**客户区与窗口矩形的差**（上式），不是样式位。
+>
+> 说明 2：窗口状态记忆有坑——`tauri-plugin-window-state` 只在 `RunEvent::Exit` 落盘，`Moved`/`Resized`
+> 仅更新内存缓存。而本项目「关闭」= 隐藏到托盘（**不退出进程**），只用关闭按钮的用户位置永远不会被持久化。
+> 故在 `CloseRequested` 隐藏窗口后显式调用 `save_window_state(StateFlags::all())`；状态文件位于
+> `%APPDATA%\com.smartworkspace.desktop\.window-state.json`。
+
+**以下 4 项依赖真实人机交互，未做自动化实测**（合成鼠标输入会干扰用户当前桌面，不做）：
+
+- 拖拽标题栏移动 / 双击最大化还原 / 三键 hover 语义色（组件层行为已由 9 例单测覆盖调用映射）
+- 托盘图标右键菜单「显示主窗口 / 退出」
+- 提醒到点弹 Windows 原生通知气泡（通道分支 7 例单测覆盖）
+- 安装版安装与卸载（会改动本机注册表与安装目录，需你确认后再跑）
 
 ## 设计思路
 
@@ -691,6 +715,8 @@ src-tauri/target/release/bundle/nsis/*-setup.exe           ← 安装版（可�
 - **功能截图**：README 里的截图小节仍缺——它需要真实运行的界面截图（含暗色模式对比），
   不该用占位图凑数，等部署到 Pages 后补
 - **法定节假日数据每年初需更新**（`src/data/holidays.json`，来源见 `src/utils/holidays.ts` 头注释）
+- **桌面版自动更新**：规划里标为「可选」，本期未做——需要 `tauri-plugin-updater` + 一对签名密钥，
+  且更新包要挂在 GitHub Releases 上；CI 已经会打 tag 出安装包，接上这一步只差配置
 
 ## 致谢
 
@@ -712,6 +738,9 @@ src-tauri/target/release/bundle/nsis/*-setup.exe           ← 安装版（可�
 | WxPusher `contentType: 3`（HTML） | `contentType: 2`（HTML）+ `uids: [uid]` 数组                         | 规划此处写错了：按 [WxPusher 官方文档](https://wxpusher.zjiecode.com/docs/api-reference.html)，`1`=文本 / `2`=HTML / `3`=Markdown，照抄会把 `<p>` 当 Markdown 渲染；且 POST 接收人字段是 `uids` 数组（单数 `uid` 只存在于 GET 查询参数） |
 | 侧边栏「帮助」入口                | 已实现（打开使用说明弹窗）                                           | —                                                                                                                                                                                                                                        |
 | 卡片拖拽「等槽化」                | 按规划实现：进入编辑布局即切等槽网格，默认仍是精调 bento             | 变跨度卡片无法直接拖拽换位，等槽化是规划自己给出的取舍                                                                                                                                                                                   |
+| CSP 只列 5 个 API 域名            | `connect-src 'self' ipc: http://ipc.localhost https:`                | 规划要求「白名单」，但第六阶段是 **BYOK**：用户可把 AI `baseUrl` 指向自建网关，Supabase 也可自托管——域名写死会让这些功能在壳里静默失效，违背「Web 版功能原样可用」。真正的防线是 `script-src 'self'`（没有可执行注入就不存在可利用的连接），故 `connect-src` 放开 `https:` |
+| 绿色版叫 `智能工作台.exe`         | 实际为 `smart-workspace.exe`                                        | Cargo 的 crate/二进制名只能是 ASCII；`productName` 的「智能工作台」用于窗口标题与安装包名，两者不同名是工具链约束 |
+| 通知「点击聚焦窗口并跳转任务」    | 桌面版只能弹 Toast，点击不深链；应用内兜底路径照常高亮任务           | 插件能力边界：`tauri-plugin-notification` 2.4.0 桌面端 `invoke_handler` 只注册 `notify`/`request_permission`/`is_permission_granted`，JS 侧 `onAction`/`onNotificationReceived` 依赖的 `register_listener` 与 `desktop.rs` 的点击处理**都只在移动端存在**——不是没写，是拿不到回调 |
 
 ## 许可证
 
