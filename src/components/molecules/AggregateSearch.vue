@@ -22,6 +22,7 @@ import { SEARCH_ENGINES } from '@/types/search'
 import type { SearchEngineId } from '@/types/search'
 import type { Todo } from '@/types/todo'
 import { buildSearchUrl, nextEngine, shouldFocusSearch } from '@/utils/searchEngine'
+import { openExternal } from '@/utils/platform'
 import { priorityLabel } from '@/utils/priorityHelper'
 
 const props = withDefaults(
@@ -76,11 +77,15 @@ function selectTodo(id: string) {
   emit('select-todo', id)
 }
 
-/** 打开搜索引擎（新标签页）。用 window.open 而不是 router，因为是站外跳转。 */
+/**
+ * 打开搜索引擎。走统一的 `openExternal`：
+ * 桌面版交给系统默认浏览器（在壳里导航会让用户「走丢」回不来），
+ * 浏览器版就是普通的 window.open 新标签页。
+ */
 function searchWeb() {
   const url = searchUrl.value
   if (!url) return
-  window.open(url, '_blank', 'noopener,noreferrer')
+  void openExternal(url)
   open.value = false
   emit('submit', props.modelValue.trim())
 }

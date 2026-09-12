@@ -44,7 +44,7 @@
   }
 }
 
-/* 细滚动条 */
+/* 细滚动条（浏览器默认的粗滚动条是「网页感」最大来源） */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -54,6 +54,37 @@
   @apply rounded-full bg-slate-300 dark:bg-slate-600;
 }
 
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-400 dark:bg-slate-500;
+}
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ---- 桌面版专属（第七阶段）：由 App.vue 给 <html> 打 data-platform="desktop" ---- */
+
+/*
+  非输入区域默认不可选中 —— 这是桌面应用的习惯（拖窗口、点按钮时不该不小心选中文字）。
+  但输入框、文本域、可编辑区、显式标了 .selectable 的地方必须能选中，
+  否则用户连任务标题都复制不了，那是把「原生感」做成了「残废」。
+*/
+html[data-platform='desktop'] body {
+  user-select: none;
+  cursor: default;
+}
+
+html[data-platform='desktop'] input,
+html[data-platform='desktop'] textarea,
+html[data-platform='desktop'] select,
+html[data-platform='desktop'] [contenteditable='true'],
+html[data-platform='desktop'] .selectable,
+html[data-platform='desktop'] .selectable * {
+  user-select: text;
+}
+
+/* 桌面版禁用整页回弹/横向滚动，避免拖动窗口时页面跟着晃 */
+html[data-platform='desktop'] {
+  overscroll-behavior: none;
+}
+

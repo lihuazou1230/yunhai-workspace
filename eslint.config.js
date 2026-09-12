@@ -11,6 +11,10 @@ export default tseslint.config(
       'coverage/**',
       'src/components.d.ts',
       'src/auto-imports.d.ts',
+      // 桌面壳的构建产物（cargo 输出里带着 Tauri 生成的 JS 胶水文件）与生成的 schema
+      // 都在 .gitignore 里，也不该被前端 lint 扫到
+      'src-tauri/target/**',
+      'src-tauri/gen/**',
     ],
   },
   js.configs.recommended,

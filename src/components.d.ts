@@ -44,6 +44,7 @@ declare module 'vue' {
     StatisticsCard: typeof import('./components/organisms/StatisticsCard.vue')['default']
     StreakCard: typeof import('./components/organisms/StreakCard.vue')['default']
     ThemeToggle: typeof import('./components/molecules/ThemeToggle.vue')['default']
+    TitleBar: typeof import('./components/organisms/TitleBar.vue')['default']
     TodayProgressCard: typeof import('./components/organisms/TodayProgressCard.vue')['default']
     TodoForm: typeof import('./components/organisms/TodoForm.vue')['default']
     TodoItem: typeof import('./components/molecules/TodoItem.vue')['default']

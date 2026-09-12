@@ -1,0 +1,37 @@
+[package]
+name = "smart-workspace"
+version = "0.1.0"
+description = "Vue 3 智能工作台 · 桌面版（Tauri 2 外壳）"
+authors = ["Vue 3 智能工作台"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.77.2"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "smart_workspace_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+# tray-icon 特性：系统托盘常驻（关闭窗口后秒表/提醒还能继续跑）
+tauri = { version = "2.11.3", features = ["tray-icon"] }
+tauri-plugin-log = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-window-state = "2"
+tauri-plugin-single-instance = "2"
+
+[profile.release]
+# 桌面版包体要小：LTO + 去符号 + 单代码单元
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

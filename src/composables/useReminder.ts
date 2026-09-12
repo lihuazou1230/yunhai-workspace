@@ -35,6 +35,7 @@ import {
   reminderTimingText,
 } from '@/utils/reminderSchedule'
 import { buildReminderMessage } from '@/utils/wxpusher'
+import { isTauri } from '@/utils/platform'
 
 /** 各通道的发送实现（可注入，便于测试断言「该发几次、发给了谁」） */
 export interface ReminderChannels {
@@ -91,8 +92,36 @@ export function useReminder(options: UseReminderOptions): UseReminderReturn {
     notificationsSupported() ? Notification.permission : 'unsupported',
   )
 
-  /** 默认的系统通知实现 */
+  /**
+   * 默认的系统通知实现。
+   *
+   * 两条分支不是重复劳动：
+   * - **桌面版**走 Tauri 通知插件 → Windows 原生 Toast（点通知还能深链回任务）
+   * - **浏览器版**只能走 Web Notification API
+   * WebView2 里虽然也有 `Notification`，但插件这条路才由 Tauri 统一管理权限与原生外观。
+   */
   function defaultSystem(reminder: DueReminder): void {
+    if (isTauri()) {
+      void (async () => {
+        try {
+          const mod = await import('@tauri-apps/plugin-notification')
+          if (!(await mod.isPermissionGranted())) return
+          mod.sendNotification({
+            title: `⏰ ${reminder.title}`,
+            body:
+              reminder.seq === 1
+                ? '任务到期提醒'
+                : `催办：${reminderTimingText(reminder.at, clock())}`,
+          })
+          // 原生 Toast 的点击回调不由插件暴露（跨平台差异大），
+          // 所以桌面版的通知点击不深链 —— 应用内兜底那条路径仍会高亮对应任务。
+        } catch {
+          // 插件不可用/权限被拒：静默降级到应用内兜底，绝不打断提醒流程
+        }
+      })()
+      return
+    }
+
     if (!notificationsSupported() || Notification.permission !== 'granted') return
     try {
       const notification = new Notification(`⏰ ${reminder.title}`, {
@@ -178,6 +207,21 @@ export function useReminder(options: UseReminderOptions): UseReminderReturn {
 
   /** 申请系统通知权限：**只在用户显式动作里调用**（进门就要权限是最招人烦的反模式） */
   async function requestPermission(): Promise<NotificationPermission | 'unsupported'> {
+    // 桌面版走 Tauri 通知插件（Windows 原生 Toast 权限，由系统弹窗授予）
+    if (isTauri()) {
+      try {
+        const mod = await import('@tauri-apps/plugin-notification')
+        let granted = await mod.isPermissionGranted()
+        if (!granted) granted = (await mod.requestPermission()) === 'granted'
+        permission.value = granted ? 'granted' : 'denied'
+        return permission.value
+      } catch {
+        // 插件缺失/调用失败：当作不支持，UI 会引导「应用内提醒仍有效」
+        permission.value = 'unsupported'
+        return 'unsupported'
+      }
+    }
+
     if (!notificationsSupported()) {
       permission.value = 'unsupported'
       return 'unsupported'

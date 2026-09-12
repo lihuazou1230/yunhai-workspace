@@ -24,6 +24,8 @@ const WEATHER_URL = `${AMAP_BASE}/weather/weatherInfo`
 const GEOCODE_URL = `${AMAP_BASE}/geocode/geo`
 /** 逆地理编码：坐标 -> 行政区（自动定位用） */
 const REGEO_URL = `${AMAP_BASE}/geocode/regeo`
+/** IP 定位：按出口 IP 出城市（桌面端兜底用） */
+const IP_URL = `${AMAP_BASE}/ip`
 
 /** 天气 API Key 缺失时的标识性错误信息（useWeather 依赖该常量做友好提示） */
 export const WEATHER_KEY_MISSING_MESSAGE = '未配置天气 API Key（VITE_AMAP_KEY）'
@@ -109,6 +111,14 @@ interface AmapRegeoResponse extends AmapBase {
       adcode?: string
     }
   }
+}
+
+/** IP 定位响应（`/v3/ip`）：只到城市级，且直辖市同样会把 city 返回成空数组 */
+interface AmapIpResponse extends AmapBase {
+  province?: string | string[]
+  city?: string | string[]
+  adcode?: string
+  rectangle?: string
 }
 
 /** 常见 infocode -> 中文提示（其余情况回落到 info 原文） */
@@ -320,6 +330,38 @@ export async function resolveAdcode(
   if (!adcode) throw new Error(`未找到城市「${query}」，请换个名称或填写 6 位 adcode`)
   cache.setAdcode(query, adcode)
   return adcode
+}
+
+/**
+ * IP 定位（第七阶段：桌面端兜底）。
+ *
+ * 为什么需要它：桌面壳里 WebView2 的定位要经 Windows 隐私设置 + 权限声明，被拒时
+ * 没有别的办法；而 `/v3/ip` 只要联网就能给出**城市级**位置，对「看今天天气」完全够用。
+ * 精度只到城市，所以它排在「浏览器定位 → 上次位置」之后，只作为最后一层兜底。
+ */
+export async function locateByIp(): Promise<LocatedPlace> {
+  const key = requireKey()
+  const params = new URLSearchParams({ key, output: 'JSON' })
+
+  const raw = await withRetry(async () => {
+    const res = await httpClient<AmapIpResponse>(`${IP_URL}?${params.toString()}`, {
+      timeoutMs: 10_000,
+    })
+    assertAmapOk(res, 'IP 定位')
+    return res
+  })
+
+  const adcode = asText(raw.adcode)
+  if (!adcode) throw new Error('IP 定位未能识别城市')
+
+  // 高德的 /v3/ip 在直辖市会把 city 返回空、由 province 承担城市名
+  const province = asText(raw.province)
+  const city = asText(raw.city)
+  return {
+    adcode,
+    province,
+    city: city ?? province,
+  }
 }
 
 /** 高德对直辖市（北京/上海/天津/重庆）会把 city 返回成空数组，这里统一成 string | undefined */

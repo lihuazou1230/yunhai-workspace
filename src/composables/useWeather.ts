@@ -1,7 +1,7 @@
 /**
  * 天气数据组合式函数：自动定位 + 手动切换城市 + 本地缓存 + 加载/错误三态。
  *
- * 进站策略（降级链路）：自动定位 → 上次的位置（localStorage 记忆）→ 默认城市，
+ * 进站策略（降级链路）：自动定位 → 上次的位置（localStorage 记忆）→（桌面版）IP 定位 → 默认城市，
  * 每一级都会在卡片内说明当前展示的是哪一级的结果。
  * 手动切换城市是阶段三要求保留的能力：城市名经地理编码（geo 接口）换成 adcode，
  * 并记为「上次的位置」——下次定位不可用时直接回退到用户自己选的城市。
@@ -12,6 +12,7 @@ import { computed, ref } from 'vue'
 import {
   fetchCurrentWeather,
   getWeatherKey,
+  locateByIp,
   locatePlace,
   resolveAdcode,
   WEATHER_KEY_MISSING_MESSAGE,
@@ -20,6 +21,7 @@ import { GeoError, getCurrentCoords } from '@/composables/useGeolocation'
 import { DEFAULT_WEATHER_CITY } from '@/types/weather'
 import type { WeatherData, WeatherLoadState } from '@/types/weather'
 import { buildPlaceLabel, weatherPlaceLabel } from '@/utils/placeFormatter'
+import { isTauri } from '@/utils/platform'
 
 /** 用户拒绝过定位权限：记住后不必每次进站都白试一次 */
 const GEO_DENIED_KEY = 'smart-workspace:geo-denied'
@@ -73,7 +75,17 @@ function errMessage(e: unknown): string {
   return '天气获取失败，请稍后重试'
 }
 
-export function useWeather() {
+export interface UseWeatherOptions {
+  /**
+   * 是否允许「IP 定位」兜底。
+   * 默认在桌面版开启：WebView2 的定位要过系统隐私设置，被拒后没有别的办法，
+   * 而 `/v3/ip` 只要联网就能出城市级位置。浏览器版保持关闭，不改变既有降级链路。
+   */
+  ipFallback?: boolean
+}
+
+export function useWeather(options: UseWeatherOptions = {}) {
+  const ipFallback = options.ipFallback ?? isTauri()
   const weather = ref<WeatherData | null>(null)
   const state = ref<WeatherLoadState>('loading')
   const error = ref('')
@@ -199,7 +211,28 @@ export function useWeather() {
   }
 
   /**
-   * 进站降级链路：自动定位 → 上次定位的位置 → 默认城市。
+   * IP 定位兜底（仅桌面版默认开启）。
+   * 精度只到城市，所以排在「浏览器定位 → 上次位置」之后，只作为最后一层。
+   */
+  async function fallbackToIp(hintPrefix: string): Promise<boolean> {
+    if (!ipFallback) return false
+    try {
+      const place = await locateByIp()
+      const ok = await run(place.adcode)
+      if (!ok) return false
+      located.value = false
+      locatedLabel.value = buildPlaceLabel(place)
+      locateHint.value = `${hintPrefix}，已按 IP 定位到${locatedLabel.value}`
+      writeFlag(LAST_PLACE_KEY, JSON.stringify({ adcode: place.adcode, label: locatedLabel.value }))
+      return true
+    } catch {
+      // IP 定位也失败：继续往下走默认城市，不打断链路
+      return false
+    }
+  }
+
+  /**
+   * 进站降级链路：自动定位 → 上次定位的位置 →（桌面版）IP 定位 → 默认城市。
    * 每一级都保证「有东西可看」，并在卡片内说明当前展示的是哪一级结果。
    */
   async function init(): Promise<boolean> {
@@ -207,6 +240,7 @@ export function useWeather() {
 
     if (readFlag(GEO_DENIED_KEY)) {
       if (await fallbackToRemembered('定位权限已被拒绝')) return true
+      if (await fallbackToIp('定位权限已被拒绝')) return true
       const ok = await run(DEFAULT_WEATHER_CITY)
       if (ok) locateHint.value = '定位权限已被拒绝，已显示默认城市'
       return ok
@@ -217,6 +251,7 @@ export function useWeather() {
 
     const reason = locateHint.value
     if (await fallbackToRemembered(reason || '定位失败')) return true
+    if (await fallbackToIp(reason || '定位失败')) return true
 
     const fallbackOk = await run(DEFAULT_WEATHER_CITY)
     if (fallbackOk && reason) locateHint.value = `${reason}，已显示默认城市`

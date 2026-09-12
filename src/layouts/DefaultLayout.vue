@@ -35,14 +35,23 @@ import { useTodoStore } from '@/stores/todoStore'
 import { SEARCH_ENGINE_KEY, SEARCH_RESULT_LIMIT } from '@/types/search'
 import type { SearchEngineId } from '@/types/search'
 import { safeSearchEngine } from '@/utils/searchEngine'
+import { isTauri, shouldShowBottomNav } from '@/utils/platform'
 
 /** 侧边栏折叠状态（本地记忆） */
 const SIDEBAR_COLLAPSED_KEY = 'smart-workspace:sidebar-collapsed'
 
-const collapsed = useLocalStorage(SIDEBAR_COLLAPSED_KEY, false)
+/**
+ * 桌面版默认收起成「纯图标活动栏」（VS Code Activity Bar 风格）：
+ * 桌面窗口最窄也有 900px，紧凑一点信息密度更高；点一下即可展开，选择会被记住。
+ * 浏览器版维持展开（平板上把它当主入口用）。
+ */
+const collapsed = useLocalStorage(SIDEBAR_COLLAPSED_KEY, isTauri())
 const route = useRoute()
 const router = useRouter()
 const todoStore = useTodoStore()
+
+/** 桌面版不渲染移动端底部导航（窗口最窄 900px，底部导航既占地方又「移动端感」十足） */
+const showBottomNav = shouldShowBottomNav()
 
 /** 搜索引擎选择（本地记忆；脏值收敛为百度） */
 const engineStored = useLocalStorage<string>(SEARCH_ENGINE_KEY, 'baidu')
@@ -159,7 +168,7 @@ watch(
         </router-view>
       </main>
 
-      <MobileBottomNav />
+      <MobileBottomNav v-if="showBottomNav" />
     </div>
   </div>
 </template>

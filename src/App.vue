@@ -16,12 +16,14 @@ import { onBeforeUnmount, onMounted, watch } from 'vue'
 
 import { useEventListener, useIntervalFn } from '@vueuse/core'
 
+import TitleBar from '@/components/organisms/TitleBar.vue'
 import { useAuthStore } from '@/stores/authStore'
-import { useThemeStore } from '@/stores/themeStore'
+import { useThemeStore, THEME_STORAGE_KEY } from '@/stores/themeStore'
 import { useTodoStore } from '@/stores/todoStore'
 import { useWallpaperStore } from '@/stores/wallpaperStore'
 import { useTheme } from '@/composables/useTheme'
 import { useSyncNotifications } from '@/composables/useSyncNotifications'
+import { defaultDensity, isExternalHttpUrl, isTauri, openExternal } from '@/utils/platform'
 
 const themeStore = useThemeStore()
 const { themeVars } = useTheme()
@@ -70,18 +72,54 @@ useIntervalFn(todoStore.refreshToday, 60_000, { immediate: true, immediateCallba
 useEventListener(document, 'visibilitychange', () => {
   if (document.visibilityState === 'visible') todoStore.refreshToday()
 })
+
+// ---- 桌面版（第七阶段）：这些差异全部由 utils/platform.ts 一处判定 ----
+const desktop = isTauri()
+
+onMounted(() => {
+  // 首次进入桌面版时默认用紧凑密度（桌面屏空间大，信息密度优先；设置面板仍可改）
+  if (desktop && !localStorage.getItem(THEME_STORAGE_KEY)) {
+    themeStore.setDensity(defaultDensity())
+  }
+  // 给根元素打平台标记：桌面专属的 CSS（禁止选中、细滚动条等）都挂在它下面
+  document.documentElement.dataset.platform = desktop ? 'desktop' : 'web'
+})
+
+/**
+ * 外链统一交给系统浏览器（桌面版）。
+ *
+ * 用**一个全局监听**而不是逐个组件改：只拦截绝对 http(s) 链接，站内路由链接
+ * （`href="/todos"` 这种）原样交给 vue-router —— 这样以后新加的外链自动生效，
+ * 不会出现「某处漏改，结果在壳里把应用自己导航走了，用户回不来」。
+ */
+function onDocumentClick(ev: MouseEvent) {
+  if (!desktop) return
+  const anchor = (ev.target as HTMLElement | null)?.closest?.('a')
+  if (!anchor) return
+
+  const href = anchor.getAttribute('href') ?? ''
+  if (!isExternalHttpUrl(href)) return
+
+  ev.preventDefault()
+  void openExternal(href)
+}
+useEventListener(document, 'click', onDocumentClick)
 </script>
 
 <template>
   <el-config-provider :size="themeStore.elSize">
-    <!-- 壁纸铺在根容器上：卡片是不透明白底，所以不影响内容可读性 -->
-    <div
-      :style="{ ...themeVars, ...wallpaperStore.style }"
-      class="min-h-screen bg-cover bg-fixed bg-center"
-      data-testid="app-root"
-    >
-      <!-- /login 独立全屏，其余路由由 DefaultLayout 套壳 -->
-      <router-view />
+    <div class="flex min-h-screen flex-col" data-testid="app-shell">
+      <!-- 自绘标题栏：只有桌面版有（浏览器版有系统标签页，再画一条是多余的） -->
+      <TitleBar v-if="desktop" />
+      <!-- 壁纸铺在根容器上：卡片是不透明白底，所以不影响内容可读性 -->
+      <div
+        :style="{ ...themeVars, ...wallpaperStore.style }"
+        class="min-h-0 flex-1 bg-cover bg-fixed bg-center"
+        data-testid="app-root"
+      >
+        <!-- /login 独立全屏，其余路由由 DefaultLayout 套壳 -->
+        <router-view />
+      </div>
     </div>
   </el-config-provider>
 </template>

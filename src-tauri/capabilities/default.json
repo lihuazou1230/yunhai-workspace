@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "桌面版所需权限：窗口控制（自绘标题栏三键）、外链唤起系统浏览器、原生通知、定位。Web 版不受影响——这些能力只在 Tauri 壳里存在。",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:window:allow-is-maximized",
+    "core:webview:allow-internal-toggle-devtools",
+    "shell:allow-open",
+    "notification:default",
+    "window-state:default"
+  ]
+}

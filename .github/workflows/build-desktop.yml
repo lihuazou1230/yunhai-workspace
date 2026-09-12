@@ -1,0 +1,63 @@
+# 打 tag 自动构建桌面版安装包（第七阶段）
+#
+# 与 Pages 流水线分工：push 主分支 → 发浏览器版；打 tag（如 v0.2.0）→ 发桌面版安装包。
+# 用官方 tauri-action：它负责装 Rust、缓存依赖、跑 tauri build、把产物传到 Release。
+
+name: Build Desktop (Tauri)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # 也允许手动触发，便于不发版先验证流水线本身
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      # tauri-action 要把安装包传到 Release，需要写权限
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装前端依赖
+        run: pnpm install --frozen-lockfile
+
+      # 与交付纪律一致：打包前先确保测试与构建都过，避免发出版本才发现红
+      - name: 单元测试
+        run: pnpm test
+
+      - name: 类型检查
+        run: pnpm typecheck
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      # Rust 依赖编译很慢，缓存 target 目录能省掉每次十几分钟
+      - name: 缓存 Rust 构建产物
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: 构建并发布桌面版
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # tag 触发时自动建 Release 并挂上安装包；手动触发则只构建
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: '智能工作台 v__VERSION__'
+          releaseBody: '桌面版安装包（Windows x64）。绿色版为单文件 exe，安装版为 -setup.exe。'
+          releaseDraft: true
+          prerelease: false

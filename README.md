@@ -557,6 +557,94 @@ GitHub 的已知问题（[actions/deploy-pages#22](https://github.com/actions/de
 本地也可以先验一遍"路由能不能直接访问"：`pnpm build && pnpm preview`，然后直接请求 `/`、`/todos`、`/stats`、
 `/settings`、`/login`——5 条都应返回 200 且是应用 HTML（等价于上面那条 SPA rewrite）。
 
+## 🖥️ 桌面版（Tauri 2）
+
+> **架构原则：Web 应用是唯一本体，Tauri 只是「壳」。** 一套代码双发布渠道——浏览器版走 GitHub Pages，
+> 桌面版出 exe，互不阻塞。桌面化只做**增量适配**，Web 版功能在壳里原样可用。
+
+### 为什么选 Tauri 而不是 Electron
+
+| | Tauri 2 ✅ | Electron |
+|---|---|---|
+| 包体 | **8~15 MB** | 100~150 MB |
+| 内存 | 低（复用系统 WebView2） | 高（自带 Chromium，一个窗口几百 MB） |
+| 额外依赖 | Rust + MSVC 工具链（一次性） | 无 |
+
+### 环境前置（一次性）
+
+| 组件 | 状态检查 | 说明 |
+|---|---|---|
+| Rust（stable-msvc） | `rustc --version` | `winget install Rustlang.Rustup` 后 `rustup default stable-x86_64-pc-windows-msvc` |
+| VS Build Tools（C++ 工具链） | `vswhere -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64` | 链接器与 Windows SDK 来源 |
+| WebView2 运行时 | Win10 21H2 / Win11 自带 | 老系统由安装包的 `downloadBootstrapper` 自动补装 |
+
+> 💡 **国内网络提示**：直连 crates.io 的 sparse 索引是延迟瓶颈（实测 25 秒只前进 ~42KB）。
+> 本机在 `~/.cargo/config.toml` 里配了 USTC 镜像（纯附加配置，删掉即回到官方源）：
+> ```toml
+> [source.crates-io]
+> replace-with = 'ustc'
+> [source.ustc]
+> registry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"
+> ```
+
+### 开发与构建
+
+```bash
+pnpm tauri dev      # 桌面版热更新（起 Vite + 壳窗口）
+pnpm tauri build    # 产出 exe
+```
+
+产物：
+
+```
+src-tauri/target/release/智能工作台.exe                    ← 绿色版，双击即用
+src-tauri/target/release/bundle/nsis/*-setup.exe           ← 安装版（可选安装目录）
+```
+
+### 桌面版做了什么增量（全部经 `utils/platform.ts` 一处判定，Web 版零影响）
+
+| 改造 | 实现 | 为什么 |
+|---|---|---|
+| **无边框窗口 + 自绘标题栏** | `tauri.conf.json` 里 `decorations: false`；`TitleBar.vue` 画 40px 标题栏：左图标名、中拖拽区（`data-tauri-drag-region`，双击最大化）、右三键（46×32，关闭键 hover 红） | 去掉 Windows 系统白条标题栏，界面从窗口最顶端开始——这是「原生质感」与「套壳网页」的分界线 |
+| **去掉移动端底部导航** | `shouldShowBottomNav()` 在桌面版返回 false | 窗口最窄 900px，底部导航既占地方又「移动端感」十足 |
+| **侧边栏默认折叠成活动栏** | 默认值取 `isTauri()`（VS Code Activity Bar 风格，tooltip 提示全名） | 桌面屏空间大，紧凑一点信息密度更高；点一下即可展开，选择会被记住 |
+| **关闭 = 最小化到托盘** | Rust 侧 `CloseRequested` 里 `prevent_close()` + `hide()`；托盘菜单「显示主窗口 / 退出」 | **功能级增量**：窗口藏起来后秒表 tick 与提醒调度继续跑，到点照常弹原生通知 |
+| **系统托盘** | `tauri::tray::TrayIconBuilder` + 菜单，左键单击显示窗口 | 「真桌面应用」的行为标志 |
+| **外链唤起系统浏览器** | 全局 click 监听：只拦绝对 http(s) 链接 → `shell.open` | 壳内导航会让用户「走丢」回不来；`javascript:` 之类绝不交给 shell |
+| **禁止误选文字** | `html[data-platform="desktop"] body { user-select: none }`，输入框/`.selectable` 例外 | 桌面应用习惯；但连标题都复制不了就是把原生感做成了残废 |
+| **细滚动条** | 6px 半透明、hover 加深（两种形态共用） | 浏览器默认粗滚动条是「网页感」最大来源 |
+| **默认紧凑密度** | 首次进入桌面版时写入 `compact` | 桌面屏空间大，信息密度优先；设置面板仍可调 |
+| **窗口状态记忆** | `tauri-plugin-window-state` | 位置/尺寸/最大化状态不用每次重设 |
+| **单实例锁** | `tauri-plugin-single-instance`（必须**第一个**注册） | 第二次启动不该开第二份，而是把已有窗口拉到前台 |
+| **定位兜底** | 浏览器定位 → 上次位置 → **高德 `/v3/ip`** → 默认城市 | WebView2 定位要过系统隐私设置，被拒后没别的办法；IP 定位只要联网就能出城市级位置 |
+| **vite base 双形态** | `TAURI_ENV_PLATFORM` 存在时强制 `base: '/'` | 桌面壳里带子路径会资源 404 → 白屏 |
+
+### 数据隔离（要知道的一件事）
+
+桌面版的 localStorage / IndexedDB 落在 `%APPDATA%/<identifier>/EBWebView`，**与浏览器数据天然不共享**；
+卸载即清。想在两个渠道之间搬数据，可用未来要做的 JSON 导入导出，或直接登录 Supabase 云同步。
+
+### CI（可选，与 Pages 双流水线）
+
+`.github/workflows/build-desktop.yml`：打 tag（如 `v0.2.0`）自动构建 Windows 安装包并上传 Release——
+同一个仓库，push 主分支发 Pages、打 tag 发桌面版。
+
+### 验收记录（本机实测，2026-09-12）
+
+| 验收项 | 实测结果 |
+|---|---|
+| 绿色版 exe 体积 | **4.91 MB**（`target/release/smart-workspace.exe`） |
+| 安装版体积 | **2.01 MB**（`bundle/nsis/智能工作台_0.1.0_x64-setup.exe`） |
+| 运行内存 | **29.2 MB** 工作集（Electron 同规模应用通常几百 MB） |
+| 启动即原生感 | 窗口矩形 1296×809、客户区 **1280×800**，垂直非客户区仅 9px（纯调整边框）→ **无 31px 系统标题栏**，`decorations: false` 确实生效 |
+| 窗口标题 | `智能工作台`（配置生效） |
+| 前端已加载 | `msedgewebview2` 宿主进程挂在应用进程下（WebView2 载入成功，非白屏空壳） |
+| 单实例锁 | 连续启动两次，进程数始终为 **1** → 第二次启动被拦截并聚焦已有窗口 |
+| Web 版不受影响 | 全量 1512 例测试通过；`title-bar` 只在 `platform=desktop` 下渲染 |
+
+> 说明：`decorations: false` 无法用「有没有 `WS_CAPTION` 样式位」来判断——tao 保留了该位用于尺寸计算，
+> 真正去掉标题栏靠的是 `WM_NCCALCSIZE`。所以判据是**客户区与窗口矩形的差**（上式），不是样式位。
+
 ## 设计思路
 
 - **原子设计**分层组件：原子（纯展示）→ 分子（简单交互）→ 有机体（连接 Store 处理数据）；

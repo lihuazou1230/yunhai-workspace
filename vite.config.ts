@@ -6,16 +6,20 @@ import Components from 'unplugin-vue-components/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { defineConfig } from 'vitest/config'
 
-// https://vite.dev/config/
+/**
+ * 部署路径的两种形态（第七阶段）：
+ * - **桌面版（Tauri）必须是 `/`**：壳里加载的是 `tauri://localhost` 之类的自定义协议，
+ *   带子路径会让资源全部 404 → 白屏。Tauri 构建时会注入 `TAURI_ENV_PLATFORM`。
+ * - **GitHub Pages 项目站点**挂在 `/<repo>/` 下，由部署工作流注入 `BASE_PATH`。
+ * - 本地开发、Vercel、Netlify、Cloudflare Pages 都在根目录，默认 `/` 即可。
+ *
+ * `import.meta.env.BASE_URL` 会同步变化，而路由用的是
+ * `createWebHistory(import.meta.env.BASE_URL)`，所以两种形态下路由都正确。
+ */
+const isTauriBuild = Boolean(process.env.TAURI_ENV_PLATFORM)
+
 export default defineConfig({
-  /**
-   * 部署子路径。
-   * 本地开发、Vercel、Netlify、Cloudflare Pages 都挂在域名根目录（`/`），保持默认即可；
-   * GitHub Pages 的项目站点挂在 `https://<user>.github.io/<repo>/` 上，
-   * 由部署工作流注入 `BASE_PATH=/<repo>/`——`import.meta.env.BASE_URL` 会同步变化，
-   * 而路由用的是 `createWebHistory(import.meta.env.BASE_URL)`，所以子路径下路由依然正确。
-   */
-  base: process.env.BASE_PATH ?? '/',
+  base: isTauriBuild ? '/' : (process.env.BASE_PATH ?? '/'),
   plugins: [
     vue(),
     // Element Plus 按需自动导入：模板组件 + API（ElMessage 等）
