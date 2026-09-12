@@ -625,11 +625,15 @@ src-tauri/target/release/bundle/nsis/智能工作台_0.1.0_x64-setup.exe  ← �
 ### 数据隔离（要知道的一件事）
 
 桌面版的 localStorage / IndexedDB 落在 `%LOCALAPPDATA%\<identifier>\EBWebView`（WebView2 的用户数据目录），
-**与浏览器数据天然不共享**；卸载即清。想在两个渠道之间搬数据，可用未来要做的 JSON 导入导出，或直接登录 Supabase 云同步。
+**与浏览器数据天然不共享**。想在两个渠道之间搬数据，可用未来要做的 JSON 导入导出，或直接登录 Supabase 云同步。
 
 > 两个目录别混：**Web 数据**在 `%LOCALAPPDATA%\com.smartworkspace.desktop\EBWebView`，
 > 而**窗口位置尺寸**在 `%APPDATA%\com.smartworkspace.desktop\.window-state.json`——
 > 前者由 WebView2 管，后者由 window-state 插件管。
+>
+> **卸载时是否清数据由你决定**：生成的 NSIS 脚本里有个「是否删除应用数据」复选框
+> （`installer.nsi` 的 `DeleteAppDataCheckbox`），勾了才 `RmDir /r` 掉上面两个目录；
+> 不勾则任务、设置、窗口位置全部留在本机，重装即可继续用。
 
 ### CI（可选，与 Pages 双流水线）
 
