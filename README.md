@@ -598,11 +598,18 @@ pnpm tauri build          # 只打包，产物留在 src-tauri/target/release/
 ```bash
 pnpm desktop:build        # = typecheck + 单测 + lint → pnpm build → tauri build → 拷产物到项目根
 pnpm desktop:build:fast   # 跳过校验，只构建（前端产物没变、想快点时用）
+pnpm desktop:build:kill   # 同上，但先强杀正在运行的桌面版（见下）
 ```
 
 也可以直接双击 `build-desktop.bat`（纯 ASCII，避免 cmd 解析中文批处理时报 `'xxx' is not recognized`）。
 底下的脚本是 `scripts/desktop-build.mjs`，它顺手把本机**不在系统 PATH 里**的 `~/.cargo/bin` 补进
-`PATH`（否则 `tauri build` 会直接报 `cargo not found`），并把完整输出写进 `_desktop_build.log`。
+`PATH`（否则 `tauri build` 会直接报 `cargo not found`），并把终端上的完整输出（含 cargo 报错）
+一并写进 `_desktop_build.log`。
+
+> ⚠️ **桌面版正在运行时打包会失败**：cargo 删不掉被占用的 target 产物，报
+> `failed to remove file ... 拒绝访问 (os error 5)`。脚本会在编译前先查进程：
+> 没关它就明确报错让你关，加 `--kill`（`pnpm desktop:build:kill`）则由脚本强制结束。
+> 注意桌面版点关闭按钮**只是最小化到托盘**，要真正退出得走托盘菜单的「退出」。
 
 产物统一拷到 **workspace 上一级目录**（即 `C:\Users\asus\Desktop\个人项目`），不用再翻 `target`：
 
@@ -625,6 +632,17 @@ src-tauri/target/release/bundle/nsis/智能工作台_0.1.0_x64-setup.exe  ← �
 
 > 绿色版文件名来自 Cargo 的 `name`（Rust crate 名只能是 ASCII），窗口标题与安装包名来自
 > `productName: 智能工作台`，所以两者不同名——这是 Cargo 的硬约束，不是配置漏了。
+
+> ⚠️ **别用裸 `cargo build --release` 代替打包**：`tauri` 的 `build.rs` 里是
+> `let dev = !has_feature("custom-protocol")`，不带该特性构建出来的是**dev 模式二进制**——
+> 它不加载内嵌资源，而是去连 `tauri.conf.json` 的 `devUrl`（`http://localhost:5173`）。
+> 那个端口没有服务时，双击 exe 只会看到 WebView2 的 **`ERR_CONNECTION_REFUSED`** 错误页，
+> 看起来像「打包坏了」，其实是构建模式选错了。`pnpm tauri build`（以及上面的
+> `pnpm desktop:build`）会由 CLI 自动带上该特性；手动构建必须写全：
+> ```bash
+> cargo build --release --features custom-protocol
+> ```
+> `src-tauri/Cargo.toml` 里已补上标准特性别名，所以上面这条命令可直接使用。
 
 ### 桌面版做了什么增量（全部经 `utils/platform.ts` 一处判定，Web 版零影响）
 

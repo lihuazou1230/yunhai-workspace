@@ -16,6 +16,16 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
 
+[features]
+# ⚠️ 生产构建必须启用这个特性，否则会得到一个「dev 模式」二进制：
+# tauri 的 build.rs 里是 `let dev = !has_feature("custom-protocol")`，
+# dev 模式不加载内嵌资源，而是去连 tauri.conf.json 的 devUrl（http://localhost:5173）——
+# 那个端口没服务时，双击 exe 只会看到 WebView2 的 ERR_CONNECTION_REFUSED 错误页。
+#
+# - `pnpm tauri build`：CLI 会自动带上（内部按 `tauri/custom-protocol` 传递），无需手动指定
+# - 手动构建：必须写全 `cargo build --release --features custom-protocol`，只写 --release 不够
+custom-protocol = ["tauri/custom-protocol"]
+
 [dependencies]
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
