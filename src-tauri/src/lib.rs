@@ -17,6 +17,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, WindowEvent,
 };
+use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
 /// 把主窗口显示出来并聚焦（托盘菜单、托盘左键、第二次启动都用它）
 fn show_main_window(app: &tauri::AppHandle) {
@@ -86,6 +87,14 @@ pub fn run() {
                 // 秒表 tick 与提醒调度都在前端跑，窗口藏起来它们继续工作。
                 api.prevent_close();
                 let _ = window.hide();
+
+                // 顺手把窗口状态落盘。
+                //
+                // window-state 插件默认只在 `RunEvent::Exit`（真正退出）时才写文件，
+                // 而本应用的「关闭」是隐藏到托盘 —— 如果用户习惯只点关闭、从不点托盘里的
+                // 「退出」，那么位置/尺寸永远不会被保存，「窗口状态记忆」就等于没生效。
+                // 这里在隐藏的同时显式保存一次，让最常见的用法也能记住窗口。
+                let _ = window.app_handle().save_window_state(StateFlags::all());
             }
         })
         .run(tauri::generate_context!())
