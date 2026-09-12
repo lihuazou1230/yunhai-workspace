@@ -302,11 +302,13 @@ describe('EarningsClock', () => {
 
   it('自定义每周计薪日：点掉周五后周五变成不计薪（weekend）', async () => {
     seed(CONFIG)
+    // ⚠️ 必须先冻结时间再挂载：组件在 setup 时就用 `new Date()` 取「现在」，
+    // 反过来写会让这条用例偷偷依赖「真实系统日期恰好是工作日」——周末跑必红
+    // （2026-09-12 是周六，曾经因此暴露）。
+    freezeTime(10, 0, 0, 11) // 2026-09-11 是周五，默认计薪 → working
+
     const wrapper = mount(EarningsClock)
     await openSettings(wrapper)
-
-    // 2026-09-11 是周五，默认计薪 → working
-    freezeTime(10, 0, 0, 11)
     await nextTick()
     expect(wrapper.text()).not.toContain(EARNINGS_STATUS_TEXT.weekend)
 
