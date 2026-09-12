@@ -75,7 +75,18 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show_main_window(app),
                     // 托盘菜单的「退出」才是真正退出：关闭窗口是躲进托盘
-                    "quit" => app.exit(0),
+                    "quit" => {
+                        // 退出前先把窗口状态落盘。
+                        //
+                        // 别指望插件自己写：`AppHandle::exit` 的实现是
+                        // `cleanup_before_exit()` + `std::process::exit(code)`（tauri/src/app.rs:574），
+                        // **直接退进程、从不发送 `RunEvent::Exit`**，所以插件注册在
+                        // `RunEvent::Exit` 上的那次保存永远不会执行（实测：托盘退出后
+                        // .window-state.json 的时间戳不推进）。
+                        // 少了这一句，用户「调好大小 → 直接托盘退出」的窗口状态就丢了。
+                        let _ = app.save_window_state(StateFlags::all());
+                        app.exit(0)
+                    }
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
