@@ -417,7 +417,7 @@ describe('todoStore · 云同步', () => {
       }
     })
 
-    it('激活期间的新增既不会进补发队列、也会被云端结果覆盖（补差分支实际永不触发）', async () => {
+    it('激活期间的新增不会被云端结果吞掉，且会补发到云端', async () => {
       // 本地缓存已经属于 u1（adopt-remote）：云端为准，激活时会用远端列表覆盖本地
       localStorage.setItem(SYNC_OWNER_KEY, JSON.stringify('u1'))
       const store = useTodoStore()
@@ -438,15 +438,18 @@ describe('todoStore · 云同步', () => {
       await activating
       await settle()
 
-      // 注意：当前实现的行为如此（疑似缺陷，未修，已上报）——
-      // 激活期间 todos 的 watcher 被 activating 挡住，而「补差」那段代码
-      // （activateCloud 里 diffTodos(...)）紧跟在 todos.value = next 之后，
-      // 比的是同一份数据，差异恒为空，于是这条路径永远不会执行：
-      // 用户在拉取期间做的改动既没进队列、也被 next 直接覆盖掉。
-      expect(store.todos.map((t) => t.id)).toEqual(['cloud-1'])
-      expect(store.todos.some((t) => t.id === late.id)).toBe(false)
+      // 这条曾经锁定的是一个数据丢失缺陷：拉取前的基准快照缺失，「补差」比的是同一份数据、
+      // 差异恒为空，于是拉取期间的改动既没进队列、又被 next 覆盖。
+      // 现在：云端任务照常拉下来，用户期间新增的也在，并且会被推回云端。
+      expect(store.todos.map((t) => t.id)).toEqual(['cloud-1', late.id])
       expect(store.syncQueue).toEqual([])
-      expect(remote.pushRemoteTodos).not.toHaveBeenCalled()
+      expect(remote.pushRemoteTodos).toHaveBeenCalled()
+
+      const pushed: string[] = []
+      for (const call of remote.pushRemoteTodos.mock.calls) {
+        for (const entry of call[1] as Array<{ todo: Todo }>) pushed.push(entry.todo.id)
+      }
+      expect(pushed).toContain(late.id)
     })
 
     it('未登录时手动「立即同步」是空操作：不发任何请求，也不谎报成功', async () => {

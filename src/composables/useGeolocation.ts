@@ -84,19 +84,38 @@ export function getCurrentCoords(
       timeout + 1000,
     )
 
-    geo.getCurrentPosition(
-      (position) =>
-        done(() =>
-          resolve({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
+    /** 坐标是否可用（畸形实现/半初始化状态会给出 undefined，NaN 一路传下去会让天气接口返回怪结果） */
+    function coordsOf(position: {
+      coords?: { latitude?: number; longitude?: number }
+    }): GeoCoords | null {
+      const latitude = position?.coords?.latitude
+      const longitude = position?.coords?.longitude
+      if (typeof latitude !== 'number' || typeof longitude !== 'number') return null
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null
+      return { latitude, longitude }
+    }
+
+    try {
+      geo.getCurrentPosition(
+        (position) =>
+          done(() => {
+            const coords = coordsOf(position)
+            if (coords) resolve(coords)
+            else reject(new GeoError('unavailable', '无法获取当前位置'))
           }),
-        ),
-      (error) => {
-        const mapped = geoErrorMessage(error?.code ?? 0)
-        done(() => reject(new GeoError(mapped.code, mapped.message)))
-      },
-      { enableHighAccuracy: false, timeout, maximumAge: 5 * 60 * 1000 },
-    )
+        (error) => {
+          const mapped = geoErrorMessage(error?.code ?? 0)
+          done(() => reject(new GeoError(mapped.code, mapped.message)))
+        },
+        { enableHighAccuracy: false, timeout, maximumAge: 5 * 60 * 1000 },
+      )
+    } catch (err) {
+      /**
+       * 实现**同步抛错**（不安全上下文、注入的桩件本身有问题）也要收敛成 GeoError：
+       * 裸抛出去的话，上层 `useWeather.locate()` 里的 `e instanceof GeoError && e.code === 'denied'`
+       * 判断会落空，「已拒绝定位」这个标记就不会被记住，于是每次进站都白试一次。
+       */
+      done(() => reject(new GeoError('unknown', err instanceof Error ? err.message : '定位失败')))
+    }
   })
 }

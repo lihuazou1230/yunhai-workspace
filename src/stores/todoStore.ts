@@ -8,6 +8,7 @@ import { useLocalStorage } from '@/composables/useLocalStorage'
 import { filterTodos, sortTodos } from '@/composables/useTodoFilter'
 import { todayKey } from '@/utils/dateFormatter'
 import {
+  applyDiff,
   decideLocalCache,
   diffTodos,
   enqueueOperations,
@@ -562,6 +563,15 @@ export const useTodoStore = defineStore('todo', () => {
       syncUserId.value = userId
       syncOwner.value = userId
 
+      /**
+       * 拉取云端**之前**先拍一份快照。
+       *
+       * 为什么要它：`await fetchRemoteTodos()` 期间用户仍可新增/编辑任务，而那些改动
+       * 比云端数据更新。没有这份基准，「云端为准」的那次赋值会把它们直接吞掉
+       * （既没进同步队列、也没留在界面上）——那是真实的数据丢失。
+       */
+      const beforeFetch = snapshotTodos(todos.value)
+
       const remote = await fetchRemoteTodos(userId)
       let next = remote
 
@@ -577,17 +587,25 @@ export const useTodoStore = defineStore('todo', () => {
         syncMessage.value = `已把本地 ${localCount} 条任务迁移到云端`
       }
 
+      /**
+       * 补差：拉取期间用户改了什么。
+       * 基准是**拉取前**的快照（不是赋值后的列表——那样比的是同一份数据，差异恒为空，
+       * 这段代码就成了摆设）。用户改动覆盖到云端结果上，再入队推回云端。
+       */
+      const during = diffTodos(beforeFetch, todos.value)
+      if (during.upserts.length > 0 || during.deletes.length > 0) {
+        next = applyDiff(next, during)
+      }
+
       // 先更新快照再赋值：避免这次「云端覆盖本地」被差异逻辑误判为用户改动而重复推送
       syncedSnapshot = snapshotTodos(next)
       todos.value = next
 
-      // 补差：激活期间（拉取云端的 await 中）用户可能又改了任务
-      const diff = diffTodos(syncedSnapshot, todos.value)
-      if (diff.upserts.length > 0 || diff.deletes.length > 0) {
-        syncedSnapshot = snapshotTodos(todos.value)
+      // 用户的改动已经合进 next，把它们推回云端（否则只落在本机，别的设备看不到）
+      if (during.upserts.length > 0 || during.deletes.length > 0) {
         syncQueue.value = enqueueOperations(syncQueue.value, [
-          ...diff.upserts.map((entry) => ({ todoId: entry.todo.id, type: 'upsert' as const })),
-          ...diff.deletes.map((id) => ({ todoId: id, type: 'delete' as const })),
+          ...during.upserts.map((entry) => ({ todoId: entry.todo.id, type: 'upsert' as const })),
+          ...during.deletes.map((id) => ({ todoId: id, type: 'delete' as const })),
         ])
       }
 

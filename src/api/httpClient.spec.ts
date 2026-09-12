@@ -190,11 +190,10 @@ describe('httpClient', () => {
     expect(error).toMatchObject({ name: 'HttpError', kind: 'json', status: 200 })
   })
 
-  it('读响应体本身失败时原样抛出（并未被包装成 HttpError，调用方拿到的是原始错误）', async () => {
-    // 注意：当前实现的行为如此（疑似缺陷，未修，已上报）——
-    // res.text() 在 try 里、但没有任何 catch 包装它，所以流被消费/连接中断时
-    // 抛出去的是原始错误（如 TypeError），与模块注释承诺的「任何失败都抛 HttpError」不一致，
-    // 上层按 kind 分类处理的地方会收到一个没有 kind 的错误。
+  it('读响应体本身失败时也包装成 HttpError（kind=network）', async () => {
+    // 这条曾经锁定的是一个缺陷：`res.text()` 没有被 catch 包住，流被消费/连接中断时
+    // 抛出去的是原始 TypeError，与模块注释承诺的「任何失败都抛 HttpError」不一致，
+    // 上层按 kind 分类处理的地方会收到一个没有 kind 的错误。现已包装。
     const broken = new TypeError('body stream already read')
     vi.stubGlobal(
       'fetch',
@@ -210,7 +209,25 @@ describe('httpClient', () => {
 
     const error = await httpClient('https://api.test/broken-body').catch((e: unknown) => e)
 
-    expect(error).toBe(broken)
-    expect(error).not.toBeInstanceOf(HttpError)
+    expect(error).toBeInstanceOf(HttpError)
+    expect(error).toMatchObject({ name: 'HttpError', kind: 'network', status: 200 })
+    // 原始错误不再泄漏给调用方（但错误信息里保留 URL，便于定位）
+    expect((error as HttpError).url).toBe('https://api.test/broken-body')
+  })
+
+  it('响应体给了非法 JSON：kind=json（与「读 body 失败」区分开）', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => '不是 JSON',
+      })),
+    )
+
+    const error = await httpClient('https://api.test/bad-json').catch((e: unknown) => e)
+
+    expect(error).toMatchObject({ name: 'HttpError', kind: 'json', status: 200 })
   })
 })

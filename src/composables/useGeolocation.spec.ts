@@ -163,13 +163,35 @@ describe('getCurrentCoords · 默认实现与异常兜底', () => {
     expect(() => lateSuccess?.()).not.toThrow()
   })
 
-  it('定位实现同步抛错时以原始异常拒绝（不会被翻成 GeoError）', async () => {
+  it('定位实现同步抛错时收敛成 GeoError（不再泄漏原始异常）', async () => {
     const geo = fakeGeo(() => {
       throw new Error('SecurityError: 权限策略禁止定位')
     })
 
-    // 注意：当前实现的行为如此——同步异常由 Promise 构造器直接转成拒绝，
-    // 调用方拿到的不是 GeoError，因此只能走「其它失败」兜底分支（不会误判为 denied）
-    await expect(getCurrentCoords({ geolocation: geo })).rejects.toThrow('权限策略禁止定位')
+    // 这条曾经锁定的是缺陷：同步异常由 Promise 构造器直接转成拒绝，调用方拿到的是原始
+    // Error 而不是 GeoError，于是 useWeather 里 `e instanceof GeoError && e.code === 'denied'`
+    // 判断落空、「已拒绝定位」标记不会被记住。现在统一包成 GeoError。
+    const error = await getCurrentCoords({ geolocation: geo }).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(GeoError)
+    expect((error as GeoError).code).toBe('unknown')
+    expect((error as Error).message).toContain('权限策略禁止定位')
+  })
+
+  it('坐标缺失/非有限值时按「无法获取当前位置」拒绝（不让 NaN 传进天气接口）', async () => {
+    for (const bad of [
+      { coords: {} },
+      { coords: { latitude: Number.NaN, longitude: 115.9 } },
+      { coords: { latitude: 28.6, longitude: Number.POSITIVE_INFINITY } },
+      {},
+    ]) {
+      const geo = {
+        getCurrentPosition: (success: (p: unknown) => void) => success(bad),
+      } as unknown as GeolocationLike
+
+      const error = await getCurrentCoords({ geolocation: geo }).catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(GeoError)
+      expect((error as GeoError).code).toBe('unavailable')
+    }
   })
 })

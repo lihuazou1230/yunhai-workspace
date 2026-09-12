@@ -101,6 +101,46 @@ export function diffTodos(previous: ReadonlyMap<string, string>, next: readonly 
 }
 
 /**
+ * 把一份差异**叠加**到另一份列表上，返回新列表。
+ *
+ * 用途：登录激活云同步时，`await fetchRemoteTodos()` 期间用户可能又新增/改了任务。
+ * 那些改动比云端数据更新（发生在拉取之后），所以必须覆盖回拉取结果上 ——
+ * 否则它们会被「云端为准」的那次赋值直接吞掉（既没进同步队列，也没留在界面上）。
+ *
+ * 规则：
+ * - `upserts` 覆盖同 id 的项（用户改动优先），新 id 追加在末尾
+ * - `deletes` 从结果里移除
+ * - 不修改任何入参
+ */
+export function applyDiff(base: readonly Todo[], diff: TodoDiff): Todo[] {
+  const deleted = new Set(diff.deletes)
+  const patched = new Map(diff.upserts.map((entry) => [entry.todo.id, entry.todo]))
+
+  const result: Todo[] = []
+  const used = new Set<string>()
+
+  for (const todo of base) {
+    if (deleted.has(todo.id)) continue
+    const replacement = patched.get(todo.id)
+    if (replacement) {
+      result.push(replacement)
+      used.add(todo.id)
+    } else {
+      result.push(todo)
+    }
+  }
+
+  // 用户新建的任务（云端还没有）追加到末尾
+  for (const entry of diff.upserts) {
+    if (used.has(entry.todo.id) || deleted.has(entry.todo.id)) continue
+    if (base.some((t) => t.id === entry.todo.id)) continue
+    result.push(entry.todo)
+  }
+
+  return result
+}
+
+/**
  * 合并本地与远端任务（迁移用）：按 id 去重，**本地优先**——
  * 迁移的语义是「把自己设备上已有的数据搬上云」，本地刚编辑过的内容不该被旧云端数据盖掉；
  * 远端独有的任务（此前在别的设备上加的）保留，两边都不丢。

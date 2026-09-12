@@ -577,21 +577,20 @@ GitHub 的已知问题（[actions/deploy-pages#22](https://github.com/actions/de
 - 提交前由 lint-staged 自动执行 ESLint/Prettier
 - ⚠️ commitlint 的 `subject-case` 规则只在 subject **以有大小写的拉丁字母开头**时生效：以 `ECharts`、`API` 这类英文缩写开头会被判为 start-case 而拒绝，写成中文开头即可
 
-## 已知问题（测试里已锁定现状，尚未修复）
+## 测试挖出并修掉的缺陷
 
-补测试时挖出来的三个真问题。它们都**不影响主流程**，但都在测试里写成了「锁定当前行为 + 中文注释」，
-修好之后把对应断言反过来即可（注释里写了修法）：
+第六阶段补测试时（覆盖率从 96% 推到 99.8% 的过程中）挖出 4 个真 bug，都已修复并把当时
+「锁定缺陷现状」的用例反过来写成回归断言。这部分比覆盖率数字本身更有价值——**测试的意义就是逼出这些**：
 
-1. **登录拉取云端期间的新建任务可能被覆盖**（`stores/todoStore.ts` 的 `activateCloud`）
-   那段「补差」的 `diffTodos(...)` 紧跟在 `todos.value = next` 之后，比的是同一份数据、差异恒为空；
-   同时 `activating` 挡住了 watcher，于是登录后**拉取云端那一小段时间内**新增的任务既没进同步队列，
-   又被 `next` 覆盖。修法：在 `await fetchRemoteTodos` **之前**拍一份快照，赋值前用它跟当前列表求差异并合并/入队。
-2. **`httpClient` 的 `res.text()` 拒绝未被包装**：流被消费/连接中断时抛出的是原始 `TypeError`，
-   与模块注释「任何失败都抛 `HttpError`」不符，按 `kind` 分类处理的上层会拿到一个没有 `kind` 的错误。
-   修法：把 `await response.text()` 也包进 try/catch。
-3. **`getCurrentCoords` 注入实现同步抛错时拒绝原始值而非 `GeoError`**：`useWeather.locate()` 里
-   `e instanceof GeoError && e.code === 'denied'` 因此命不中，`geo-denied` 标记不会被记
-   （UI 不崩、照常降级到默认城市，只是下次进站会白试一次定位）。修法：把同步抛错也包成 `GeoError`。
+| 缺陷 | 后果 | 修法 |
+|---|---|---|
+| `useReminder` 的 30 秒轮询从未启动 | `useIntervalFn` 的 `immediate` 控制的是「是否自动 `resume()`」，传 `false` 定时器压根没建 —— 规划要求的周期轮询成了死代码 | 改 `immediate: true` + `immediateCallback: false`，首轮仍由挂载时显式 `scan()` 负责 |
+| `isSearchEngineId` / `isThemeColorName` 用 `value in OBJ` | 原型链上的 `'toString'` 被当成合法值放行，随后取到函数直接 `TypeError`（值来自可被手改的 localStorage） | 改用 `Object.hasOwn` |
+| `todoSignature` 漏掉新字段 | 只归档 / 只 snooze / 只改标签算不出差异 → **这些改动永远同步不到其它设备** | 指纹补上 `tags / archived / archivedAt / snoozedUntil / reminderAt / reminderOff` |
+| snooze 到期不随日期回归 | 列表 computed 缺「今天」这个响应式来源，页面开一整夜后已到期任务仍被藏着 | `todoStore` 增加 `today` + `refreshToday()`，由 `App.vue` 每分钟与回前台校准 |
+| 登录拉取云端期间的改动被吞（数据丢失） | 「补差」代码紧跟在赋值之后、比的是同一份数据，差异恒为空；期间新增的任务既没进队列也被覆盖 | 拉取**前**拍快照，用 `applyDiff` 把用户改动叠加到云端结果上并补发 |
+| `httpClient` 的 `res.text()` 未包装 | 流被消费/连接中断时抛出原始 `TypeError`，与「任何失败都抛 `HttpError`」的约定不符 | 包成 `kind: 'network'` |
+| `getCurrentCoords` 同步抛错未收敛 | 上层 `e instanceof GeoError` 判断落空，「已拒绝定位」标记记不住，每次进站都白试一次 | 同步异常也包成 `GeoError`，并校验坐标非 NaN |
 
 ## 待优化项
 

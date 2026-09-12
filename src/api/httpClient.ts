@@ -71,7 +71,18 @@ export async function httpClient<T>(url: string, options: HttpClientOptions = {}
       throw new HttpError('http', url, res.status, defaultMessage('http', res.status, url))
     }
 
-    const text = await res.text()
+    /**
+     * 读 body 也要包起来：这不是多余的防御——流已被消费、连接中途断开、
+     * 响应被 abort 都会让 `res.text()` 自己 reject。漏掉的话上层按 `kind` 分类处理的
+     * 地方会拿到一个没有 `kind` 的原始 TypeError，与「任何失败都抛 HttpError」的约定不符。
+     */
+    let text: string
+    try {
+      text = await res.text()
+    } catch {
+      throw new HttpError('network', url, res.status, defaultMessage('network', res.status, url))
+    }
+
     try {
       return JSON.parse(text) as T
     } catch {
