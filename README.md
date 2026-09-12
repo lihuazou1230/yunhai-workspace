@@ -21,7 +21,7 @@
 
 ## 核心功能
 
-- 👤 **用户系统**：邮箱密码注册/登录 + GitHub OAuth，刷新页面会话自动恢复（不闪跳登录页），未登录访问受保护页自动重定向并带原目标回跳
+- 👤 **用户系统**：邮箱密码注册/登录（含忘记密码邮件重置），刷新页面会话自动恢复（不闪跳登录页），未登录访问受保护页自动重定向并带原目标回跳
 - ☁️ **多设备同步**：任务写进云端 Postgres（行级安全 RLS），离线改动进队列、联网自动补发，旧 localStorage 数据登录后**一次性迁移**
 - 🖼️ **头像上传**：本地选图 → 圆形裁剪（cropperjs）→ 压成 256×256 WebP → 已登录传云端 Storage，未登录存 IndexedDB
 - 📋 **任务管理闭环**：增删改查、状态筛选、优先级多选、关键字搜索、localStorage 持久化
@@ -68,7 +68,7 @@
 - **Tailwind CSS v3.4**（`darkMode: 'class'` 与 Element Plus 深色共用 `html.dark`）
 - **Element Plus**（unplugin 按需自动导入）
 - **Pinia** 状态管理 / **Vue Router**（4 个页面按需懒加载 + 登录守卫 + keep-alive）
-- **Supabase**（Auth 邮箱/GitHub OAuth · Postgres + RLS 任务存储 · Storage 头像 bucket）
+- **Supabase**（Auth 邮箱密码 · Postgres + RLS 任务存储 · Storage 头像 bucket）
 - **cropperjs**（头像圆形裁剪）
 - **ECharts**（`echarts/core` 按需注册图表类型）
 - **Vitest** 单元测试 / ESLint + Prettier / Husky + commitlint
@@ -306,7 +306,7 @@ VITE_AMAP_KEY=你的Key
 | 方案                     | 成本   | 结论                                                             |
 | ------------------------ | ------ | ---------------------------------------------------------------- |
 | 本地多用户档案（假登录） | 半天   | ❌ 换设备数据不通，价值有限                                      |
-| **Supabase Auth**        | 1~2 天 | ✅ **已选**：真注册/登录 + GitHub OAuth + 云同步，一次解决两件事 |
+| **Supabase Auth**        | 1~2 天 | ✅ **已选**：真注册/登录 + 云同步，一次解决两件事                 |
 | 自建 JWT 后端            | 3~5 天 | ❌ 偏离前端项目重心，性价比低                                    |
 
 权限下沉到数据库层：前端只带 anon（公开）key，越权读写由 **RLS 策略**拦住，所以 key 泄露 ≠ 数据泄露。
@@ -315,8 +315,7 @@ VITE_AMAP_KEY=你的Key
 
 1. <https://supabase.com> 新建项目 → Project Settings → API 复制 **Project URL** 与 **anon public key**
 2. 控制台 → SQL Editor → 粘贴执行 `supabase/schema.sql`（脚本幂等，可重复执行）
-3. Authentication → Providers：打开 **Email**；需要 GitHub 登录再打开 **GitHub**，
-   回调地址填 `https://<project>.supabase.co/auth/v1/callback`
+3. Authentication → Providers：打开 **Email**（本项目只用邮箱密码登录）
 4. 项目根 `.env.local` 写入：
 
 ```
@@ -489,7 +488,7 @@ Vercel 会自动挑满足条件的版本；不使用 `packageManager` 字段，V
 3. 展开 **Environment Variables**，把上表三个变量填进去（Production / Preview 都勾上更省事）
 4. **Deploy**，等 1~2 分钟拿到 `https://<项目名>.vercel.app`
 5. 回到 **Supabase → Authentication → URL Configuration**：Site URL 填 Vercel 域名，Redirect URLs 加上
-   `https://<项目名>.vercel.app/**` 与 `http://localhost:5173/**`（GitHub OAuth 与邮箱验证/重置链接都靠它回跳）
+   `https://<项目名>.vercel.app/**` 与 `http://localhost:5173/**`（邮箱验证与重置密码链接靠它回跳）
 
 > 不想接 GitHub 也可以走 CLI：`pnpm dlx vercel`（首次会引导登录并创建项目）→ `pnpm dlx vercel --prod`，
 > 环境变量用 `pnpm dlx vercel env add VITE_AMAP_KEY` 逐个添加。代价是每次更新都要本地手动发一次。
@@ -522,7 +521,7 @@ Vercel 会自动挑满足条件的版本；不使用 `packageManager` 字段，V
    - 必须走 Secrets（加密存储）：写进仓库文件会公开泄露高德 Key
    - 三条都不加也能部署成功，只是应用跑在**本地模式**：无登录/云同步、天气卡显示配置引导
 3. **Supabase 加回跳域名**：Authentication → URL Configuration 的 Site URL 与 Redirect URLs 加上
-   `https://<用户名>.github.io/<仓库名>/**`（否则 GitHub 登录与邮件链接会跳回 localhost）
+   `https://<用户名>.github.io/<仓库名>/**`（否则邮件里的验证/重置链接会跳回 localhost）
 
 站点地址形如 `https://lihuazou1230.github.io/vue3-smart-workspace/`。工作流里已处理两个 Pages 特有的坑：
 
@@ -590,14 +589,37 @@ GitHub 的已知问题（[actions/deploy-pages#22](https://github.com/actions/de
 ### 开发与构建
 
 ```bash
-pnpm tauri dev      # 桌面版热更新（起 Vite + 壳窗口）
-pnpm tauri build    # 产出 exe
+pnpm tauri dev            # 桌面版热更新（起 Vite + 壳窗口）
+pnpm tauri build          # 只打包，产物留在 src-tauri/target/release/
 ```
 
-产物：
+**改完网页端要出桌面版：一条命令（推荐）**
+
+```bash
+pnpm desktop:build        # = typecheck + 单测 + lint → pnpm build → tauri build → 拷产物到项目根
+pnpm desktop:build:fast   # 跳过校验，只构建（前端产物没变、想快点时用）
+```
+
+也可以直接双击 `build-desktop.bat`（纯 ASCII，避免 cmd 解析中文批处理时报 `'xxx' is not recognized`）。
+底下的脚本是 `scripts/desktop-build.mjs`，它顺手把本机**不在系统 PATH 里**的 `~/.cargo/bin` 补进
+`PATH`（否则 `tauri build` 会直接报 `cargo not found`），并把完整输出写进 `_desktop_build.log`。
+
+产物统一拷到 **workspace 上一级目录**（即 `C:\Users\asus\Desktop\个人项目`），不用再翻 `target`：
 
 ```
-src-tauri/target/release/smart-workspace.exe                ← 绿色版，双击即用（4.91 MB）
+..\智能工作台.exe                     ← 绿色版，双击即用
+..\智能工作台_0.1.0_x64-setup.exe     ← 安装包（版本号取 tauri.conf.json 的 version）
+..\_desktop_build.log                 ← 构建日志，失败先看它
+```
+
+> **网页端与桌面端是两份产物**：网页端改完 `dist` 就生效（浏览器/GitHub Pages），
+> 但 exe 里嵌的是**打包那一刻**的 `dist`。所以每次动网页代码，都要重跑一次
+> `pnpm desktop:build`，否则用户装到的还是旧页面——这就是上面那条命令存在的理由。
+
+Tauri 原始产物（脚本拷贝的来源，仍会保留）：
+
+```
+src-tauri/target/release/smart-workspace.exe                ← 绿色版（4.91 MB）
 src-tauri/target/release/bundle/nsis/智能工作台_0.1.0_x64-setup.exe  ← 安装版（2.01 MB，可选安装目录）
 ```
 
@@ -612,7 +634,7 @@ src-tauri/target/release/bundle/nsis/智能工作台_0.1.0_x64-setup.exe  ← �
 | **去掉移动端底部导航** | `shouldShowBottomNav()` 在桌面版返回 false | 窗口最窄 900px，底部导航既占地方又「移动端感」十足 |
 | **侧边栏默认折叠成活动栏** | 默认值取 `isTauri()`（VS Code Activity Bar 风格，tooltip 提示全名） | 桌面屏空间大，紧凑一点信息密度更高；点一下即可展开，选择会被记住 |
 | **关闭 = 最小化到托盘** | Rust 侧 `CloseRequested` 里 `prevent_close()` + `hide()`；托盘菜单「显示主窗口 / 退出」 | **功能级增量**：窗口藏起来后秒表 tick 与提醒调度继续跑，到点照常弹原生通知 |
-| **系统托盘** | `tauri::tray::TrayIconBuilder` + 菜单，左键单击显示窗口 | 「真桌面应用」的行为标志 |
+| **系统托盘** | Rust 侧 `tauri::tray::TrayIconBuilder` + 菜单，左键单击显示窗口。**只在 Rust 建一次**——配置里别写 `app.trayIcon`，否则通知区会出现两个图标（见缺陷表） | 「真桌面应用」的行为标志 |
 | **外链唤起系统浏览器** | 全局 click 监听：只拦绝对 http(s) 链接 → `shell.open` | 壳内导航会让用户「走丢」回不来；`javascript:` 之类绝不交给 shell |
 | **禁止误选文字** | `html[data-platform="desktop"] body { user-select: none }`，输入框/`.selectable` 例外 | 桌面应用习惯；但连标题都复制不了就是把原生感做成了残废 |
 | **细滚动条** | 6px 半透明、hover 加深（两种形态共用） | 浏览器默认粗滚动条是「网页感」最大来源 |
@@ -650,7 +672,11 @@ src-tauri/target/release/bundle/nsis/智能工作台_0.1.0_x64-setup.exe  ← �
 | 启动即原生感 | 窗口矩形 1296×809、客户区 **1280×800**，垂直非客户区仅 9px（纯调整边框）→ **无 31px 系统标题栏**，`decorations: false` 确实生效 |
 | 窗口标题 | `智能工作台`（配置生效） |
 | 前端已加载 | `msedgewebview2` 宿主进程挂在应用进程下（WebView2 载入成功，非白屏空壳） |
-| 单实例锁 | 连续启动两次，进程数始终为 **1** → 第二次启动被拦截并聚焦已有窗口 |
+| 单实例锁 | 连续启动两次，进程数始终为 **1** → 第二次启动被拦截并聚焦已有窗口；进程内可见 `com.smartworkspace.desktop-sic/-siw` 两个隐藏窗口（插件的消息窗口） |
+| **托盘已注册（客观证据）** | 进程内存在 `tray_icon_app` 隐藏窗口（`tray-icon` 库每个 `TrayIcon` 建一个）→ `Shell_NotifyIcon(NIM_ADD)` 成功。另有逻辑侧证据：`TrayIconBuilder::build()` 失败会让 `setup` 返回 Err、启动直接失败，而应用启动正常 |
+| **托盘菜单文案已进产物** | 反查二进制 UTF-8 字面量：`显示主窗口`、`退出`、`智能工作台` 均在 |
+| **双击最大化链路已进产物** | 二进制含 `data-tauri-drag-region`、`start_dragging`、`internal_toggle_maximize` 与权限标识 `allow-internal-toggle-maximize`；且 `core:window:default` 的权限集本身含该内部命令 |
+| **原生通知的验证基线** | 测试前 `HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\com.smartworkspace.desktop` **不存在**，且 `wpndatabase.db` 的 `Notification` 表中属于本应用的记录为 **0** → 从未成功弹过 Toast。跑通一次提醒后这两处都会留下痕迹，可作为客观判据（无需靠"看到气泡"） |
 | **关闭 = 最小化到托盘** | 向主窗口发 `WM_CLOSE` 后进程仍在（进程数 1）→ 关闭键不退出应用，秒表/提醒留在后台继续跑 |
 | **窗口位置/尺寸记忆** | `MoveWindow` 到 (210,190,1020,690) → 关闭 → 状态文件写下 `x:210 y:190`（宽高存**客户区** 1004×681）→ 重启后 `GetWindowRect` 精确回到 (210,190,1020,690) |
 | **CSP 与真实调用域名一致** | `connect-src` 覆盖高德 `restapi.amap.com`、`*.supabase.co`、`wxpusher.zjiecode.com`、`api.deepseek.com`、`open.bigmodel.cn`；`img-src https:` 覆盖 Google favicon 服务与 GitHub 头像 |
@@ -721,6 +747,7 @@ src-tauri/target/release/bundle/nsis/智能工作台_0.1.0_x64-setup.exe  ← �
 | `httpClient` 的 `res.text()` 未包装 | 流被消费/连接中断时抛出原始 `TypeError`，与「任何失败都抛 `HttpError`」的约定不符 | 包成 `kind: 'network'` |
 | `getCurrentCoords` 同步抛错未收敛 | 上层 `e instanceof GeoError` 判断落空，「已拒绝定位」标记记不住，每次进站都白试一次 | 同步异常也包成 `GeoError`，并校验坐标非 NaN |
 | 标题栏自己绑了双击最大化（第七阶段查框架源码时发现） | Tauri 注入的 `drag.js` 已按 `e.detail === 2` 调 `internal_toggle_maximize`，我们再绑一次 `@dblclick` 就是第二次切换——**双击标题栏表现为毫无反应**（最大化后立刻还原） | 删掉自绑的 handler，只留 `data-tauri-drag-region` 标记；测试反过来断言「双击不得调用 toggleMaximize」防后人加回来 |
+| 托盘图标被建了两次（第七阶段验收枚举进程窗口时发现） | `tauri.conf.json` 的 `app.trayIcon` 与 Rust 的 `TrayIconBuilder` 各建一个托盘。而托盘一旦 `register()` 就进了 App 资源表，**丢弃返回值也不会被回收**（`tray/mod.rs` 写着「最后一个实例析构时才移除」）→ 通知区出现**两个图标**，且配置那个没有任何菜单、点了没反应 | 删掉配置块，托盘只由 Rust 建一次（菜单与左键行为本来也只在 Rust 侧）；实测进程内 `tray_icon_app` 隐藏窗口从 **2 个降为 1 个** |
 
 ## 待优化项
 

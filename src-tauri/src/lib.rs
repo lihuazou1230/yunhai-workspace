@@ -48,13 +48,24 @@ pub fn run() {
             }
 
             // ---- 系统托盘 ----
+            //
+            // ⚠️ 托盘**只能在这里建一次**：不要在 `tauri.conf.json` 里再写 `app.trayIcon`。
+            // Tauri 会把配置里声明的托盘也 `build()` 一次（app.rs 的
+            // "initialize default tray icon if defined"），而托盘图标一旦 `register()`
+            // 就进了 App 的资源表 —— 即使丢弃返回值也不会被回收（tray/mod.rs 里
+            // `TrayIcon` 的文档写着「最后一个实例析构时才移除」）。
+            // 结果就是**通知区出现两个图标**，且配置那个没有任何菜单、点了没反应。
+            // 实测证据：配置块存在时进程内有 2 个 `tray_icon_app` 隐藏窗口（tray-icon 库
+            // 每个 TrayIcon 建一个），删掉配置块后只剩 1 个。
             let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
 
             TrayIconBuilder::with_id("main")
                 .icon(app.default_window_icon().cloned().unwrap_or_else(|| {
-                    // 理论上一定有默认图标（bundle.icon 里配了 ico），这里只是不 panic
+                    // `default_window_icon()` 由 `bundle.icon` 提供，实测有值
+                    // （主窗口 WM_GETICON 返回非 0 句柄）。这里只是不 panic 的兜底；
+                    // 真要走到这，图标会是 1×1 透明 —— 能点但看不见。
                     tauri::image::Image::new_owned(vec![0, 0, 0, 0], 1, 1)
                 }))
                 .tooltip("智能工作台")
