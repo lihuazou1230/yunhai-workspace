@@ -656,6 +656,11 @@ src-tauri/target/release/bundle/nsis/智能工作台_0.1.0_x64-setup.exe  ← �
 | **CSP 与真实调用域名一致** | `connect-src` 覆盖高德 `restapi.amap.com`、`*.supabase.co`、`wxpusher.zjiecode.com`、`api.deepseek.com`、`open.bigmodel.cn`；`img-src https:` 覆盖 Google favicon 服务与 GitHub 头像 |
 | **新 CSP 下前端真的跑起来** | 启动后 `%LOCALAPPDATA%\com.smartworkspace.desktop\EBWebView\Default\Local Storage\leveldb\*.log` 被写入 `smart-workspace:theme` = `compact` → 打包产物在主进程 CSP 下执行成功（不是白屏空壳），桌面默认紧凑密度也按预期落盘 |
 | **CSP 已随构建生效** | 反查产物二进制：生产 CSP 为 `connect-src 'self' ipc: http://ipc.localhost https:`，`devCsp` 另含 `ws://localhost:5173`；旧的域名白名单字符串已不存在于二进制中 |
+| **安装版安装** | 静默 `/S`：退出码 0、耗时 1.9s、**无 UAC 提示**（脚本为 `RequestExecutionLevel user`）；装到 `%LOCALAPPDATA%\智能工作台`（`smart-workspace.exe` 4.91MB + `uninstall.exe`），写入 `HKCU\...\Uninstall\智能工作台` 与开始菜单 `智能工作台.lnk` |
+| **安装版运行** | 从 `%LOCALAPPDATA%\智能工作台\smart-workspace.exe` 启动正常；窗口沿用绿色版同一份数据（仍为 210,190,1020,690）→ 两种形态数据互通 |
+| **卸载（不删数据分支）** | 目录、`HKCU` 卸载项、开始菜单快捷方式全清，残留进程 0；**两个数据目录完整保留**，窗口状态文件内容不变 |
+| **跨安装周期持久性** | 卸载后重装 → 窗口仍精确恢复 210,190,1020,690，数据未被安装/卸载动作影响 |
+| **清空数据后的全新启动** | 删除两个数据目录后启动 → 窗口回到配置默认 **1280×800 居中**（X/Y=320/116，即 1920×1080 屏的居中位置），Web 数据目录与 `smart-workspace:theme`（桌面默认紧凑密度）重新生成 |
 | Web 版不受影响 | 全量 1512 例测试通过；`title-bar` 只在 `platform=desktop` 下渲染 |
 
 > 说明 1：`decorations: false` 无法用「有没有 `WS_CAPTION` 样式位」来判断——tao 保留了该位用于尺寸计算，
@@ -665,13 +670,20 @@ src-tauri/target/release/bundle/nsis/智能工作台_0.1.0_x64-setup.exe  ← �
 > 仅更新内存缓存。而本项目「关闭」= 隐藏到托盘（**不退出进程**），只用关闭按钮的用户位置永远不会被持久化。
 > 故在 `CloseRequested` 隐藏窗口后显式调用 `save_window_state(StateFlags::all())`；状态文件位于
 > `%APPDATA%\com.smartworkspace.desktop\.window-state.json`。
+>
+> 说明 3：卸载时**不勾**「删除应用数据」会留下 `HKCU\Software\smartworkspace\智能工作台`（值 = 旧安装路径）。
+> 这不是本项目的代码问题——生成的 `installer.nsi`（Tauri 模板）把这段注册表清理放在了复选框分支**内部**
+> （第 824–831 行，与该分支的 `RmDir /r` 同级），故未勾选时必然残留；勾选后一并清除。
 
-**以下 4 项依赖真实人机交互，未做自动化实测**（合成鼠标输入会干扰用户当前桌面，不做）：
+**仍需真实人机交互确认的项**（合成鼠标输入会干扰你当前桌面，故不做）：
 
-- 拖拽标题栏移动 / 双击最大化还原 / 三键 hover 语义色（组件层行为已由 9 例单测覆盖调用映射）
-- 托盘图标右键菜单「显示主窗口 / 退出」
-- 提醒到点弹 Windows 原生通知气泡（通道分支 7 例单测覆盖）
-- 安装版安装与卸载（会改动本机注册表与安装目录，需你确认后再跑）
+- 拖拽标题栏移动 / 双击最大化还原 / 三键 hover 语义色（组件层调用映射已由单测覆盖）
+- 托盘图标左键唤起与右键菜单「显示主窗口 / 退出」
+- 提醒到点弹 Windows 原生通知气泡（通道分支由单测覆盖；注意专注助手拦截与绿色版/安装版差异）
+- 卸载向导上**勾选「删除应用数据」**的那一次点击：脚本没有对应命令行开关（只有 `/P` `/NS` `/UPDATE`），
+  删除动作仅由 GUI 复选框 `$DeleteAppDataCheckboxState = 1` 驱动，静默卸载会跳过该页。
+  其**效果**已做等效验证：按脚本第 834–835 行删掉 `$APPDATA\${BUNDLEID}` 与 `$LOCALAPPDATA\${BUNDLEID}` 后，
+  全机器无任何应用残留，重新启动即回到全新状态（默认居中窗口 + 重建数据目录）。
 
 ## 设计思路
 
