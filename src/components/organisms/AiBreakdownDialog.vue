@@ -127,6 +127,7 @@ const hintText = computed(
         <input
           v-model="goal"
           type="text"
+          maxlength="500"
           placeholder="要拆解的大目标，例如：准备前端面试"
           aria-label="要拆解的目标"
           data-testid="ai-breakdown-goal"

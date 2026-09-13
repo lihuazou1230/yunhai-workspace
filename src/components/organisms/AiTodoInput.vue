@@ -112,6 +112,7 @@ const dueText = computed(() => {
       <input
         v-model="text"
         type="text"
+        maxlength="500"
         placeholder="用一句话描述任务，例如：明天下午3点提醒我交周报，高优先级"
         aria-label="AI 任务描述"
         data-testid="ai-todo-input"
