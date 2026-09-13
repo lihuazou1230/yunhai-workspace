@@ -5,6 +5,31 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Vue 3 智能工作台</title>
+    <!--
+      首屏预置深色（避免"闪白"）。
+      useTheme 要等 onMounted 才给 <html> 打 dark 类，而 body 还带 300ms 颜色过渡，
+      系统深色用户每次冷启动都会先看到一帧浅色再变暗 —— 这一帧就是「网页感」。
+      这里在任何样式生效前把类打上，判定逻辑与 stores/themeStore.ts 的 isDark 完全一致：
+        isDark = mode === 'dark' || (mode === 'system' && 系统深色)
+      读不到/解析失败/存储被禁（隐私模式）都静默忽略，交给 useTheme 的默认行为。
+    -->
+    <script>
+      ;(function () {
+        try {
+          var raw = localStorage.getItem('smart-workspace:theme')
+          var mode = raw ? (JSON.parse(raw) || {}).mode : 'system'
+          var prefersDark =
+            window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+          var dark = mode === 'dark' || (mode === 'system' && prefersDark)
+          if (dark) {
+            document.documentElement.classList.add('dark')
+            document.documentElement.style.colorScheme = 'dark'
+          }
+        } catch (e) {
+          /* 隐私模式等场景：忽略 */
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>
