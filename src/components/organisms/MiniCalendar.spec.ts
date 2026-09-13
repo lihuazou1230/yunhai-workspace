@@ -123,6 +123,32 @@ describe('MiniCalendar', () => {
     )
   })
 
+  /**
+   * 回归：父级（Dashboard）为跨零点刷新，每分钟都会把 `now` 换成**新的 Date 对象**。
+   * 原来的 `watch(today, ...)` 比较的是 Date 的对象身份，于是用户翻到别的月份后
+   * 静置一分钟就被拽回当月 —— 「今天」按钮形同虚设。
+   */
+  it('翻月后父级换新 now 不把视图拽回当月（只在年月变化时重置）', async () => {
+    const wrapper = mountCal()
+
+    await wrapper.find('[data-testid="cal-next"]').trigger('click')
+    expect(wrapper.find('[data-testid="cal-label"]').text()).toBe('2026年10月')
+
+    // 同月内换一个全新的 Date 对象（模拟每分钟刷新）：视图必须留在 10 月
+    await wrapper.setProps({ now: new Date(2026, 8, 15, 10, 1) })
+    expect(wrapper.find('[data-testid="cal-label"]').text()).toBe('2026年10月')
+
+    // 同月内换日期同样不该重置
+    await wrapper.setProps({ now: new Date(2026, 8, 16, 9, 0) })
+    expect(wrapper.find('[data-testid="cal-label"]').text()).toBe('2026年10月')
+
+    // 真正跨月（10/1 零点后）才跟回「当月」
+    await wrapper.find('[data-testid="cal-next"]').trigger('click')
+    expect(wrapper.find('[data-testid="cal-label"]').text()).toBe('2026年11月')
+    await wrapper.setProps({ now: new Date(2026, 9, 1, 0, 5) })
+    expect(wrapper.find('[data-testid="cal-label"]').text()).toBe('2026年10月')
+  })
+
   it('往回翻月能跨年', async () => {
     const wrapper = mountCal({ now: new Date(2026, 0, 10, 10, 0) }) // 2026-01
     expect(wrapper.find('[data-testid="cal-label"]').text()).toBe('2026年1月')

@@ -43,9 +43,18 @@ const today = computed(() => props.now ?? new Date())
 /** 当前展示的月份（只用到年月） */
 const viewDate = ref(shiftMonth(today.value, 0))
 
-// 外部换了「今天」（如跨零点重挂载）就跟着回到当月，别停在一个过期的月份上
-watch(today, (next) => {
-  viewDate.value = shiftMonth(next, 0)
+/**
+ * 外部换了「今天」就跟回当月 —— 但**只在年月真的变了**时才重置。
+ *
+ * 不能直接 `watch(today, ...)`：`today` 是 `props.now ?? new Date()`，
+ * 而父级（Dashboard）为了跨零点刷新，每分钟都会把 `now` 换成**新的 Date 对象**，
+ * 对象身份一变 watch 就触发 —— 用户翻到 10 月后静置一分钟就被拽回 9 月，
+ * 「今天」按钮等于形同虚设。按「年-月」这个真正的语义单位比较即可：
+ * 同月内换日期不需要动视图，跨月（含跨零点到次月）才回到当月。
+ */
+const todayMonthKey = computed(() => `${today.value.getFullYear()}-${today.value.getMonth()}`)
+watch(todayMonthKey, () => {
+  viewDate.value = shiftMonth(today.value, 0)
 })
 
 const grid = computed(() => buildMonthGrid(today.value, viewDate.value))
