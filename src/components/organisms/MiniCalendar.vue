@@ -34,7 +34,17 @@ const props = withDefaults(
   { activityDates: () => [], now: undefined, holidayNames: () => ({}), makeupDays: () => [] },
 )
 
-const emit = defineEmits<{ select: [dateKey: string] }>()
+const emit = defineEmits<{
+  select: [dateKey: string]
+  /**
+   * 当前展示的月份变化（year 为公历年，month 为 **1~12**）。
+   *
+   * 为什么需要它：节假日/调休数据由父级注入（组件保持纯展示），
+   * 但「用户翻到了哪个月」只有组件自己知道 —— 没有这个事件，父级只能一直喂
+   * "今天所在月"的数据，翻到 10 月就看不到国庆与调休了。
+   */
+  viewMonth: [year: number, month: number]
+}>()
 
 /** 表头：与网格一样周一开头 */
 const WEEKDAY_LABELS = ['一', '二', '三', '四', '五', '六', '日']
@@ -55,6 +65,12 @@ const viewDate = ref(shiftMonth(today.value, 0))
 const todayMonthKey = computed(() => `${today.value.getFullYear()}-${today.value.getMonth()}`)
 watch(todayMonthKey, () => {
   viewDate.value = shiftMonth(today.value, 0)
+})
+
+// 把「正在看的月份」告诉父级：节假日/调休由父级注入，它必须知道该供哪个月的数据。
+// immediate：挂载时先报一次，父级不必自己猜初始月份。
+watch(viewDate, (date) => emit('viewMonth', date.getFullYear(), date.getMonth() + 1), {
+  immediate: true,
 })
 
 const grid = computed(() => buildMonthGrid(today.value, viewDate.value))
