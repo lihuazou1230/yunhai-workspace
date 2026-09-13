@@ -35,10 +35,20 @@ export function parseTimeToSeconds(time: string): number | null {
   return hour * SECONDS_PER_HOUR + minute * SECONDS_PER_MINUTE
 }
 
-/** 当天 0 点起已过的秒数（含秒，用于精确到秒的差值计算） */
+/**
+ * 当天 0 点起已过的秒数（含毫秒的小数部分）。
+ *
+ * 必须带上毫秒：tick 是 100ms（可切 rAF），若这里只到整秒，
+ * 每 10 次 tick 里有 9 次算出的是同一个数 —— 数字看着是「每秒跳一下」，
+ * 而不是规划要的「逐位滚动、连贯细腻」；时薪高时秒内偏差还会超过 1 分。
+ * 最终展示前仍会四舍五入到整数分，不会出现分以下的小数。
+ */
 export function secondsOfDay(date: Date): number {
   return (
-    date.getHours() * SECONDS_PER_HOUR + date.getMinutes() * SECONDS_PER_MINUTE + date.getSeconds()
+    date.getHours() * SECONDS_PER_HOUR +
+    date.getMinutes() * SECONDS_PER_MINUTE +
+    date.getSeconds() +
+    date.getMilliseconds() / 1000
   )
 }
 

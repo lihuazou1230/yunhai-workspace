@@ -10,7 +10,7 @@
  *   （老版本只有 weekdaysOnly / 没有薪资模式），脏数据也不会把卡片打挂。
  */
 
-import { computed, ref, watch } from 'vue'
+import { computed, onScopeDispose, ref, watch } from 'vue'
 import type { ComputedRef, Ref } from 'vue'
 
 import { useEventListener } from '@vueuse/core'
@@ -148,6 +148,16 @@ export function useEarnings(options: UseEarningsOptions = {}): UseEarningsReturn
     start()
     refresh()
   }
+
+  /**
+   * 作用域销毁时必须回收定时器。
+   *
+   * 仪表板被 `<keep-alive>` 缓存：切走只是 deactivate，组件并不卸载，
+   * 而这里的 100ms tick 依然在跑（每次都重算月度计薪天数，内含 ~31 天的循环）。
+   * 不清理就是一个纯浪费的常驻负担；更糟的是它的 `now` 还在推进，
+   * 切回来时看不出异常，所以这种泄漏很容易一直留着。
+   */
+  onScopeDispose(stop)
 
   // 切回标签页/窗口时立即补算，避免看到上一秒的旧数字
   useEventListener(document, 'visibilitychange', () => {
