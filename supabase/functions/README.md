@@ -68,9 +68,14 @@ supabase functions serve notify --env-file ./supabase/.env.local
   "uid": "UID_xxxx",
   "title": "写周报",
   "content": "<p>...</p>",
-  "url": "https://...#/todos?focus=t1"
+  "url": "https://<你的站点>/todos?focus=t1"
 }
 ```
+
+> ⚠️ `url` 必须是**路径式**（`/todos?focus=<id>`），不能写成 `#/todos?focus=<id>`。
+> 本项目用的是 history 路由：hash 片段不会触发 vue-router 导航，用户点开推送只会
+> 停在首页、什么都不会发生。前端由 `src/utils/wxpusher.ts` 的 `deepLink()` 统一生成
+> （已适配 GitHub Pages 子路径），单测 `src/utils/wxpusher.spec.ts` 专门锁了这条格式。
 
 | 状态                   | 含义                                           | 前端表现                 |
 | ---------------------- | ---------------------------------------------- | ------------------------ |
