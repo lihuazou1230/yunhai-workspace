@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Todo } from '@/types/todo'
 import {
   decideLocalCache,
+  diffFromQueue,
   diffTodos,
   enqueueOperation,
   enqueueOperations,
@@ -212,5 +213,62 @@ describe('子任务参与同步指纹', () => {
     // 指纹里存 1/0 而不是 true/false，跨设备比较时不会因为布尔序列化差异误判
     expect(todoSignature(done, 0)).toContain('[["s1","a",1]]')
     expect(diffTodos(snapshotTodos([undone]), [done]).upserts[0].todo.id).toBe('t1')
+  })
+})
+
+/**
+ * diffFromQueue：把「离线队列」翻译成本地差异。
+ * 它是「离线改动不被云端覆盖」的关键一步——激活云同步时若少了它，
+ * 补发会拿 id 去已被云端覆盖的列表里取内容，本地改动静默蒸发。
+ */
+describe('离线队列 → 本地差异', () => {
+  it('upsert 取本地那一份内容（而不是 id 之后的云端版本）', () => {
+    const local = todo({ id: 'a', title: '本地改过的' })
+    const diff = diffFromQueue([{ todoId: 'a', type: 'upsert' }], [local])
+
+    expect(diff.upserts).toEqual([{ todo: local, position: 0 }])
+    expect(diff.deletes).toEqual([])
+  })
+
+  it('delete 变成 deletes（本地已删、云端还没删）', () => {
+    const diff = diffFromQueue(
+      [{ todoId: 'a', type: 'delete' }],
+      [todo({ id: 'a' }), todo({ id: 'b' })],
+    )
+
+    expect(diff.upserts).toEqual([])
+    expect(diff.deletes).toEqual(['a'])
+  })
+
+  it('position 取本地索引，保证推送后的顺序与本地一致', () => {
+    const local = [todo({ id: 'a' }), todo({ id: 'b' }), todo({ id: 'c' })]
+    const diff = diffFromQueue([{ todoId: 'c', type: 'upsert' }], local)
+
+    expect(diff.upserts[0].position).toBe(2)
+  })
+
+  it('本地已找不到该 id 时不凭空造数据（例如激活前刚清空过本地缓存）', () => {
+    const diff = diffFromQueue([{ todoId: 'ghost', type: 'upsert' }], [todo({ id: 'a' })])
+
+    expect(diff.upserts).toEqual([])
+    expect(diff.deletes).toEqual([])
+  })
+
+  it('同 id 重复 upsert 只取一次（队列自身已 LWW，这里再兜一层）', () => {
+    const local = [todo({ id: 'a', title: '最终值' })]
+    const diff = diffFromQueue(
+      [
+        { todoId: 'a', type: 'upsert' },
+        { todoId: 'a', type: 'upsert' },
+      ],
+      local,
+    )
+
+    expect(diff.upserts).toHaveLength(1)
+    expect(diff.upserts[0].todo.title).toBe('最终值')
+  })
+
+  it('空队列 → 空差异（绝大多数激活路径都走这里）', () => {
+    expect(diffFromQueue([], [todo()])).toEqual({ upserts: [], deletes: [] })
   })
 })

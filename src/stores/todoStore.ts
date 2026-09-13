@@ -10,6 +10,7 @@ import { todayKey } from '@/utils/dateFormatter'
 import {
   applyDiff,
   decideLocalCache,
+  diffFromQueue,
   diffTodos,
   enqueueOperations,
   isOnline,
@@ -591,6 +592,21 @@ export const useTodoStore = defineStore('todo', () => {
         )
         markMigrated(userId)
         syncMessage.value = `已把本地 ${localCount} 条任务迁移到云端`
+      }
+
+      /**
+       * 离线队列里攒下的改动，也必须在「云端为准」赋值**之前**合进来。
+       *
+       * 队列只存 `{todoId, type}` 不含内容，而 flushSync 是拿 id 去**当前的** `todos` 里现取要推的任务：
+       * 少了这一步，赋值之后补发推的就是云端那一份 —— 本地编辑静默蒸发、
+       * 本地已删的任务反而在本地复活（详细论证见 utils/todoSync.ts 的 diffFromQueue）。
+       *
+       * 顺序：先合队列（离线期间、较旧），再合 during（拉取期间、较新，应当覆盖前者）。
+       * 队列本身不动 —— 它随后会在 flushSync 里被真正推上去，而那时 todos 已经是本地版本了。
+       */
+      const queued = diffFromQueue(syncQueue.value, todos.value)
+      if (queued.upserts.length > 0 || queued.deletes.length > 0) {
+        next = applyDiff(next, queued)
       }
 
       /**

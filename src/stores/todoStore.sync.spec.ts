@@ -293,6 +293,78 @@ describe('todoStore · 云同步', () => {
       expect(store.syncQueue).toHaveLength(1)
     })
 
+    /**
+     * 回归：离线改动曾被「云端为准」的赋值吞掉。
+     *
+     * 场景就是真实的「断网改一下 → 关掉应用 → 联网再打开」。
+     * 队列里只存 `{todoId, type}`，而补发是拿 id 去**当前的** todos 里现取内容；
+     * 若不在覆盖前把队列翻译成本地差异，赋值会把本地版本换成云端版本，
+     * 于是补发推的是云端那一份 —— 改动静默蒸发，且用户毫无提示。
+     */
+    it('离线编辑后重开应用：本地改动不被云端结果覆盖（回归）', async () => {
+      // 1) 首次登录：本地已有数据 → 走一次性迁移并标记「已迁移」
+      const first = useTodoStore()
+      const created = first.addTodo({ title: 'v1', priority: 'medium' })
+      remote.fetchRemoteTodos.mockResolvedValue([])
+      await first.activateCloud('u1')
+      await settle()
+      expect(first.syncQueue).toEqual([])
+
+      // 2) 断网后编辑：改动只能进队列
+      setOnline(false)
+      first.updateTodo(created.id, { title: 'v2-离线编辑' })
+      await settle()
+      expect(first.syncQueue).toEqual([{ todoId: created.id, type: 'upsert' }])
+
+      // 3) 「重开应用」= 新的 pinia（syncUserId 从 null 开始），此时云端仍是 v1
+      setActivePinia(createPinia())
+      setOnline(true)
+      remote.fetchRemoteTodos.mockResolvedValue([todo({ id: created.id, title: 'v1' })])
+
+      const second = useTodoStore()
+      await second.activateCloud('u1')
+      await settle()
+
+      // 本地必须保住离线期间的版本
+      expect(second.todos.map((t) => t.title)).toEqual(['v2-离线编辑'])
+      // 且补发上去的也必须是它（不是被覆盖后的云端版本）
+      const pushed = remote.pushRemoteTodos.mock.calls.flatMap((call) => {
+        const [, entries] = call as unknown as [string, Array<{ todo: Todo }>]
+        return entries.map((entry) => entry.todo.title)
+      })
+      expect(pushed).toContain('v2-离线编辑')
+      expect(second.syncQueue).toEqual([])
+    })
+
+    /**
+     * 同一根因的第二个症状：本地已删、云端还没删的那条，会在本地「复活」
+     * （云端结果里还带着它，而删除操作推不上去 / 推之前界面先被覆盖）。
+     */
+    it('离线删除后重开应用：任务不会在本地复活（回归）', async () => {
+      const first = useTodoStore()
+      const created = first.addTodo({ title: '要删的', priority: 'low' })
+      remote.fetchRemoteTodos.mockResolvedValue([])
+      await first.activateCloud('u1')
+      await settle()
+
+      // 模拟「删除已入队但还没推成功」
+      setOnline(false)
+      first.syncQueue = [{ todoId: created.id, type: 'delete' }]
+      await settle()
+
+      // 重开应用：云端仍然留着这条
+      setActivePinia(createPinia())
+      setOnline(true)
+      remote.fetchRemoteTodos.mockResolvedValue([todo({ id: created.id, title: '要删的' })])
+
+      const second = useTodoStore()
+      await second.activateCloud('u1')
+      await settle()
+
+      expect(second.todos).toEqual([])
+      expect(remote.deleteRemoteTodos).toHaveBeenCalledWith([created.id])
+    })
+
     it('同一任务离线期间多次改动只留最后一次（队列不膨胀）', async () => {
       const store = useTodoStore()
       await store.activateCloud('u1')

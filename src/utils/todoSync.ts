@@ -141,6 +141,48 @@ export function applyDiff(base: readonly Todo[], diff: TodoDiff): Todo[] {
 }
 
 /**
+ * 把「离线队列」翻译成一份本地差异，供激活云同步时与云端结果合并。
+ *
+ * 为什么必须有这一步：队列里只存了 `{todoId, type}`，**不含任务内容**——
+ * `flushSync` 是拿 todoId 去**当前的** `todos` 里现取要推的任务。
+ * 而激活流程里「云端为准」的那次赋值会把 `todos` 换成云端版本，于是补发时推的是云端那一份：
+ * 本地编辑静默蒸发，本地删掉的任务在本地复活（云端那条被重新写回列表）。
+ *
+ * 所以合并时必须用**覆盖前**的本地列表把队列翻译成差异：
+ * - `upsert`：取本地那一份内容（新改动优先）
+ * - `delete`：把该 id 从结果里剔除（本地已删，云端还没删）
+ *
+ * 本地已经找不到该 id 时不凭空造数据（例如激活前刚清空过本地缓存），
+ * 交给「云端结果 + 队列本身」去收敛。
+ */
+export function diffFromQueue(
+  queue: readonly SyncOperation[],
+  localTodos: readonly Todo[],
+): TodoDiff {
+  const indexById = new Map<string, number>()
+  localTodos.forEach((todo, index) => indexById.set(todo.id, index))
+
+  const upserts: TodoDiff['upserts'] = []
+  const deletes: string[] = []
+  const seenUpsert = new Set<string>()
+
+  for (const op of queue) {
+    if (op.type === 'delete') {
+      deletes.push(op.todoId)
+      continue
+    }
+    // 同 id 只取一次（队列本身已经做过 LWW 去重，这里再兜一层）
+    if (seenUpsert.has(op.todoId)) continue
+    const index = indexById.get(op.todoId)
+    if (index === undefined) continue
+    seenUpsert.add(op.todoId)
+    upserts.push({ todo: localTodos[index], position: index })
+  }
+
+  return { upserts, deletes }
+}
+
+/**
  * 合并本地与远端任务（迁移用）：按 id 去重，**本地优先**——
  * 迁移的语义是「把自己设备上已有的数据搬上云」，本地刚编辑过的内容不该被旧云端数据盖掉；
  * 远端独有的任务（此前在别的设备上加的）保留，两边都不丢。
