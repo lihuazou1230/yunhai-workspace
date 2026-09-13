@@ -11,6 +11,8 @@
  * - **自定义每周计薪日**：周一到周日任选，覆盖单休/轮休；月计薪天数保留为月薪模式的换算基准
  * - **跨零点夜班**：下班时间早于上班时间即按「次日下班」处理（如 22:00 → 06:00）
  * - **迷你折叠模式**：折成只显示金额的小条，状态存 localStorage
+ * - **高度归仪表板网格管**：本卡在精选布局里不跨行（见 Dashboard.vue 的 BENTO_SPAN 说明），
+ *   所以「收起设置」后卡片会跟着内容一起收高，不会留下大片空绿
  */
 
 import { computed, ref } from 'vue'
@@ -166,8 +168,15 @@ const workDaysSummary = computed(() => {
     class="card-accent flex items-center gap-3 px-4 py-2.5 text-white"
     aria-label="赚钱秒表（迷你）"
     data-testid="earnings-compact"
+    :title="EARNINGS_DISCLAIMER"
   >
     <span class="text-xs text-emerald-100">💰</span>
+    <!--
+      折叠条也必须能读到免责声明：长期保持折叠的用户此前永远看不到
+      「金额是估算、不是实际到手」这句（展开态才渲染）。
+      迷你条放不下整句，所以走悬停提示 + 读屏文本两条通道。
+    -->
+    <span class="sr-only">{{ EARNINGS_DISCLAIMER }}</span>
     <span
       class="font-mono text-lg font-bold tabular-nums tracking-tight"
       data-testid="earnings-compact-amount"
