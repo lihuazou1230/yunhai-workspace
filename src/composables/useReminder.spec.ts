@@ -359,6 +359,34 @@ describe('useReminder · 补发摘要与清理', () => {
     h.stop()
   })
 
+  it('传入的列表含归档任务时，其「已通知」标记被保留（否则取消归档后会重复提醒）', () => {
+    // 调用方（DefaultLayout）必须把含归档的列表传进来：
+    // 归档本身由 collectDueReminders 跳过，但标记要留着，不然取消归档时会被当成没提醒过。
+    const archived = todo({ id: 'archived-1', dueDate: '2026-09-10', archived: true })
+    const kept = setup(
+      () => [archived],
+      () => AT(9),
+      { enabled: true, inApp: true },
+    )
+    kept.store.setNotified({ 'archived-1': { count: 1, lastAt: AT(9).toISOString() } })
+
+    kept.scan()
+    expect(kept.store.notified['archived-1']).toBeDefined()
+    kept.stop()
+
+    // 反例：若调用方只传「可见任务」（排除归档），标记会被清掉 —— 这正是修前的行为
+    const dropped = setup(
+      () => [],
+      () => AT(9),
+      { enabled: true, inApp: true },
+    )
+    dropped.store.setNotified({ 'archived-1': { count: 1, lastAt: AT(9).toISOString() } })
+
+    dropped.scan()
+    expect(Object.keys(dropped.store.notified)).toEqual([])
+    dropped.stop()
+  })
+
   it('「知道了」把提醒移出待处理列表；清空补发摘要后不再显示', () => {
     const list = [todo({ id: '1', dueDate: '2026-09-10' })]
     const h = setup(

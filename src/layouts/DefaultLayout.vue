@@ -84,7 +84,11 @@ const {
   dismiss,
   clearMissed,
 } = useReminder({
-  todos: () => todoStore.visibleTodos,
+  // 必须传**含归档**的列表：liveTodos 只排除「软删除中」的，不含归档/筛选口径。
+  // - 归档任务不会提醒：collectDueReminders 自己会跳过 archived
+  // - 但它的「已通知」标记要留着：传 visibleTodos（排除归档）时，归档任务的标记会被
+  //   当成「任务已不存在」清掉，用户取消归档后又会重新响一遍（最多两次）
+  todos: () => todoStore.liveTodos,
   onOpenTodo: openTodo,
   onWxPusherError: (message) => ElMessage.warning(message),
 })
