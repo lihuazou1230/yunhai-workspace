@@ -15,6 +15,11 @@ export default tseslint.config(
       // 都在 .gitignore 里，也不该被前端 lint 扫到
       'src-tauri/target/**',
       'src-tauri/gen/**',
+      // 部署打包的暂存目录（里面是整份压缩后的 dist 产物）：
+      // git 已用 .gitignore 忽略 /build/，ESLint 也要忽略，
+      // 否则 `pnpm lint` 会对压缩 JS 报出几千条 no-unused-expressions，
+      // 把真正的代码问题淹掉（实测：漏了这一行会红 5821 条）。
+      'build/**',
     ],
   },
   js.configs.recommended,
@@ -42,6 +47,19 @@ export default tseslint.config(
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', ignoreRestSiblings: true },
       ],
+    },
+  },
+  {
+    // Node 侧脚本（构建/打包工具）：全局是 node:fs / node:path 这些，与浏览器代码不同
+    files: ['scripts/**/*.mjs', '*.config.js'],
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        __dirname: 'readonly',
+        require: 'readonly',
+        module: 'writable',
+      },
     },
   },
   prettier,
