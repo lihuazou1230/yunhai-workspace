@@ -223,6 +223,19 @@ export const useTodoStore = defineStore('todo', () => {
     pendingDeletes.value = pendingDeletes.value.filter((p) => p.todo.id !== id)
   }
 
+  /**
+   * 撤销**全部**软删除，返回恢复的条数。
+   *
+   * 为什么需要它：多选批量删除会把 N 条一起塞进队列，而撤销条此前只认队尾那一条 ——
+   * 用户看到的是「已删除「最后一条」」，点撤销也只回来一条，
+   * 其余的在 60 秒后静默真删，界面上再没有任何入口能救。
+   */
+  function undoAllDeletes(): number {
+    const ids = pendingDeletes.value.map((p) => p.todo.id)
+    for (const id of ids) undoDelete(id)
+    return ids.length
+  }
+
   /** 真正删除：从 todos 移除（触发持久化），清理队列与定时器 */
   function commitDelete(id: string) {
     const timer = timers.get(id)
@@ -714,6 +727,7 @@ export const useTodoStore = defineStore('todo', () => {
     filterDate,
     pendingDeletes,
     latestPendingDelete,
+    undoAllDeletes,
     selectionMode,
     selectedIds,
     manualOrder,

@@ -107,11 +107,14 @@ function stopTicker() {
 
 // 撤销条出现时启动倒计时，消失时停止
 function onPendingChange() {
-  if (store.latestPendingDelete) {
-    startTicker(store.latestPendingDelete.expiresAt)
-  } else {
+  if (store.pendingDeletes.length === 0) {
     stopTicker()
+    return
   }
+  // 倒计时跟随**最早到期**的那一条：批量删除时各条到期时刻不同，
+  // 只跟队尾会让用户以为"还有时间"，而最早那条其实已经被真删了
+  const earliest = Math.min(...store.pendingDeletes.map((p) => p.expiresAt))
+  startTicker(earliest)
 }
 
 onUnmounted(stopTicker)
@@ -285,6 +288,14 @@ useSortable(listRef, store.filteredTodos, {
   // 只有把手可拖，避免与行内按钮/子任务输入框的点击冲突
   handle: '.drag-handle',
   ghostClass: 'sortable-ghost',
+  /**
+   * 同仪表板卡片：**必须走 SortableJS 自己的 fallback 拖拽**。
+   * Tauri 窗口默认开着系统级 drag-drop（`dragDropEnabled: true`），Windows 上前端原生 HTML5 拖放会被它吃掉，
+   * 而 SortableJS 在 Chromium 下默认依赖原生拖放 —— 表现就是网页里能拖、桌面窗口里拖不动。
+   * fallback 只用指针事件，不产生原生拖放会话；细节与实测结论见 Dashboard.vue 里同一处注释。
+   */
+  forceFallback: true,
+  fallbackOnBody: true,
   onUpdate: onSortUpdate,
 })
 
@@ -309,14 +320,17 @@ function batchSetPriority(p: TodoPriority) {
 const revealId = ref<string | null>(null)
 
 function undo() {
-  const p = store.latestPendingDelete
-  if (p) {
-    store.undoDelete(p.todo.id)
-    revealId.value = p.todo.id
-    setTimeout(() => {
-      revealId.value = null
-    }, 700)
-  }
+  const queue = [...store.pendingDeletes]
+  if (queue.length === 0) return
+
+  // 一次撤销**全部**：批量删除会把 N 条一起塞进队列，只恢复队尾那一条的话，
+  // 其余几条会在 60 秒后静默真删，用户再没有入口能救回来。
+  store.undoAllDeletes()
+  // 多条同时滑入会很吵，动画只跟随最后删除的那条（也就是撤销条上显示的那条）
+  revealId.value = queue[queue.length - 1].todo.id
+  setTimeout(() => {
+    revealId.value = null
+  }, 700)
   onPendingChange()
 }
 
@@ -500,7 +514,11 @@ watch(
       role="status"
     >
       <span class="flex-1">
-        已删除「{{ store.latestPendingDelete.todo.title }}」
+        <!-- 批量删除时要说清"删了几条"：只说一条会让用户以为其余的已经撤销了 -->
+        <template v-if="store.pendingDeletes.length > 1">
+          已删除 {{ store.pendingDeletes.length }} 项
+        </template>
+        <template v-else>已删除「{{ store.latestPendingDelete.todo.title }}」</template>
         <span class="text-xs opacity-70">（{{ remainingSeconds }}s 后可撤销）</span>
       </span>
       <BaseButton size="sm" variant="secondary" @click="undo">撤销</BaseButton>
