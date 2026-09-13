@@ -320,9 +320,17 @@ export function completedPaidDaysBefore(config: EarningsConfig, now: Date): numb
   return count
 }
 
-/** 本月已计薪天数：已完整过去的天数 + 今天（今天是计薪日时） */
+/**
+ * 本月已计薪天数：已完整过去的天数 + 今天（今天是计薪日时）。
+ *
+ * 锚点必须是**当前班次的开始日**，不能是日历上的今天：夜班凌晨 03:00 属于
+ * 「昨天开始」的那个班次，用日历今天会把昨天算进「已完整过去」，
+ * 而 `earnedFen(now)` 同时在算昨天那半截班 —— 同一天被计两次。
+ * 日班下 `shiftStartDate` 就是今天本身，行为与从前一致。
+ */
 export function elapsedPaidDays(config: EarningsConfig, now: Date): number {
-  return completedPaidDaysBefore(config, now) + (isPaidDay(config, now) ? 1 : 0)
+  const anchor = shiftStartDate(config, now)
+  return completedPaidDaysBefore(config, anchor) + (isPaidDay(config, now) ? 1 : 0)
 }
 
 /**
@@ -336,7 +344,9 @@ export function monthlyEarnedFen(config: EarningsConfig, now: Date): number {
   const daily = dailyEarnedFen(config)
   if (daily <= 0) return 0
 
-  const days = completedPaidDaysBefore(config, now)
+  // 与 elapsedPaidDays 同一个锚点：已完整过去的计薪天数要按**班次开始日**算，
+  // 否则夜班凌晨会把「昨天开始的这个班」重复计入累计（虚高整整一个日薪）。
+  const days = completedPaidDaysBefore(config, shiftStartDate(config, now))
   const past = daily * days
   const cap =
     config.salaryMode === 'monthly' && config.monthWorkDays > 0

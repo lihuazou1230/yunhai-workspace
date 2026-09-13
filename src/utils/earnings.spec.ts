@@ -27,6 +27,7 @@ import {
   salaryOf,
   secondsOfDay,
   shiftDateKey,
+  shiftStartDate,
   yuanToFen,
 } from './earnings'
 
@@ -346,6 +347,44 @@ describe('本月已赚（次要指标）', () => {
     expect(elapsedPaidDays(CONFIG, at(10))).toBe(8)
     // 周六：今天不计薪，只算过去的 9 天
     expect(elapsedPaidDays(CONFIG, at(10, 0, 0, 12))).toBe(9)
+  })
+
+  /**
+   * 回归：夜班凌晨的「本月已赚 / 已计薪天数」曾把同一班次算两次。
+   *
+   * 日历口径的 completedPaidDaysBefore(now) 会把**昨天**算作「已完整过去」，
+   * 而 earnedFen(now) 算的正是「昨天 22:00 开始、现在还在上」的那个班 ——
+   * 于是同一个班次既进了累计又进了今日，虚高整整一个日薪。
+   */
+  describe('夜班：班次开始日才是累计锚点', () => {
+    const NIGHT: EarningsConfig = { ...CONFIG, workStart: '22:00', workEnd: '06:00' }
+    /** 2026-09-09 是周三；此刻属于「9/8(二) 22:00 开始」的夜班 */
+    const midnightish = new Date(2026, 8, 9, 3, 0, 0)
+
+    it('已计薪天数不含尚未结束的当前班次（6 而不是 7）', () => {
+      // 9/1~9/4 + 9/7 共 5 个完整计薪日，加上正在上的这个班 = 6
+      expect(completedPaidDaysBefore(NIGHT, midnightish)).toBe(6) // 日历口径：这是错的锚点
+      expect(completedPaidDaysBefore(NIGHT, shiftStartDate(NIGHT, midnightish))).toBe(5)
+      expect(elapsedPaidDays(NIGHT, midnightish)).toBe(6)
+    })
+
+    it('本月已赚 = 5 天 + 当前班次已上的 5 小时（¥5,625 而不是 ¥6,625）', () => {
+      // 日薪 1000 元；22:00→03:00 已上 5 小时 = 5/8 日薪 = 625 元
+      expect(formatFen(earnedFen(NIGHT, midnightish))).toBe('625.00')
+      expect(formatFen(monthlyEarnedFen(NIGHT, midnightish))).toBe('5,625.00')
+    })
+
+    it('班次结束后（06:00 之后）该班次转入累计，数字接得上不跳变', () => {
+      // 06:30 已不在班次内：elapsedFen 归 0，但 9/8 这个班已完整过去
+      const after = new Date(2026, 8, 9, 6, 30, 0)
+      expect(elapsedPaidDays(NIGHT, after)).toBe(6)
+      expect(formatFen(monthlyEarnedFen(NIGHT, after))).toBe('6,000.00')
+    })
+
+    it('日班不受影响（锚点就是当天本身）', () => {
+      expect(shiftStartDate(CONFIG, at(12))).toEqual(new Date(2026, 8, 10))
+      expect(elapsedPaidDays(CONFIG, at(12))).toBe(8)
+    })
   })
 
   it('本月已赚 = 完整计薪天数 × 日薪 + 今日已赚', () => {
