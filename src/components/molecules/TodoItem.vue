@@ -33,6 +33,12 @@ import BaseButton from '@/components/atoms/BaseButton.vue'
 const props = withDefaults(
   defineProps<{
     todo: Todo
+    /**
+     * 未配置 AI Key 时隐藏「AI 拆解」入口。
+     * 不隐藏的话点进去只有一句「还没配置 Key」的纯文本、也没有去设置的链接，等于死路；
+     * 反向命名是为了让默认值（不传）= 保持显示，与既有行为一致。
+     */
+    hideAiBreakdown?: boolean
     /** 是否展示截止日期与逾期标红 */
     showDue?: boolean
     /** 完成时是否向左滑出（进行中视图下完成任务会从列表消失；全部视图下不滑出仅礼花） */
@@ -732,6 +738,7 @@ function onPurge() {
               💤 稍后再做
             </button>
             <button
+              v-if="!hideAiBreakdown"
               type="button"
               role="menuitem"
               class="w-full rounded-lg px-2 py-1.5 text-left text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"

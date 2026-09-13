@@ -16,6 +16,7 @@ import type { SortableEvent } from 'sortablejs'
 import type { TodoFilter, TodoListView, TodoPriority } from '@/types/todo'
 import { useTagStore } from '@/stores/tagStore'
 import { useTodoStore } from '@/stores/todoStore'
+import { useAiStore } from '@/stores/aiStore'
 import { PRIORITY_ORDER } from '@/utils/priorityHelper'
 import { priorityLabel } from '@/utils/priorityHelper'
 import { resolveSortMove } from '@/utils/sortableMove'
@@ -26,6 +27,8 @@ import AiBreakdownDialog from '@/components/organisms/AiBreakdownDialog.vue'
 import BaseButton from '@/components/atoms/BaseButton.vue'
 
 const store = useTodoStore()
+// AI 未配置 Key 时要把「AI 拆解」入口藏起来：点进去只有一句配置引导、也没有跳设置页的链接
+const aiStore = useAiStore()
 
 /**
  * 用户是否正在用筛选/搜索条件。
@@ -296,6 +299,12 @@ useSortable(listRef, store.filteredTodos, {
    */
   forceFallback: true,
   fallbackOnBody: true,
+  /**
+   * `watchElement`：列表是 v-if 渲染的（没任务时根本没有 <ul>）。
+   * 默认只在挂载那一刻建实例，空列表进页面后再新建任务，拖拽就永远不会初始化——
+   * 打开 watchElement 后元素出现/消失会自动重挂（原实现漏了这个边界）。
+   */
+  watchElement: true,
   onUpdate: onSortUpdate,
 })
 
@@ -544,6 +553,7 @@ watch(
         :enter-from-left="todo.id === enterLeftId"
         :draggable="!store.selectionMode && store.listView === 'main'"
         :todo-tags="tagsOf(todo)"
+        :hide-ai-breakdown="!aiStore.configured"
         :view="store.listView"
         :highlighted="todo.id === focusId"
         @toggle="toggle"
