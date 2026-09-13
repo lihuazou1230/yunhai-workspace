@@ -76,11 +76,16 @@ export function toRemoteRow(userId: string, { todo, position }: PositionedTodo):
       completedAt: todo.completedAt ?? null,
       pinned: todo.pinned,
       subtasks: todo.subtasks,
-      // 第六阶段：标签 / 归档 / snooze 都随 payload 同步（扩展字段，避免频繁改表）
+      // 第六阶段：标签 / 归档 / snooze / 提醒 都随 payload 同步（扩展字段，避免频繁改表）
       tags: todo.tags,
       archived: todo.archived === true,
       archivedAt: todo.archivedAt ?? null,
       snoozedUntil: todo.snoozedUntil ?? null,
+      // 提醒设置必须一起带上：`todoSignature` 认得这两个字段（改了会触发推送），
+      // 若 payload 不带它们，就会出现「本地认得出改动、云端却没收到」的静默丢失——
+      // 换设备/重新登录后自定义提醒时间消失，被显式关掉的提醒还会按 dueDate 默认策略重新响。
+      reminderAt: todo.reminderAt ?? null,
+      reminderOff: todo.reminderOff === true,
     },
   }
 }
@@ -98,6 +103,7 @@ export function fromRemoteRow(row: RemoteTodoRow): Todo {
   const completed = row.completed === true
   const archivedAt = asOptionalString(payload.archivedAt)
   const snoozedUntil = asOptionalString(payload.snoozedUntil)
+  const reminderAt = asOptionalString(payload.reminderAt)
   return {
     id: row.id,
     title: typeof row.title === 'string' ? row.title : '',
@@ -113,6 +119,9 @@ export function fromRemoteRow(row: RemoteTodoRow): Todo {
     ...(payload.archived === true ? { archived: true } : {}),
     ...(archivedAt ? { archivedAt } : {}),
     ...(snoozedUntil ? { snoozedUntil } : {}),
+    // 只在真的设过时写，保持对象干净；reminderOff 用 === true 收敛脏数据
+    ...(reminderAt ? { reminderAt } : {}),
+    ...(payload.reminderOff === true ? { reminderOff: true } : {}),
   }
 }
 
