@@ -42,6 +42,49 @@
   .digit-strip {
     transition: none;
   }
+
+  /*
+    全局兜底：规划明确要求「减少动效」时降级，而此前只有秒表数字做了处理 ——
+    任务行的滑出/滑入、礼花 burst、animate-pulse 骨架、各种 transition-colors 照播。
+    这里统一压到几乎瞬时（0.01ms 而不是 0：留着过渡事件，避免依赖 transitionend 的逻辑被跳过），
+    并只播一次，避免 infinite 动画变成高频闪烁。
+  */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---- 拖拽反馈（仪表板卡片与任务列表共用同一套 SortableJS 类名） ---- */
+
+/*
+  原位置占位块：卡片被拖起来后，它原来待的地方会留一个同尺寸的克隆。
+  不给样式的话看起来就是「凭空多出一张卡」，压暗到 35% 才读得出「这里是空位」。
+*/
+.sortable-ghost {
+  opacity: 0.35;
+}
+
+/*
+  跟随指针的那一份：拖拽期间指针经常已经移出元素，:active 不可靠，所以直接改光标。
+*/
+.sortable-drag {
+  cursor: grabbing;
+}
+
+/*
+  fallback 拖拽模式（桌面窗口里唯一的可用路径，见 Dashboard.vue 的 forceFallback 说明）
+  会 clone 一份卡片挂在 body 上跟着指针走。库自己会给它 opacity/z-index/pointer-events，
+  这里只补「抬起来」的观感：加投影，并确保它永远不吃指针事件（否则松手落点会算在副本上）。
+*/
+.sortable-fallback {
+  pointer-events: none;
+  cursor: grabbing;
+  box-shadow: 0 18px 40px -12px rgb(15 23 42 / 0.35);
 }
 
 /* 细滚动条（浏览器默认的粗滚动条是「网页感」最大来源） */
