@@ -10,7 +10,7 @@
  * 而本项目的服务端能力统一收口在 Supabase，不值得为一张背景图单开一条链路。
  */
 
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 import BaseButton from '@/components/atoms/BaseButton.vue'
 import { useWallpaperStore } from '@/stores/wallpaperStore'
@@ -25,9 +25,18 @@ const saving = ref(false)
 onMounted(() => {
   void store.init()
 })
-onUnmounted(() => {
-  store.dispose()
-})
+/**
+ * ⚠️ 这里**不能**在卸载时 `store.dispose()`。
+ *
+ * 壁纸是 **App 级**视觉（背景绑在 App.vue 的根容器上），而本组件只是它的设置面板：
+ * 面板挂在 `/settings` 里，登出会连带卸载 DefaultLayout → 面板一起卸载。
+ * 若在这里释放 objectURL，图片地址就被清掉了，而重新登录后没有任何地方会再调
+ * `init()`（App 只在启动时调一次、面板要等用户再进设置页才挂载）——
+ * 表现就是「登出再登录后图片壁纸没了，刷新或进设置页才回来」。
+ *
+ * 资源该由拥有它的那一层释放：换个图片/清空壁纸时由 store 自己撤旧 URL，
+ * 会话内的这一个 objectURL 留着不回收（就一张背景图，代价可忽略）。
+ */
 
 const activeLabel = computed(() => {
   switch (store.config.kind) {
