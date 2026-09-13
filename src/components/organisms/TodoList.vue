@@ -26,6 +26,21 @@ import AiBreakdownDialog from '@/components/organisms/AiBreakdownDialog.vue'
 import BaseButton from '@/components/atoms/BaseButton.vue'
 
 const store = useTodoStore()
+
+/**
+ * 用户是否正在用筛选/搜索条件。
+ *
+ * 决定空状态该说「还没有任务」还是「没有符合条件的」：明明有任务、只是被筛掉了，
+ * 却提示「🎉 暂无任务，添加一个开始吧」，等于谎报数据丢失，
+ * 很容易让人重复录入或以为任务没了。
+ */
+const hasFilterCriteria = computed(
+  () =>
+    store.keyword.trim() !== '' ||
+    store.priority.length > 0 ||
+    store.tagFilter.length > 0 ||
+    store.filter !== 'active',
+)
 const tagStore = useTagStore()
 const route = useRoute()
 
@@ -537,6 +552,7 @@ watch(
     >
       <template v-if="store.listView === 'archived'">📦 归档区是空的</template>
       <template v-else-if="store.listView === 'snoozed'">💤 没有被藏起来的任务</template>
+      <template v-else-if="hasFilterCriteria">🔍 没有符合当前条件的任务</template>
       <template v-else>🎉 暂无任务，添加一个开始吧</template>
     </div>
 

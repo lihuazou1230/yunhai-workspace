@@ -272,4 +272,38 @@ describe('TodoList', () => {
 
     expect(store.filter).toBe('completed')
   })
+
+  /**
+   * 回归：空状态文案原来看的是「列表为空」，不看为什么为空。
+   * 于是「有任务、只是被搜掉/筛掉了」也会显示「🎉 暂无任务，添加一个开始吧」——
+   * 在数据明明还在的情况下谎报「任务没了」，很容易让人重复录入。
+   */
+  it('有任务但被搜索/筛选滤空时，文案是「没有符合当前条件」而不是「暂无任务」', async () => {
+    const { wrapper, store } = await mountWithStore()
+    store.addTodo({ title: '写周报', priority: 'high' })
+    await nextTick()
+
+    // 1) 搜索无命中
+    store.keyword = '不存在的关键字'
+    await nextTick()
+    expect(wrapper.find('[data-testid="todos-empty"]').text()).toContain('没有符合当前条件')
+
+    // 2) 优先级筛选排除掉（只有 high，改看 low）—— 关键字仍在，先清掉
+    store.keyword = ''
+    store.priority = ['low']
+    await nextTick()
+    expect(wrapper.find('[data-testid="todos-empty"]').text()).toContain('没有符合当前条件')
+
+    // 3) 标签筛选排除掉
+    store.priority = []
+    store.tagFilter = ['tag-x']
+    await nextTick()
+    expect(wrapper.find('[data-testid="todos-empty"]').text()).toContain('没有符合当前条件')
+
+    // 4) 切换筛选 tab（默认 active，切到 completed 而任务未完成）
+    store.tagFilter = []
+    store.setFilter('completed')
+    await nextTick()
+    expect(wrapper.find('[data-testid="todos-empty"]').text()).toContain('没有符合当前条件')
+  })
 })
