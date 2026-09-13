@@ -24,6 +24,7 @@ import type { TagColor } from '@/types/tag'
 import { AI_PRESETS, AI_PROVIDERS } from '@/types/ai'
 import { useAvatar } from '@/composables/useAvatar'
 import { useReminder } from '@/composables/useReminder'
+import { useSettingsSync } from '@/composables/useSyncedStorage'
 import { sendWxPusherViaProxy } from '@/api/notify'
 import { WXPUSHER_APP_URL } from '@/utils/wxpusher'
 import { useAiStore } from '@/stores/aiStore'
@@ -181,6 +182,32 @@ async function syncNow() {
   await todoStore.syncNow()
 }
 
+// ---- 偏好设置同步（第九阶段）：主题/标签/布局/秒表/壁纸 等跟账号走 ----
+const settingsSync = useSettingsSync()
+/** 「不同步清单」默认收起：它是给"为什么这个没同步"一个交代，不是日常要看的 */
+const localOnlyOpen = ref(false)
+
+const settingsSyncedText = computed(() => {
+  if (authStore.isLocalMode) return '未配置 Supabase：只在本机保存'
+  if (!authStore.isAuthed) return '未登录：设置只在本机保存'
+  if (settingsSync.syncing.value) return '同步中…'
+  if (settingsSync.status.lastError) return `同步出错：${settingsSync.status.lastError}`
+  return `已同步 ${settingsSync.syncedCount.value} / ${settingsSync.syncedKeys.length} 项`
+})
+
+const settingsLastSyncedText = computed(() => {
+  if (!settingsSync.status.lastSyncedAt) return '尚未同步过偏好设置'
+  const date = new Date(settingsSync.status.lastSyncedAt)
+  return `偏好上次同步：${date.toLocaleString('zh-CN', { hour12: false })}`
+})
+
+/** 手动同步：先推任务（todoStore.syncNow 内部含拉取），再走设置同步，一步到位 */
+async function syncAllNow() {
+  await syncNow()
+  await settingsSync.syncNow()
+  ElMessage.success('已同步')
+}
+
 // ---- 连接自检（区分「地址写错」与「密钥不对」） ----
 const checking = ref(false)
 const connectionResult = ref<ConnectionCheck | null>(null)
@@ -291,7 +318,7 @@ async function testConnection() {
             data-testid="settings-sync-now"
             size="sm"
             :disabled="!authStore.isAuthed"
-            @click="syncNow"
+            @click="syncAllNow"
           >
             立即同步
           </BaseButton>
@@ -326,6 +353,60 @@ async function testConnection() {
           {{ connectionResult.message }}
           <code class="mt-1 block break-all opacity-70">{{ connectionResult.detail }}</code>
         </p>
+
+        <!-- 偏好设置同步（第九阶段）：主题、标签、布局、秒表、壁纸… 跟账号走 -->
+        <div
+          data-testid="settings-prefs-sync"
+          class="space-y-2 rounded-xl border border-slate-200 p-3 dark:border-slate-700"
+        >
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-xs font-medium text-slate-500 dark:text-slate-400">偏好设置</span>
+            <span
+              data-testid="settings-prefs-state"
+              class="text-xs text-slate-600 dark:text-slate-300"
+            >
+              {{ settingsSyncedText }}
+            </span>
+            <span
+              v-if="settingsSync.pendingCount.value > 0"
+              data-testid="settings-prefs-pending"
+              class="text-xs text-amber-600 dark:text-amber-400"
+            >
+              待补发 {{ settingsSync.pendingCount.value }} 项
+            </span>
+          </div>
+
+          <p data-testid="settings-prefs-time" class="text-xs text-slate-500 dark:text-slate-400">
+            {{ settingsLastSyncedText }}
+          </p>
+          <p class="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+            主题与外观、壁纸、标签、快捷导航、倒计时、仪表板布局与周目标、赚钱秒表、投入时长日志、
+            提醒设置、默认搜索引擎都会跟着账号走——换设备登录即是同一套。
+          </p>
+
+          <button
+            type="button"
+            data-testid="settings-prefs-local-only-toggle"
+            class="text-xs text-slate-400 underline decoration-dotted hover:text-slate-500 dark:text-slate-500"
+            @click="localOnlyOpen = !localOnlyOpen"
+          >
+            {{ localOnlyOpen ? '收起' : '哪些数据不跟账号走？' }}
+          </button>
+          <ul
+            v-if="localOnlyOpen"
+            data-testid="settings-prefs-local-only"
+            class="ml-4 list-disc space-y-1 text-xs text-slate-500 dark:text-slate-400"
+          >
+            <li v-for="item in settingsSync.localOnlyKeys" :key="item.key">
+              <span class="font-medium text-slate-600 dark:text-slate-300">{{ item.label }}</span>
+              —— {{ item.reason }}
+            </li>
+            <li>
+              <span class="font-medium text-slate-600 dark:text-slate-300">任务</span>
+              —— 走自己的同步通道（增量合并），同样跟账号走
+            </li>
+          </ul>
+        </div>
       </div>
     </section>
 

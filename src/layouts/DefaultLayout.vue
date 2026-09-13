@@ -29,6 +29,7 @@ import ReminderBell from '@/components/molecules/ReminderBell.vue'
 import MobileBottomNav from '@/components/organisms/MobileBottomNav.vue'
 import SidebarNav from '@/components/organisms/SidebarNav.vue'
 import { useLocalStorage } from '@/composables/useLocalStorage'
+import { useSyncedStorage } from '@/composables/useSyncedStorage'
 import { useReminder } from '@/composables/useReminder'
 import { matchesKeyword } from '@/composables/useTodoFilter'
 import { useTodoStore } from '@/stores/todoStore'
@@ -53,8 +54,8 @@ const todoStore = useTodoStore()
 /** 桌面版不渲染移动端底部导航（窗口最窄 900px，底部导航既占地方又「移动端感」十足） */
 const showBottomNav = shouldShowBottomNav()
 
-/** 搜索引擎选择（本地记忆；脏值收敛为百度） */
-const engineStored = useLocalStorage<string>(SEARCH_ENGINE_KEY, 'baidu')
+/** 搜索引擎选择（第九阶段起跟账号走；脏值收敛为百度） */
+const engineStored = useSyncedStorage<string>(SEARCH_ENGINE_KEY, 'baidu')
 const engine = computed<SearchEngineId>(() => safeSearchEngine(engineStored.value))
 
 const pageTitle = computed(() => route.meta.title ?? '仪表板')

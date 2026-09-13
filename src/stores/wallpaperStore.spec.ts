@@ -224,3 +224,116 @@ describe('wallpaperStore', () => {
     expect(store.style).toEqual({})
   })
 })
+
+/**
+ * 第九阶段：壁纸也要跟账号走。
+ * 图片本体上 Supabase Storage，配置里记公开地址——换设备登录即同一张壁纸。
+ */
+describe('wallpaperStore · 云端壁纸', () => {
+  beforeEach(async () => {
+    localStorage.clear()
+    setActivePinia(createPinia())
+    await deleteBlob(WALLPAPER_IMAGE_KEY)
+    stubObjectUrl()
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.doUnmock('@/api/userAssets')
+    vi.doUnmock('@/api/supabase')
+  })
+
+  /** 动态导入：让每个用例都拿到全新的模块图（同步层的注册表是模块级单例） */
+  async function setup(options: { authed: boolean; uploadFails?: boolean }) {
+    vi.doMock('@/api/supabase', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('@/api/supabase')>()
+      return { ...actual, isSupabaseConfigured: () => true }
+    })
+    const uploadUserAsset = vi.fn(async (_userId: string, _name: string, _blob: Blob) => {
+      if (options.uploadFails) throw new Error('quota')
+      return 'https://x.supabase.co/storage/v1/object/public/user-assets/u1/wallpaper-1.webp'
+    })
+    const removeUserAssetByUrl = vi.fn(async () => true)
+    vi.doMock('@/api/userAssets', () => ({ uploadUserAsset, removeUserAssetByUrl }))
+
+    const { useAuthStore } = await import('@/stores/authStore')
+    const { useWallpaperStore: useStore } = await import('./wallpaperStore')
+    const authStore = useAuthStore()
+    if (options.authed) {
+      authStore.status = 'authed'
+      authStore.user = {
+        id: 'u1',
+        email: 'me@example.com',
+        displayName: '我',
+        avatarUrl: '',
+      } as (typeof authStore)['user']
+    }
+    return { store: useStore(), uploadUserAsset, removeUserAssetByUrl, authStore }
+  }
+
+  it('已登录：保存图片顺带传 Storage，并把公开地址写进配置', async () => {
+    const { store, uploadUserAsset } = await setup({ authed: true })
+
+    const result = await store.saveImage(new Blob(['img'], { type: 'image/webp' }))
+
+    expect(result).toEqual({ ok: true })
+    expect(uploadUserAsset).toHaveBeenCalledWith('u1', 'wallpaper', expect.any(Blob))
+    expect(store.config.imageUrl).toBe(
+      'https://x.supabase.co/storage/v1/object/public/user-assets/u1/wallpaper-1.webp',
+    )
+    // 本机仍然是 objectURL（离线也能看），云端地址用于其它设备
+    expect(store.imageUrl).toBe('blob:mock-1')
+  })
+
+  it('未登录：只存本机，不碰 Storage', async () => {
+    const { store, uploadUserAsset } = await setup({ authed: false })
+
+    await store.saveImage(new Blob(['img'], { type: 'image/png' }))
+
+    expect(uploadUserAsset).not.toHaveBeenCalled()
+    expect(store.config.imageUrl).toBeUndefined()
+  })
+
+  it('上传失败只降级「换设备也能看到」，本机壁纸照常生效', async () => {
+    const { store } = await setup({ authed: true, uploadFails: true })
+
+    const result = await store.saveImage(new Blob(['img'], { type: 'image/png' }))
+
+    expect(result).toEqual({ ok: true })
+    expect(store.config.kind).toBe('image')
+    expect(store.config.imageUrl).toBeUndefined()
+    expect(await getBlob(WALLPAPER_IMAGE_KEY)).toBeTruthy()
+  })
+
+  it('配置里有云端地址时 init 直接用它（新设备不再依赖本机 blob）', async () => {
+    const { store } = await setup({ authed: true })
+    store.config.imageUrl =
+      'https://x.supabase.co/storage/v1/object/public/user-assets/u1/wallpaper-9.webp'
+    store.config.kind = 'image'
+
+    await store.init()
+
+    expect(store.imageUrl).toBe(
+      'https://x.supabase.co/storage/v1/object/public/user-assets/u1/wallpaper-9.webp',
+    )
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+    expect(store.style.backgroundImage).toContain('wallpaper-9.webp')
+  })
+
+  it('移除壁纸时一并删掉云端对象', async () => {
+    const { store, removeUserAssetByUrl } = await setup({ authed: true })
+    await store.saveImage(new Blob(['img'], { type: 'image/png' }))
+
+    await store.removeImage()
+    // 云端删除是"尽力而为"（失败不影响本机），断言它确实被调用了
+    await Promise.resolve()
+
+    expect(removeUserAssetByUrl).toHaveBeenCalledWith(
+      'u1',
+      'https://x.supabase.co/storage/v1/object/public/user-assets/u1/wallpaper-1.webp',
+    )
+    expect(store.config.imageUrl).toBeUndefined()
+    expect(store.config.kind).toBe('none')
+  })
+})

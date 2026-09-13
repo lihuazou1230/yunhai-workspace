@@ -11,7 +11,7 @@ import { computed, ref } from 'vue'
 
 import { defineStore } from 'pinia'
 
-import { useLocalStorage } from '@/composables/useLocalStorage'
+import { useSyncedStorage } from '@/composables/useSyncedStorage'
 import type { CountdownItem, CountdownKind } from '@/utils/countdown'
 import { clampPaydayDay, daysUntil, nextPayday, sortCountdowns } from '@/utils/countdown'
 import { isValidDateKey } from '@/utils/validation'
@@ -41,8 +41,9 @@ function createId(): string {
 }
 
 export const useCountdownStore = defineStore('countdown', () => {
-  const items = useLocalStorage<CountdownItem[]>(COUNTDOWN_ITEMS_KEY, [])
-  const paydayDayRaw = useLocalStorage<number>(COUNTDOWN_PAYDAY_KEY, DEFAULT_PAYDAY_DAY)
+  // 第九阶段：倒计时跟账号走
+  const items = useSyncedStorage<CountdownItem[]>(COUNTDOWN_ITEMS_KEY, [])
+  const paydayDayRaw = useSyncedStorage<number>(COUNTDOWN_PAYDAY_KEY, DEFAULT_PAYDAY_DAY)
 
   /** 当前时刻（时钟注入点）：默认系统时间，refresh() 可覆盖 */
   const now = ref(new Date())

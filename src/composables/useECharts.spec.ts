@@ -25,12 +25,20 @@ const echarts = vi.hoisted(() => {
 })
 
 vi.mock('echarts/core', () => ({ init: echarts.init, use: echarts.use }))
-vi.mock('echarts/charts', () => ({ LineChart: {}, PieChart: {} }))
+// 桩要跟着 useECharts 的按需注册清单走：它 use 了哪些图表类型/组件，这里就得给出同名导出
+vi.mock('echarts/charts', () => ({
+  BarChart: {},
+  HeatmapChart: {},
+  LineChart: {},
+  PieChart: {},
+  ScatterChart: {},
+}))
 vi.mock('echarts/components', () => ({
   GridComponent: {},
   LegendComponent: {},
   TitleComponent: {},
   TooltipComponent: {},
+  VisualMapComponent: {},
 }))
 vi.mock('echarts/renderers', () => ({ CanvasRenderer: {} }))
 

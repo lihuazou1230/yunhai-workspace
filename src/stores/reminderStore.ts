@@ -15,6 +15,7 @@ import { computed } from 'vue'
 import { defineStore } from 'pinia'
 
 import { useLocalStorage } from '@/composables/useLocalStorage'
+import { useSyncedStorage } from '@/composables/useSyncedStorage'
 import {
   DEFAULT_REMINDER_SETTINGS,
   REMINDER_NOTIFIED_KEY,
@@ -24,12 +25,18 @@ import type { DueReminder, MissedReminder, NotifiedMap, ReminderSettings } from 
 import { ref } from 'vue'
 
 export const useReminderStore = defineStore('reminder', () => {
-  /** 提醒设置（持久化） */
-  const settings = useLocalStorage<ReminderSettings>(REMINDER_STORAGE_KEY, {
+  /**
+   * 提醒设置（持久化）。
+   * 第九阶段起**跟账号走**：开关与提醒时间在手机上关掉的，桌面上不该继续响。
+   */
+  const settings = useSyncedStorage<ReminderSettings>(REMINDER_STORAGE_KEY, {
     ...DEFAULT_REMINDER_SETTINGS,
   })
 
-  /** 已通知标记（持久化；系统通知与微信通道共用，避免两通道各弹一次） */
+  /**
+   * 已通知标记（持久化，**刻意不上云**）。
+   * 它是"这台设备已经弹过了"的记账：同步过去会让另一台设备该提醒时被标成已提醒而静默不响。
+   */
   const notified = useLocalStorage<NotifiedMap>(REMINDER_NOTIFIED_KEY, {})
 
   /** 待用户处理的提醒（运行时；铃铛红点与面板用它） */

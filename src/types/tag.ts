@@ -57,6 +57,25 @@ export const TAG_COLOR_TEXT: Record<TagColor, string> = {
   teal: 'text-teal-600 dark:text-teal-400',
 }
 
+/**
+ * 色名 -> 图表用 hex。
+ *
+ * 为什么要单独一份：ECharts 画在 canvas 上，吃的是颜色字面量，
+ * 拿不到 Tailwind 的 `bg-rose-500` 这类类名；而 Tailwind 又是静态扫描，
+ * 也不能反过来从类名拼 hex。两份色板刻意与上面的 DOT/TEXT 保持同一族，
+ * 视觉上标签在列表里和在图表里是同一个颜色。
+ */
+export const TAG_COLOR_HEX: Record<TagColor, string> = {
+  slate: '#94a3b8',
+  rose: '#f43f5e',
+  amber: '#f59e0b',
+  emerald: '#10b981',
+  sky: '#0ea5e9',
+  violet: '#8b5cf6',
+  pink: '#ec4899',
+  teal: '#14b8a6',
+}
+
 /** 色名 -> 中文名（设置页与创建表单无障碍描述用） */
 export const TAG_COLOR_LABEL: Record<TagColor, string> = {
   slate: '灰',

@@ -11,6 +11,7 @@ import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { flushPromises, mount } from '@vue/test-utils'
+import Sortable from 'sortablejs'
 
 vi.mock('@/composables/useAvatar', () => ({
   useAvatar: () => ({
@@ -26,6 +27,12 @@ vi.mock('@/composables/useAvatar', () => ({
     dispose: vi.fn(),
   }),
 }))
+
+/**
+ * 拖拽这块不去模拟指针事件（happy-dom 里量不出坐标，模拟起来又脆又假），
+ * 而是用 SortableJS 自己的静态 API `Sortable.get(el)` 把挂在网格上的实例取出来，
+ * 直接盯它拿到的运行时配置——那才是组件真正交给拖拽库的契约。
+ */
 
 import Dashboard from './Dashboard.vue'
 import {
@@ -75,12 +82,30 @@ describe('仪表板 · 卡片布局', () => {
     const { wrapper } = await setup()
 
     expect(cardIds(wrapper)).toEqual([...DASHBOARD_CARD_IDS])
-    // 默认是精选 bento：赚钱秒表跨 2 行
-    expect(wrapper.find('[data-testid="dashboard-card-earnings"]').classes()).toContain(
+    // 默认是精选 bento：赚钱秒表**不跨行**（跨行会让绿卡被邻居的行高撑出大片空绿）
+    expect(wrapper.find('[data-testid="dashboard-card-earnings"]').classes()).not.toContain(
       'lg:row-span-2',
+    )
+    // 精选布局自己的跨度还在：今日聚焦通栏、快捷导航通栏
+    expect(wrapper.find('[data-testid="dashboard-card-my-day"]').classes()).toContain(
+      'lg:col-span-3',
+    )
+    expect(wrapper.find('[data-testid="dashboard-card-link-dock"]').classes()).toContain(
+      'lg:col-span-3',
     )
     // 编辑工具条默认不出现
     expect(wrapper.find('[data-testid="dashboard-hide-earnings"]').exists()).toBe(false)
+  })
+
+  it('「任务概览」卡已撤掉：主页不再出现，也不在卡片清单里', async () => {
+    const { wrapper } = await setup()
+
+    expect(wrapper.find('[data-testid="dashboard-card-overview"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('任务概览')
+    // 撤卡后不能留空洞：今日聚焦通栏吃掉原来「聚焦 + 概览」那一行
+    expect(wrapper.find('[data-testid="dashboard-card-my-day"]').classes()).toContain(
+      'lg:col-span-3',
+    )
   })
 
   it('点「编辑布局」进入编辑模式：切等槽网格 + 出现每卡工具条', async () => {
@@ -92,9 +117,9 @@ describe('仪表板 · 卡片布局', () => {
     expect(dash.customized).toBe(true)
     expect(wrapper.find('[data-testid="dashboard-grid"]').classes()).toContain('xl:grid-cols-3')
     expect(wrapper.find('[data-testid="dashboard-hide-earnings"]').exists()).toBe(true)
-    // 等槽模式下不再跨行
-    expect(wrapper.find('[data-testid="dashboard-card-earnings"]').classes()).not.toContain(
-      'lg:row-span-2',
+    // 等槽模式下跨度类全退出，改用「最小高度」表达大小（默认 medium = min-h-[200px]）
+    expect(wrapper.find('[data-testid="dashboard-card-earnings"]').classes()).toContain(
+      'min-h-[200px]',
     )
 
     await wrapper.find('[data-testid="dashboard-finish-editing"]').trigger('click')
@@ -192,18 +217,77 @@ describe('仪表板 · 卡片布局', () => {
 
   it('持久化：刷新后顺序 / 显隐 / 尺寸都还在', async () => {
     const { dash } = await setup()
-    dash.moveCard('overview', 'earnings')
+    dash.moveCard('link-dock', 'earnings')
     dash.toggleHidden('countdown')
     dash.setCardSize('my-day', 'small')
     await nextTick()
     await nextTick()
 
     // 模拟刷新：读 localStorage 的值应当是刚写下的
-    expect(JSON.parse(localStorage.getItem(DASHBOARD_ORDER_KEY)!)[0]).toBe('overview')
+    expect(JSON.parse(localStorage.getItem(DASHBOARD_ORDER_KEY)!)[0]).toBe('link-dock')
     expect(JSON.parse(localStorage.getItem(DASHBOARD_HIDDEN_KEY)!)).toEqual(['countdown'])
     expect(JSON.parse(localStorage.getItem('smart-workspace:dashboard-sizes')!)['my-day']).toBe(
       'small',
     )
+  })
+})
+
+describe('仪表板 · 拖拽换位', () => {
+  /** 挂在仪表板网格上的那个 Sortable 实例 */
+  function gridInstance(wrapper: Awaited<ReturnType<typeof setup>>['wrapper']) {
+    const el = wrapper.find('[data-testid="dashboard-grid"]').element as HTMLElement
+    const instance = Sortable.get(el)
+    if (!instance) throw new Error('仪表板网格上没有 Sortable 实例')
+    return instance
+  }
+
+  it('整张卡片就是拖拽区：不设 handle，交互控件排除在外', async () => {
+    const { wrapper } = await setup()
+    await nextTick()
+
+    const options = gridInstance(wrapper).options
+    // 没有 handle 限制 = 卡片本体可直接拖（原来是只认左上角那个 ⠿ 小把手，基本拖不动）
+    expect(options.handle).toBeNull()
+    // 按钮/输入框/链接上按下不该起拖，否则点「小/中/大/隐藏」「月历某天」会被吃掉
+    expect(String(options.filter)).toContain('button')
+    expect(String(options.filter)).toContain('input')
+    // preventOnFilter 必须是 false，否则 mousedown 被 preventDefault，输入框点不进焦点
+    expect(options.preventOnFilter).toBe(false)
+    // 触屏上先按住再拖，免得单指滑动被当成拖拽、页面滚不动
+    expect(options.delayOnTouchOnly).toBe(true)
+    // 必须走 SortableJS 的 fallback：Tauri 窗口的系统级 drag-drop 会吃掉原生 HTML5 拖放，
+    // 依赖原生拖放的结果就是「桌面窗口里怎么拖都不动」（实测见 Dashboard.vue 的注释）
+    expect(options.forceFallback).toBe(true)
+    expect(options.fallbackOnBody).toBe(true)
+  })
+
+  it('只有编辑态能拖：挂载即禁用，进出编辑模式会切换', async () => {
+    const { wrapper } = await setup()
+    await nextTick()
+
+    const instance = gridInstance(wrapper)
+    // 挂载时必须已经禁用：editing 的 immediate watch 跑在实例创建之前，那次调用会被丢掉，
+    // 所以 disabled 得作为初始选项传进去（现在整卡可拖，不能再靠「把手只在编辑态渲染」兜）
+    expect(instance.options.disabled).toBe(true)
+
+    await wrapper.find('[data-testid="dashboard-edit-layout"]').trigger('click')
+    await nextTick()
+    expect(instance.options.disabled).toBe(false)
+
+    await wrapper.find('[data-testid="dashboard-finish-editing"]').trigger('click')
+    await nextTick()
+    expect(instance.options.disabled).toBe(true)
+  })
+
+  it('编辑态给卡片抓手光标，退出编辑即收回', async () => {
+    const { wrapper } = await setup()
+    const card = () => wrapper.find('[data-testid="dashboard-card-earnings"]')
+
+    expect(card().classes()).not.toContain('cursor-grab')
+
+    await wrapper.find('[data-testid="dashboard-edit-layout"]').trigger('click')
+    await nextTick()
+    expect(card().classes()).toContain('cursor-grab')
   })
 })
 

@@ -18,11 +18,23 @@ import { useEventListener, useIntervalFn } from '@vueuse/core'
 
 import TitleBar from '@/components/organisms/TitleBar.vue'
 import { useAuthStore } from '@/stores/authStore'
+import { useCountdownStore } from '@/stores/countdownStore'
+import { useDashboardStore } from '@/stores/dashboardStore'
+import { useLinkStore } from '@/stores/linkStore'
+import { useReminderStore } from '@/stores/reminderStore'
+import { useTagStore } from '@/stores/tagStore'
 import { useThemeStore, THEME_STORAGE_KEY } from '@/stores/themeStore'
 import { useTodoStore } from '@/stores/todoStore'
 import { useWallpaperStore } from '@/stores/wallpaperStore'
+import { useEarnings } from '@/composables/useEarnings'
 import { useTheme } from '@/composables/useTheme'
 import { useSyncNotifications } from '@/composables/useSyncNotifications'
+import {
+  activateSettingsSync,
+  deactivateSettingsSync,
+  retrySettingsSync,
+} from '@/composables/useSyncedStorage'
+import { useWorkLog } from '@/composables/useWorkLog'
 import { defaultDensity, isExternalHttpUrl, isTauri, openExternal } from '@/utils/platform'
 
 const themeStore = useThemeStore()
@@ -32,6 +44,23 @@ useTheme()
 const authStore = useAuthStore()
 const todoStore = useTodoStore()
 const wallpaperStore = useWallpaperStore()
+
+/**
+ * 预先实例化所有「跟账号走」的 store / composable（第九阶段）。
+ *
+ * 同步层是按 key 注册的，而 Pinia store 与 composable 都是**懒创建**的：
+ * 不在这里点一遍，登录后第一次全量拉取就会漏掉"当前页面还没用到"的那些键
+ * （典型：直接进设置页时，快捷导航 LinkDock 还没挂载 → 链接列表不同步）。
+ * 这些都是单例，实例化本身没有额外开销。
+ */
+useTagStore()
+useLinkStore()
+useCountdownStore()
+useDashboardStore()
+useReminderStore()
+useWorkLog()
+// autoTick: false —— 这里只为注册「秒表配置 / 投入日志」两个键，不额外养一个高频定时器
+useEarnings({ autoTick: false })
 
 // 会话恢复（幂等：main.ts 已经等过一次，这里不会重复请求）
 void authStore.init()
@@ -44,9 +73,12 @@ watch(
   ([isAuthed, userId]) => {
     if (isAuthed && userId) {
       void todoStore.activateCloud(userId)
+      // 第九阶段：偏好设置（主题/标签/布局/秒表/壁纸…）同一个账号、同一套
+      void activateSettingsSync(userId)
       return
     }
     if (todoStore.syncUserId) void todoStore.deactivateCloud()
+    deactivateSettingsSync()
   },
   { immediate: true },
 )
@@ -63,6 +95,9 @@ onMounted(() => {
   unbindConnectivity = todoStore.bindConnectivity()
 })
 onBeforeUnmount(() => unbindConnectivity())
+
+// 联网后立刻补发「设置」的离线改动（任务那边由 todoStore 自己的 online 监听负责）
+useEventListener(window, 'online', retrySettingsSync)
 
 /**
  * 校准「今天」：snooze 到期的任务要能**随日期自己走**地回到列表。

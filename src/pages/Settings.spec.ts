@@ -57,7 +57,39 @@ async function setup() {
   return { wrapper, tagStore, todoStore }
 }
 
-describe('设置页 · 标签管理', () => {
+describe('设置页 · 偏好设置同步（第九阶段）', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.stubEnv('VITE_SUPABASE_URL', '')
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', '')
+    avatarStub.displayUrl = ref('')
+    avatarStub.fallbackInitial = ref('访客')
+  })
+
+  it('未配置 Supabase 时明说「只在本机保存」，不假装在同步', async () => {
+    const { wrapper } = await setup()
+    const block = wrapper.find('[data-testid="settings-prefs-sync"]')
+    expect(block.exists()).toBe(true)
+    expect(wrapper.get('[data-testid="settings-prefs-state"]').text()).toContain('只在本机保存')
+  })
+
+  it('列出「哪些数据不跟账号走」并给出原因（凭证 / 设备相关项要有交代）', async () => {
+    const { wrapper } = await setup()
+
+    // 默认收起，点一下展开
+    expect(wrapper.find('[data-testid="settings-prefs-local-only"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="settings-prefs-local-only-toggle"]').trigger('click')
+
+    const list = wrapper.get('[data-testid="settings-prefs-local-only"]')
+    expect(list.text()).toContain('AI Key')
+    expect(list.text()).toContain('微信推送 UID')
+    expect(list.text()).toContain('已通知标记')
+    // 每一项都要有人话解释
+    expect(list.text()).toContain('——')
+  })
+})
+
+describe('设置页 · 标签管理（续）', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.stubEnv('VITE_SUPABASE_URL', '')

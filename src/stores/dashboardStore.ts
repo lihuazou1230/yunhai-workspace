@@ -13,7 +13,7 @@ import { computed, watch } from 'vue'
 
 import { defineStore } from 'pinia'
 
-import { useLocalStorage } from '@/composables/useLocalStorage'
+import { useSyncedStorage } from '@/composables/useSyncedStorage'
 import { DEFAULT_WEEK_GOAL, clampWeekGoal } from '@/utils/streak'
 
 /** 仪表板卡片 id（数组顺序 = 首次进入时的默认顺序） */
@@ -25,7 +25,6 @@ export const DASHBOARD_CARD_IDS = [
   'streak',
   'countdown',
   'my-day',
-  'overview',
   'link-dock',
 ] as const
 
@@ -67,17 +66,17 @@ export function reconcileOrder(saved: readonly string[]): string[] {
 }
 
 export const useDashboardStore = defineStore('dashboard', () => {
-  // ---- 持久化偏好 ----
+  // ---- 持久化偏好（第九阶段：全部跟账号走 —— 换设备后布局与目标也是自己那套） ----
   /** 每周完成目标（个） */
-  const weekGoal = useLocalStorage<number>(DASHBOARD_WEEK_GOAL_KEY, DEFAULT_WEEK_GOAL)
+  const weekGoal = useSyncedStorage<number>(DASHBOARD_WEEK_GOAL_KEY, DEFAULT_WEEK_GOAL)
   /** 卡片顺序 */
-  const order = useLocalStorage<string[]>(DASHBOARD_ORDER_KEY, [...DASHBOARD_CARD_IDS])
+  const order = useSyncedStorage<string[]>(DASHBOARD_ORDER_KEY, [...DASHBOARD_CARD_IDS])
   /** 是否自定义过布局：false = 精选 bento 默认布局，true = 用户自己的等分槽位布局 */
-  const customized = useLocalStorage<boolean>(DASHBOARD_CUSTOMIZED_KEY, false)
+  const customized = useSyncedStorage<boolean>(DASHBOARD_CUSTOMIZED_KEY, false)
   /** 已隐藏的卡片 id */
-  const hidden = useLocalStorage<string[]>(DASHBOARD_HIDDEN_KEY, [])
+  const hidden = useSyncedStorage<string[]>(DASHBOARD_HIDDEN_KEY, [])
   /** 卡片 id -> 尺寸（未出现的按 DEFAULT_CARD_SIZE） */
-  const sizes = useLocalStorage<Record<string, DashboardCardSize>>(DASHBOARD_SIZES_KEY, {})
+  const sizes = useSyncedStorage<Record<string, DashboardCardSize>>(DASHBOARD_SIZES_KEY, {})
 
   // 读盘即纠正：老版本或手工改坏的 localStorage 不该带进运行时。
   // 目标为 0 会让完成率除零；幽灵 id 会让「隐藏列表」越攒越长、卡片尺寸永远不生效。

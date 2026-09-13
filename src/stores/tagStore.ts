@@ -11,13 +11,14 @@ import { computed } from 'vue'
 
 import { defineStore } from 'pinia'
 
-import { useLocalStorage } from '@/composables/useLocalStorage'
+import { useSyncedStorage } from '@/composables/useSyncedStorage'
 import { TAG_STORAGE_KEY } from '@/types/tag'
 import type { Tag, TagInput } from '@/types/tag'
 import { createTag, findTag, isTagNameTaken, isValidTagName } from '@/utils/tagHelper'
 
 export const useTagStore = defineStore('tag', () => {
-  const tags = useLocalStorage<Tag[]>(TAG_STORAGE_KEY, [])
+  // 第九阶段：标签跟账号走（标签只存 id 引用在任务上，两端同步后才不会出现「任务带着未知标签」）
+  const tags = useSyncedStorage<Tag[]>(TAG_STORAGE_KEY, [])
 
   /** 标签总数 */
   const tagCount = computed(() => tags.value.length)

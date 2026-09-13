@@ -21,6 +21,15 @@ export const SUPABASE_SETUP_HINT =
 /** Supabase 数据表名（集中一处，避免各文件写裸字符串） */
 export const SUPABASE_TABLES = {
   todos: 'todos',
+  /** 第九阶段：账号级偏好设置（一行一个 key） */
+  userSettings: 'user_settings',
+} as const
+
+/** Storage bucket 名（头像 + 用户上传的图片） */
+export const SUPABASE_BUCKETS = {
+  avatars: 'avatars',
+  /** 第九阶段：用户上传的壁纸等图片（公开读、写入限本人目录） */
+  userAssets: 'user-assets',
 } as const
 
 /** 环境变量读取结果 */

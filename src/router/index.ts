@@ -8,6 +8,7 @@
  * | / | Dashboard | 概览徽章 + 每日格言 + 赚钱秒表 + 今日聚焦 + 天气（三列 bento） |
  * | /todos | Todos | 新建表单 + 任务列表（筛选/搜索/批量/子任务/拖拽） |
  * | /stats | Stats | 统计图表 + 生产力热力图 |
+ * | /annual | AnnualReport | 年度报告（canvas 分享卡） |
  * | /settings | Settings | 个人资料 + 数据同步 + 外观自定义 |
  *
  * 两个实现要点：
@@ -65,6 +66,13 @@ export const routes: RouteRecordRaw[] = [
         name: 'stats',
         component: () => import('@/pages/Stats.vue'),
         meta: { title: '统计' },
+      },
+      {
+        // 年度报告：从统计页进入（侧边栏主导航刻意保持 4 项，见 navItems.ts 的说明）
+        path: 'annual',
+        name: 'annual',
+        component: () => import('@/pages/AnnualReport.vue'),
+        meta: { title: '年度报告' },
       },
       {
         path: 'settings',

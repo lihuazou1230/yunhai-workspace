@@ -11,22 +11,29 @@ import { onBeforeUnmount, onMounted, shallowRef, watch } from 'vue'
 import type { Ref } from 'vue'
 
 import * as echarts from 'echarts/core'
-import { LineChart, PieChart } from 'echarts/charts'
+import { BarChart, HeatmapChart, LineChart, PieChart, ScatterChart } from 'echarts/charts'
 import {
   GridComponent,
   LegendComponent,
   TitleComponent,
   TooltipComponent,
+  VisualMapComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 
 echarts.use([
+  // 图表类型：饼（优先级/标签占比）、柱（趋势）、折线（移动平均）、散点（投入产出）、热力（时段分布）
   PieChart,
+  BarChart,
   LineChart,
+  ScatterChart,
+  HeatmapChart,
   GridComponent,
   LegendComponent,
   TitleComponent,
   TooltipComponent,
+  // 时段热力图的色阶图例
+  VisualMapComponent,
   CanvasRenderer,
 ])
 

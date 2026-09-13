@@ -7,6 +7,7 @@ import {
   EARNINGS_STORAGE_KEY,
 } from '@/types/earnings'
 import type { EarningsConfig } from '@/types/earnings'
+import { WORKLOG_STORAGE_KEY } from '@/utils/workLog'
 import { useEarnings } from './useEarnings'
 
 /** 内存 Storage 替身：跨"刷新"复用同一实例即可验证持久化 */
@@ -173,9 +174,9 @@ describe('useEarnings', () => {
 
     expect(earnings.amountText.value).toBe('125.00')
 
-    // 只推进 100ms：定时器已经跑过一轮，金额按新时间戳重算
+    // 推进 1 秒（默认 tick 间隔）：定时器跑过一轮，金额按新时间戳重算
     current = at(10, 0, 1)
-    vi.advanceTimersByTime(100)
+    vi.advanceTimersByTime(1000)
     expect(earnings.amountText.value).toBe('125.03')
 
     earnings.stop()
@@ -354,9 +355,9 @@ describe('useEarnings · tick 循环不被重复启动', () => {
 
     earnings.start()
     earnings.start()
-    vi.advanceTimersByTime(300)
+    vi.advanceTimersByTime(3000)
 
-    // 100ms 一次 → 3 次；如果第二次 start 又建了一个定时器，这里会是 6 次
+    // 每秒一次 → 3 次；如果第二次 start 又建了一个定时器，这里会是 6 次
     expect(clock.mock.calls.length).toBe(callsBefore + 3)
     earnings.stop()
   })
@@ -420,9 +421,73 @@ describe('useEarnings · 默认时钟与无 rAF 环境', () => {
     expect(earnings.amountText.value).toBe('125.00')
 
     current = at(10, 0, 1)
-    vi.advanceTimersByTime(100)
+    vi.advanceTimersByTime(1000)
     expect(earnings.amountText.value).toBe('125.03')
 
     earnings.stop()
+  })
+})
+
+/**
+ * 第八阶段 8.1-4：投入日志是散点图与年度报告的数据源。
+ * 这里钉的是「按天、取大值、不写 0」三条口径——它们错了，图表不会报错，只会静默画错。
+ */
+describe('useEarnings · 投入日志', () => {
+  it('工作中把当日累计计薪时长按天写进投入日志', async () => {
+    const storage = createMemoryStorage({ [EARNINGS_STORAGE_KEY]: JSON.stringify(CONFIG) })
+    useEarnings({ storage, clock: () => at(11), autoTick: false })
+    await nextTick()
+
+    const log = JSON.parse(storage.getItem(WORKLOG_STORAGE_KEY) ?? '{}')
+    expect(log['2026-09-10']).toBe(2 * 3600)
+  })
+
+  it('上班前（已计薪 0 秒）不落记录：非计薪时段不该在日志里留下 0', async () => {
+    const storage = createMemoryStorage({ [EARNINGS_STORAGE_KEY]: JSON.stringify(CONFIG) })
+    useEarnings({ storage, clock: () => at(8), autoTick: false })
+    await nextTick()
+
+    expect(storage.getItem(WORKLOG_STORAGE_KEY)).toBeNull()
+  })
+
+  it('未配置薪资时不写（没开张就没有投入可言）', async () => {
+    const storage = createMemoryStorage()
+    useEarnings({ storage, clock: () => at(11), autoTick: false })
+    await nextTick()
+
+    expect(storage.getItem(WORKLOG_STORAGE_KEY)).toBeNull()
+  })
+
+  it('recordWorkLog: false 时完全不碰投入日志（只关心金额的场景）', async () => {
+    const storage = createMemoryStorage({ [EARNINGS_STORAGE_KEY]: JSON.stringify(CONFIG) })
+    useEarnings({ storage, clock: () => at(11), autoTick: false, recordWorkLog: false })
+    await nextTick()
+
+    expect(storage.getItem(WORKLOG_STORAGE_KEY)).toBeNull()
+  })
+
+  it('跨过整分钟才写一次：重复 refresh 不产生额外写入', async () => {
+    let current = at(11, 0, 0)
+    const storage = createMemoryStorage({ [EARNINGS_STORAGE_KEY]: JSON.stringify(CONFIG) })
+    const earnings = useEarnings({ storage, clock: () => current, autoTick: false })
+    await nextTick()
+    const first = JSON.parse(storage.getItem(WORKLOG_STORAGE_KEY) ?? '{}')['2026-09-10']
+
+    // 同一分钟内反复重算：值没变大，日志不动
+    current = at(11, 0, 30)
+    earnings.refresh()
+    await nextTick()
+    current = at(11, 0, 59)
+    earnings.refresh()
+    await nextTick()
+    expect(JSON.parse(storage.getItem(WORKLOG_STORAGE_KEY) ?? '{}')['2026-09-10']).toBe(first)
+
+    // 跨到下一分钟：日志跟上
+    current = at(11, 1, 1)
+    earnings.refresh()
+    await nextTick()
+    expect(JSON.parse(storage.getItem(WORKLOG_STORAGE_KEY) ?? '{}')['2026-09-10']).toBe(
+      2 * 3600 + 61,
+    )
   })
 })

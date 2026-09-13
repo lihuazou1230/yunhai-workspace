@@ -9,7 +9,7 @@ import { computed } from 'vue'
 
 import { defineStore } from 'pinia'
 
-import { useLocalStorage } from '@/composables/useLocalStorage'
+import { useSyncedStorage } from '@/composables/useSyncedStorage'
 import { LINK_STORAGE_KEY } from '@/types/link'
 import type { LinkItem } from '@/types/link'
 import { groupLinks, isValidLinkTitle, normalizeGroupName, normalizeUrl } from '@/utils/linkHelper'
@@ -29,7 +29,8 @@ function createId(): string {
 }
 
 export const useLinkStore = defineStore('link', () => {
-  const links = useLocalStorage<LinkItem[]>(LINK_STORAGE_KEY, [])
+  // 第九阶段：快捷导航跟账号走（新设备登录即恢复自己那套入口）
+  const links = useSyncedStorage<LinkItem[]>(LINK_STORAGE_KEY, [])
 
   /** 链接总数 */
   const linkCount = computed(() => links.value.length)

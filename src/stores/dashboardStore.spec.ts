@@ -204,11 +204,11 @@ describe('dashboardStore', () => {
   it('隐藏 / 改尺寸都会把 layout 标记为已自定义', () => {
     const store = useDashboardStore()
 
-    store.toggleHidden('overview')
+    store.toggleHidden('countdown')
     expect(store.customized).toBe(true)
 
     store.resetLayout()
-    store.setCardSize('overview', 'large')
+    store.setCardSize('countdown', 'large')
     expect(store.customized).toBe(true)
   })
 

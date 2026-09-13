@@ -9,12 +9,14 @@
 
 一个集**任务管理、今日聚焦、子任务、批量操作、数据可视化、天气信息与外观自定义**于一体的个人效率仪表板，基于 Vue 3 + TypeScript + Tailwind CSS + Element Plus 构建。第五阶段接入 **Supabase**（Auth + Postgres RLS + Storage）后支持真实注册/登录与任务多设备同步；**不配置 Supabase 也能以「本地模式」完整使用**，不会把功能锁死。
 
-> 当前进度：**第一 ~ 五阶段已完成**（基础建设 / 任务管理闭环 / 可视化与天气集成 / 体验优化与交付 / 用户系统与多设备同步）。
+> 当前进度：**第一 ~ 九阶段已完成**（基础建设 / 任务管理闭环 / 可视化与天气集成 / 体验优化与交付 / 用户系统与多设备同步 / 任务组织与仪表板完全体 / 桌面端打包 Tauri 2 / 数据可视化强化 + 上线部署自有服务器 IIS / **账号级数据一致性**）。
 
 ## 在线演示
 
+- **自建服务器**：<http://124.220.159.58/workspace/>（Windows Server 2012 R2 + IIS 8.5 子应用，与主站二维码工具共用 80 端口；部署方式见下方「自有服务器 IIS」）
 - **线上地址**：<https://lihuazou1230.github.io/vue3-smart-workspace/>（GitHub Pages，由 `.github/workflows/deploy-pages.yml` 自动部署）
 - **源码仓库**：<https://github.com/lihuazou1230/vue3-smart-workspace>
+- **桌面版**：`src-tauri/target/release/` 下的绿色版 exe 与 NSIS 安装包（见「桌面版（Tauri 2）」）
 
 打开即用：任务管理、今日聚焦、子任务、批量操作、统计图表、热力图、赚钱秒表、每日格言、天气定位全部可用；
 未配置 Supabase 时会自动进入**本地模式**（不登录、不云同步，其余功能完整）。
@@ -23,6 +25,7 @@
 
 - 👤 **用户系统**：邮箱密码注册/登录（含忘记密码邮件重置），刷新页面会话自动恢复（不闪跳登录页），未登录访问受保护页自动重定向并带原目标回跳
 - ☁️ **多设备同步**：任务写进云端 Postgres（行级安全 RLS），离线改动进队列、联网自动补发，旧 localStorage 数据登录后**一次性迁移**
+- 🔄 **账号级数据一致性（第九阶段）**：不只任务——**主题外观、壁纸、标签、快捷导航、倒计时、仪表板布局与周目标、赚钱秒表配置、投入时长日志、提醒设置、默认搜索引擎**统统跟账号走，任一设备登录即是同一套；换账号登录会先清本地再拉新账号的（同一台电脑换人用不串数据）；凭证（AI Key / 微信 UID）与设备相关项（天气缓存 / 定位记忆 / 已通知标记）**刻意留在本机**，设置页可展开查看完整清单与理由
 - 🖼️ **头像上传**：本地选图 → 圆形裁剪（cropperjs）→ 压成 256×256 WebP → 已登录传云端 Storage，未登录存 IndexedDB
 - 📋 **任务管理闭环**：增删改查、状态筛选、优先级多选、关键字搜索、localStorage 持久化
 - ↩️ **撤销删除**：软删除 + 1 分钟窗口内可撤销（Toast 倒计时）
@@ -30,7 +33,7 @@
 - 🎯 **今日聚焦（My Day）**：置顶 + 今日到期任务单独成列
 - 📅 **迷你月历**：CSS Grid 自绘，有任务的日期标主题色圆点，点某天直接跳到任务页按那天筛选
 - 🔥 **连续打卡 + 周目标**：连续 N 天（按 `completedAt` 聚合，纯函数 + 单测）、本周完成数、最佳日、周目标进度条（目标可直接在卡上改）
-- 🧩 **可自定义仪表板**：默认是精调的三列 bento；点「编辑布局」切成等槽网格后可**拖拽换位**（复用任务列表同一套 SortableJS）、每卡可**隐藏**与调**大小三档**（小/中/大），顺序与显隐持久化，新增卡片不会破坏已存顺序
+- 🧩 **可自定义仪表板**：默认是精调的三列 bento；点「编辑布局」切成等槽网格后**按住卡片任意位置就能拖动换位**（不用去够那个小把手；复用任务列表同一套 SortableJS）、每卡可**隐藏**与调**大小三档**（小/中/大），顺序与显隐持久化，新增卡片不会破坏已存顺序
 - 🔗 **快捷导航（LinkDock）**：图标卡片式链接管理 + 分组归类，favicon 自动抓取（google s2 → 站点 /favicon.ico → 首字母兜底），URL 自动补协议并拦截 `javascript:`/`data:`
 - 🔍 **聚合搜索**：顶栏搜索一次给两条通道——任务结果（点一条跳过去）+ 网页跳转（百度/谷歌/必应一键切换，选择被记住）；`Ctrl/Cmd+K` 或 `/` 唤起
 - ⏰ **任务提醒（三层降级）**：Web 没有常驻后台进程，所以提醒分三层——
@@ -41,7 +44,7 @@
   用户扫码拿 UID 填在设置页（只存本地），应用 token 藏在 Supabase Edge Function 的 Secrets 里，
   前端只调代理；设置页有「发送测试消息」一键验证链路（部署说明见 `supabase/functions/README.md`）
 - ⏳ **倒计时**：发薪日倒计时（按发薪日号，短月自动落到月末）+ 自定义纪念日（可每年重复，2/29 非闰年退 3/1）+ **法定节假日提醒**（内置假期与调休 JSON，来源为国办通知原文，每年初需更新）
-- ☀️ **未来 3 日预报**：高德 `extensions=all` 免费档的 cast 列表直接渲染（以 3 天为上限），预报失败不影响当前天气卡
+- ☀️ **未来 3 日预报**：高德 `extensions=all` 免费档的 cast 列表直接渲染（以 3 天为上限），每列标「几号」（如 9月13日，跨月不歧义）而不是周几，预报失败不影响当前天气卡
 - 🖼️ **背景壁纸**：纯色/渐变预设 + 本地上传（IndexedDB 存 blob，与头像同方案），卡片是不透明白底所以不影响可读性
 - ☑️ **子任务清单**：任务内嵌 checklist + 完成度进度条
 - 🖱️ **批量操作**：列表多选，批量完成/取消/删除/改优先级/归档/召回
@@ -52,11 +55,12 @@
 - 📦 **任务归档**：归档后主列表与统计（含热力图）不再计入，但 `completedAt` 保留所以历史不丢；「已归档」视图可恢复、可彻底删除（走撤销保护）
 - 💤 **稍后再做（Snooze）**：一键藏到明天/后天/下周一或自定义日期，主列表与今日聚焦立即隐藏、到期自动回归；**不影响任何统计**，「已隐藏」视图可提前召回
 - ✨ **拖拽排序**：按住行首把手拖动自定义顺序（SortableJS / VueUse `useSortable`，移动端同样可用；手动排序后不再自动重排）
-- 💬 **每日格言**：按时段问候（早上好/下午好…）+ 每日一句（本地 JSON 按日期哈希取句，同一天不换）
-- 💰 **赚钱秒表 Pro**：主指标实时跳动「今日已赚 ¥xxx.xx」精准到分（100ms tick / 可切 rAF），**数字逐位上滑滚动**（odometer）；**薪资三模式**（月薪/日薪/时薪，统一换算到日薪）、**自定义每周计薪日**（单休/轮休）、午休剔除、**跨零点夜班**（22:00 → 06:00 按次日算）；次指标「本月已赚」+ 较上月同期涨跌 + 达成进度条；**迷你折叠模式**（只留金额小条，状态记忆）；底部附诚实免责声明
+- 💬 **每日格言**：按时段问候（早上好/下午好…）+ **登录后带上用户名**（「早上好，张三，今天是 9月13日 星期日」；本地模式不带称呼）+ 每日一句（本地 JSON 按日期哈希取句，同一天不换）
+- 💰 **PayDance（赚钱秒表 Pro）**：卡片标题显示为 **PayDance**；主指标**每秒跳一次**「今日已赚 ¥xxx.xx」精准到分（tick 默认 1000ms，需要更细腻可传 `tickMs` / `useRaf`）并作为**整卡主体**（`text-5xl`~`sm:text-6xl`），**数字逐位上滑滚动**（odometer）；**薪资三模式**（月薪/日薪/时薪，统一换算到日薪）、**自定义每周计薪日**（单休/轮休）、午休剔除、**跨零点夜班**（22:00 → 06:00 按次日算）；**三栏统计条**（已工作 ｜ 距离午休/下班 ｜ 今日预计）；**进度光条钉在卡片底端**（`mt-auto`，悬浮右侧出百分比）；展开设置是同一张卡上的内容（背景壳延伸，见 `EarningsClock.vue`）；**迷你折叠模式**（只留金额小条，状态记忆）
 - ✅ **今日完成度**：环形图 + 大数字展示「今日完成 ÷（今日完成 + 今日待办）」，附较昨日涨跌徽章
 - 🎨 **外观自定义**：明暗模式（深色/浅色/跟随系统）、主题色（默认 emerald，预设色板含 lavender + 自定义取色器）、圆角、密度，实时生效并持久化（Element Plus CSS 变量 + ElConfigProvider）
-- 📊 **数据可视化**：ECharts 优先级分布环形图 + 近 30 天完成趋势**圆角柱状图**（按需引入，柱子颜色跟随主题色）
+- 📊 **数据可视化**：独立统计页 `/stats`——**完成趋势柱线混合图**（每日柱 + 7 日移动平均线）、**7×24 完成时段热力图**（一眼看出高效时段）、**标签占比环形图**（按首个标签归类，占比之和恒为 100%）、**投入产出散点图**（赚钱秒表投入时长 × 当日完成数，带相关系数）；**时间范围（本周 / 本月 / 全部）切换即时生效**，空数据一律有占位说明
+- 🎉 **年度报告**：`/annual` 全年任务数、有产出的日子、最长连续完成、投入总时长、最高效月、最常用标签、最猛的一天；一键用 canvas 生成竖版分享卡（跟随主题色与深浅模式）并保存为图片
 - 🔥 **生产力热力图**：近 90 天每日完成数 GitHub 风格色阶图（纯 CSS Grid）
 - 📍 **自动定位**：进站自动显示**当前位置**的天气，位置文案为「区 · 城市 · 省份」（直辖市为「区 · 城市」）
 - ☀️ **天气卡片**：自动定位 + **手动切换城市**（国内数据源 · 高德地图），emoji 天气图标、体感温差徽章、加载骨架屏、错误重试、30 分钟本地缓存、三级降级链路、未配置 Key 引导
@@ -67,7 +71,7 @@
 - **Vite** 构建，路径别名 `@` → `src`
 - **Tailwind CSS v3.4**（`darkMode: 'class'` 与 Element Plus 深色共用 `html.dark`）
 - **Element Plus**（unplugin 按需自动导入）
-- **Pinia** 状态管理 / **Vue Router**（4 个页面按需懒加载 + 登录守卫 + keep-alive）
+- **Pinia** 状态管理 / **Vue Router**（仪表板 / 任务 / 统计 / 年度报告 / 设置 5 个页面按需懒加载 + 登录守卫 + keep-alive）
 - **Supabase**（Auth 邮箱密码 · Postgres + RLS 任务存储 · Storage 头像 bucket）
 - **cropperjs**（头像圆形裁剪）
 - **ECharts**（`echarts/core` 按需注册图表类型）
@@ -77,22 +81,29 @@
 
 ```
 src/
-├── api/              # supabase 客户端 / auth 认证 / avatar 头像 Storage / todoRemote 任务云端读写 / weather 天气
+├── api/              # supabase 客户端 / auth 认证 / avatar 头像 Storage / userAssets 用户图片 Storage /
+│                     # todoRemote 任务云端读写 / userSettingsRemote 偏好云端读写 / weather 天气 / notify 微信代理
 ├── assets/styles/    # Tailwind 入口、Element Plus 主题变量、卡片/数字滚动等纯 CSS
 ├── components/
 │   ├── atoms/        # BaseButton / BaseInput / BaseBadge / BaseCheckbox / DigitRoll / TrendBadge
-│   ├── molecules/    # TodoItem / SearchBar / ThemeToggle / RollingAmount
+│   ├── molecules/    # TodoItem / SearchBar / ThemeToggle / RollingAmount / ChartEmpty / StatsRangeTabs
 │   └── organisms/    # TodoList / TodoForm / MyDay / DailyGreeting / EarningsClock / TodayProgressCard /
-│                     # WeatherWidget / SettingsPanel / SidebarNav / AvatarUpload / MobileBottomNav
-├── composables/      # useTheme / useWeather / useEarnings / useECharts / useStatistics / useAvatar / useIndexedDb
+│                     # WeatherWidget / SettingsPanel / SidebarNav / AvatarUpload / MobileBottomNav /
+│                     # StatsTrendChart / StatsHourHeatmap / StatsTagDonut / StatsScatterChart（第八阶段）
+├── composables/      # useTheme / useWeather / useEarnings / useECharts / useChartTheme / useStatistics /
+│                     # useWorkLog / useSyncedStorage（账号级设置同步）/ useAvatar / useIndexedDb
 ├── data/             # quotes.json（每日格言，本地 JSON 轮换）
 ├── layouts/          # DefaultLayout（侧边栏 + 顶栏 + 内容区 + 移动端底部导航）
-├── pages/            # Dashboard / Todos / Stats / Settings / Login
+├── pages/            # Dashboard / Todos / Stats / AnnualReport / Settings / Login
 ├── router/           # 路由表 + authGuard（登录守卫与回跳校验）
-├── stores/           # todoStore（含云同步）/ themeStore / authStore
-├── types/            # todo / weather / statistics / earnings / auth 类型定义
-└── utils/            # 日期、优先级、校验、主题色、统计聚合、赚钱换算、每日格言、金额拆位、头像工具、同步差异
-supabase/schema.sql   # 任务表 + RLS 策略 + 头像 bucket 策略（可重复执行）
+├── stores/           # todoStore（含云同步）/ themeStore / authStore / tagStore / linkStore / wallpaperStore
+├── types/            # todo / weather / statistics / earnings / auth / settings（同步清单）类型定义
+└── utils/            # 日期、优先级、校验、主题色、统计聚合（stats/workLog/annualCard）、赚钱换算、
+                      # 每日格言、金额拆位、头像工具、同步差异
+supabase/schema.sql   # todos + user_settings 两张表、RLS 策略、avatars / user-assets 两个 bucket（可重复执行）
+deploy/               # 第八阶段：IIS 子路径部署（web.config + install.ps1 + 部署说明.txt）
+scripts/              # 构建辅助：desktop-build.mjs（桌面打包）/ build-deploy-package.ps1（部署包）
+src-tauri/            # 第七阶段：Tauri 2 壳工程（Rust + tauri.conf.json + icons），前端零侵入
 ```
 
 ## 🎨 视觉规范与主题系统
@@ -106,9 +117,9 @@ supabase/schema.sql   # 任务表 + RLS 策略 + 头像 bucket 策略（可重�
 | C 位强调卡   | `.card-accent`：深绿渐变底 + 白色大数字（赚钱秒表卡，暗色模式下保持不变）                                                                                                          |
 | 强调色       | **默认 emerald**，`themeStore` 预设新增 `lavender`；`element-theme.css` 给静态基准值，运行时由 `useTheme` 把用户选择写进 `--el-color-primary` 系列变量                             |
 | 组件跟随主题 | `BaseButton`(primary) / `BaseInput`(focus) / `BaseBadge`(primary) / `BaseCheckbox` / 设置页选中态 / ECharts 柱子颜色**全部读 CSS 变量**，换主题色即刻全站生效（不再硬编码 indigo） |
-| 大数字       | `text-4xl font-bold tabular-nums tracking-tight`（秒表、完成度）                                                                                                                   |
+| 大数字       | `font-bold tabular-nums tracking-tight`：PayDance 主体 `text-5xl sm:text-6xl`（C 位要压得住），今日完成度 `text-4xl`                                                                 |
 | 涨跌徽章     | `TrendBadge` 原子组件：↑ 绿 / ↓ 红 / — 持平，支持自定义后缀与无障碍描述                                                                                                            |
-| 仪表板布局   | 三列 bento grid（`lg:grid-cols-3`）：赚钱秒表深绿卡跨 2 行占 C 位，右侧依次是今日完成度环形卡、天气卡、每日格言，下方今日聚焦 + 任务概览，再往下是任务区与可视化                   |
+| 仪表板布局   | 三列 bento grid（`lg:grid-cols-3`）：第一行赚钱秒表深绿卡 + 今日完成度环形卡 + 天气卡，第二行迷你月历 + Streak/周目标 + 倒计时，第三行今日聚焦（通栏），最后是通栏快捷导航。秒表卡**不跨行**——跨行会让它的格高被邻居撑到 ≈ 580px，而内容只有 250px，收起设置后就是一大片空绿；「任务概览」卡已撤掉（信息与今日聚焦、任务页重复），今日聚焦顺势吃满整行，避免留下空格子 |
 | Element Plus | `--el-border-radius-base: 12px` 与卡片圆角协调                                                                                                                                     |
 
 > 侧边栏 240px（可折叠 icon rail）+ 顶栏全局搜索 + 4 页面路由拆分已在第五阶段落地：
@@ -150,9 +161,86 @@ supabase/schema.sql   # 任务表 + RLS 策略 + 头像 bucket 策略（可重�
 
 ### 每日格言（`utils/dailyQuote.ts` + `data/quotes.json`）
 
-- 问候语按当前时段切换（凌晨/早上/中午/下午/晚上），日期标签为「9月10日 星期四」。
+- 问候语按当前时段切换（凌晨/早上/中午/下午/晚上），日期标签为「9月10日 星期四」；
+  **登录后中间插入用户名**（「早上好，张三，今天是 9月13日 星期日」），本地模式没有名字就不加称呼；
+  昵称上限 20 字而页头只有一行，超过 12 字截断加省略号，避免把右边的格言挤没。
 - 「每日一句」用 **FNV-1a 哈希日期键**取模选句：同一天永远同一句（刷新、重进都不换），换一天自然换一句，
   纯前端零请求、无需定时任务；每分钟与切回标签页时校准，跨零点后自动更新。
+
+## 📊 数据可视化强化（第八阶段 8.1）
+
+四张新图 + 一个独立统计页 + 一份年度报告，**零后端改动**：数据源本来就是就绪的
+（`completedAt` 时间戳、标签、子任务、秒表时长），缺的只是聚合口径与画法。
+
+### 口径先定死，再画图
+
+所有聚合收在 `utils/stats.ts`（纯函数、`now` 可注入、全量单测），页面只做
+「拿 store 数据 → 传 props」。这一层是刻意的：统计页与年度报告必须给出**同一个数字**，
+口径散在两处迟早对不上账。三条统一约定：
+
+| 约定 | 取值 | 为什么 |
+| --- | --- | --- |
+| 统计范围 | 只统计 `visibleTodos`（已归档任务不参与） | 归档是"软删除"，若仍进统计，用户会发现"归档了但热力图没变" |
+| 完成归日 | 按 `completedAt` 落到**本地**日期键 | 用户看的是自己的作息，不是 UTC 作息 |
+| 标签归类 | 按任务的**第一个标签**归类，无标签进「无标签」切片 | 多标签各计一次会让各切片占比之和 > 100%，环形图会撒谎 |
+
+### 四张图各自解决什么
+
+| 图 | 数据 | 关键实现 |
+| --- | --- | --- |
+| 📈 **完成趋势**（柱线混合） | 每日完成数（柱）+ 7 日移动平均（线） | 移动平均在**起点用已有项**（而不是留空），曲线不会断头；「全部」口径把窗口收敛到近 6 周，否则 X 轴会挤成毛刺 |
+| 🕒 **完成时段分布**（heatmap） | `completedAt` 按「星期 × 小时」落格 | 用本地 `getHours()`；标题直接写出**峰值时段**（「周二 09:00（2 项）」），省得用户在 168 个格子里找 |
+| 🏷️ **标签占比**（环形图） | 各标签完成数占比 + 平均「创建→完成」耗时 | 归类口径见上表；平均耗时把"占比高但很快做完"和"占比高且拖着做"区分开 |
+| ⚖️ **投入产出**（散点） | X = 当日计薪时长（小时），Y = 当日完成数 | 全项目独一份的**跨模块联动**（赚钱秒表 × 任务）；另给皮尔逊相关系数，样本 < 2 或某一维无波动时**不下结论**（那种 r 是假的） |
+
+### 投入时长从哪来（一个必须交代的设计决定）
+
+规划原文假设「秒表时长都在 store」，但快照（`EarningsSnapshot`）天生只描述**此刻**——
+关掉页面后，昨天计薪了多久就无从得知。所以新增了一份**最小投入日志**
+（`utils/workLog.ts` + `composables/useWorkLog.ts`，`smart-workspace:worklog`）：
+
+- 秒表 tick 时把「当日累计计薪秒数」按天记一条，**取较大值**（一天内它单调递增，取大值幂等，
+  重复写/乱序写都不会把数字写小）；**不写 0**（保持稀疏，散点图才能区分"没投入"与"没数据"）。
+- 按**整分钟**节流：快照每 100ms 变一次，不做这层节流就是每秒十次全量 JSON 序列化。
+- `immediate` 落盘：下午 3 点才打开应用时，初始快照就已经是 5 小时，没有"变化"来触发写入。
+- **要求薪资已配置**才记：没填薪资就等于没告诉过我们作息，按默认 09:00~18:00 累计是在编数据
+  （夜班用户会全错）。金额为 0 只是不算钱，日志却会被年度报告当真。
+- 写入时按 400 天窗口 + 条数上限裁剪，localStorage 不会无限长胖。
+
+### 图表主题跟随（修「深色下发白」）
+
+`composables/useChartTheme.ts` 由「主题色 + 深浅模式」派生出整套令牌（轴文字/网格/热力色阶/
+提示框底色/强调色），组件把令牌 spread 进自己的 option——主题一变 option 重算 → `setOption` 重绘。
+三个细节：**背景一律 `transparent`**（卡片自带底色与圆角，图表再铺一层纯色就会在圆角处露直角，
+这正是"发白方块"的成因）、深色下热力色阶**向深底色混合**（直接用 `lighten` 会在深色底上糊成亮斑）、
+提示框自带底色/边框/圆角/阴影。
+
+> 代价：`useECharts` 的按需注册多了 Bar/Scatter/Heatmap/VisualMap 四个模块，
+> 该 chunk 从 535 KB（gzip 181 KB）涨到 609 KB（gzip 205 KB）。它只在有图表的页面懒加载，
+> 且规划明确要求这几张图，所以接受这个体积。
+
+### 年度报告（`/annual`）
+
+- **年份可切**（从数据里汇总出有记录的年份，默认今年），全年指标：完成数 / 新建完成率 /
+  有产出的日子 / 日均 / 最长连续完成（按整年逐日回看，跨月不断档）/ 最高效月 / 最猛的一天 /
+  最常用标签 / 投入总时长。
+- **分享卡用 canvas 自绘**（`utils/annualCard.ts`，720×1000，按 DPR 出 2 倍图）：不引 html2canvas，
+  版式固定反而完全可控；配色跟随主题色与深浅模式，与图表同待遇。
+- 绘制逻辑只依赖一个 `CanvasRenderingContext2D` 形状的参数，单测传「记账用的假 ctx」逐条断言画了什么；
+  `roundRect` 在旧 WebView 上缺失时走 `arcTo` 降级；拿不到 2D 上下文时**明说"当前环境不支持"**，
+  而不是留一块空白让人以为坏了。
+
+### 「图能画出来」也要有测试（SSR 冒烟）
+
+happy-dom 没有 canvas 2D 上下文，`useECharts` 在测试环境里一律降级——于是「option 拼错一个键」
+这类错误在单测里**永远暴露不出来**（页面不报错，只是图画不出来）。所以另加一层
+`statsChartsRender.spec.ts`：用 ECharts 的 **SSR 模式**（`renderer: 'svg'` + `ssr: true`，
+不需要 canvas，且必须关掉入场动画——SSR 只渲染第一帧，动画起点是零尺寸，拿到的是空图）
+把四张图**真正算出来的 option** 渲染成 SVG，断言柱/线/热力格/饼片/散点都出现在输出里。
+
+它走的是**真实的 `echarts.use([...])` 注册**（`vi.mock` 里用 `importOriginal` 保留原模块副作用）。
+写第一版时正是这里翻了车：把整个模块 mock 掉导致图表类型一个都没注册，ECharts 安静地渲染出四张空图，
+四条用例全红——这个坑本身就是保留这层冒烟测试的理由。
 
 ## 快速开始
 
@@ -212,37 +300,45 @@ pnpm test:coverage   # 带覆盖率（@vitest/coverage-v8），text 打到终端
 
 | 指标       | 全局阈值 | `src/utils` 阈值 | 实测       |
 | ---------- | -------- | ---------------- | ---------- |
-| lines      | 80%      | 95%              | **99.79%** |
-| statements | 80%      | 95%              | **99.55%** |
-| functions  | 80%      | 95%              | **99.72%** |
-| branches   | 70%      | 90%              | **98.95%** |
+| lines      | 80%      | 95%              | **99.40%** |
+| statements | 80%      | 95%              | **98.63%** |
+| functions  | 80%      | 95%              | **99.43%** |
+| branches   | 70%      | 90%              | **97.02%** |
 
-分层实测（`pnpm test:coverage`，97 个 spec 文件 / 1451 条用例）：
+分层实测（`pnpm test:coverage`，126 个 spec 文件 / 1743 条用例）：
 
-| 层级                  | 语句   | 分支   | 函数   | 行     |
-| --------------------- | ------ | ------ | ------ | ------ |
-| `src/utils`（纯函数） | 99.6%  | 99.09% | 100%   | 100%   |
-| `src/composables`     | 99.2%  | 97.64% | 100%   | 99.8%  |
-| `src/stores`          | 99.44% | 99.38% | 99.18% | 99.31% |
-| `src/api`（请求层）   | 100%   | 99.37% | 100%   | 100%   |
+| 层级                  | 语句   | 分支   | 函数  | 行     |
+| --------------------- | ------ | ------ | ----- | ------ |
+| `src/utils`（纯函数） | 99.15% | 97.58% | 100%  | 99.75% |
+| `src/composables`     | 96.34% | 93.01% | 99.07% | 98.22% |
+| `src/stores`          | 99.47% | 98.57% | 98.79% | 99.67% |
+| `src/api`（请求层）   | 99.84% | 99.05% | 100%  | 100%   |
 
 覆盖口径的**诚实说明**：
 
 - **单测覆盖**：纯函数（薪资三模式换算、跨零点夜班时间差、金额整数「分」运算、日期归一化、odometer
-  拆位、节假日查询、壁纸样式、标签与排序索引、搜索 URL/深链）、composables 的核心分支（提醒扫描与
+  拆位、节假日查询、壁纸样式、标签与排序索引、搜索 URL/深链、**第八阶段的统计聚合**——标签占比与多标签
+  归类、7×24 时段落格、移动平均、投入产出散点与皮尔逊相关系数、年度报告各项与闰年连续天数、
+  投入日志的取大值/裁剪/跨设备合并、canvas 分享卡绘制）、composables 的核心分支（提醒扫描与
   防重复标记、`useLocalStorage` 序列化容错、天气「定位 → 记忆位置 → 默认城市」降级链、主题模式与系统
-  偏好联动、ECharts 实例的 dispose）、stores 的状态流转（标签增删不影响任务本身、归档/恢复改变统计
-  口径、snooze 到期自动回归、撤销删除窗口用 fake timers 推进）、请求层的异常分类（AbortController
-  超时、非 2xx、JSON 解析失败、网络异常）。
+  偏好联动、ECharts 实例的 dispose、投入日志的分钟级节流与未配置不记、
+  **账号级设置同步引擎**——首次登录迁移、逐键 LWW 与合并型键、离线队列与重试、跨账号隔离、
+  云端值写回全部订阅者）、stores 的状态流转（标签增删不影响任务本身、归档/恢复改变统计
+  口径、snooze 到期自动回归、撤销删除窗口用 fake timers 推进、壁纸本机与云端双来源）、
+  请求层的异常分类（AbortController 超时、非 2xx、JSON 解析失败、网络异常、Storage 上传失败降级）。
 - **集成 / 组件测试覆盖**（**不计入**上面的覆盖率分母）：整站挂载与路由守卫、登录/会话恢复流程、
   云同步多端合并与离线队列、仪表板拖拽排序、AI 添加任务与拆解（含降级）、头像上传链路、
-  秒表三种模式的界面状态等。它们断言的是「用户看到什么」，不是「某一行执行过」。
+  秒表三种模式的界面状态、**统计页范围切换与四张图的空状态、四张图的 option 经 ECharts SSR 真渲染、
+  图表配色跟随主题、年度报告的年份切换与分享卡降级提示、账号级设置同步的全部分支
+  （首次迁移 / 冲突归属 / 离线重试 / 换账号隔离 / 合并型键 / 清单自检）、壁纸上传 Storage 与降级**等。
+  它们断言的是「用户看到什么」，不是「某一行执行过」。
 - **仍然没覆盖到的**（`coverage/index.html` 里能看到具体行号，都是可解释的）：
   ① **当前调用路径不可达的纯防御性兜底**——`earnings.ts` 的几处默认/`?? 0` 分支、`linkHelper.ts` 的旧数据兼容分支、
   `useStatistics.ts` 的空值兜底、`useECharts.ts` 的 SSR 早退、`httpClient.ts` 里 `clearTimeout` 的「没有定时器」分支、
-  `useWeather.ts` 中「抛出的不是 Error 时的通用文案」。它们是为将来接入新调用方留的保护，现在没有真实入口；
+  `useWeather.ts` 中「抛出的不是 Error 时的通用文案」、`stats.ts` 里年份汇总的极端过滤分支；
   ② **只在部署环境或真实浏览器成立的分支**——`import.meta.env.BASE_URL` 取到子路径、IndexedDB 真实配额耗尽、
-  真实通知权限弹窗。这些在 happy-dom 下用桩件模拟其**可观测后果**（如「存储不可用 → 静默降级为内存态」），
+  真实通知权限弹窗、**canvas 真实绘制（happy-dom 没有 2D 上下文，分享卡这条路径在测试里必然走"不支持"分支，
+  绘制逻辑本身用假 ctx 逐条断言）**。这些在 happy-dom 下用桩件模拟其**可观测后果**（如「存储不可用 → 静默降级为内存态」），
   但不去伪造一个现实中不存在的场景只为点亮某一行。
 
 纪律：**先保纯函数再保分支，不为凑数字写装饰性测试**。只断言「跑到了这一行」的用例一律不写；
@@ -274,7 +370,7 @@ VITE_AMAP_KEY=你的Key
 | 本地快查 | 内置 6 个常见城市（北京/上海/广州/深圳/杭州/成都）的 adcode 快查表，命中时省掉地理编码请求，只发 1 次请求                                                                      |
 | 错误处理 | 高德**失败时仍返回 HTTP 200**，错误在响应体 `status/info/infocode` 中，代码已显式判断并转成中文提示                                                                            |
 | 限流重试 | 免费 Key 实测约 **≥1 秒 1 次**才不被限流；命中 `10004/10014/10019/10021` 会自动退避重试（1s、2s）                                                                              |
-| 本地缓存 | `api/weatherCache.ts`：adcode 与天气数据各缓存一份，默认 **30 分钟** 有效，写入 localStorage（刷新页面仍有效）；命中缓存不发请求，界面显示「缓存」标记，可点「↻ 刷新」强制跳过 |
+| 本地缓存 | `api/weatherCache.ts`：adcode 与天气数据各缓存一份，默认 **30 分钟** 有效，写入 localStorage（刷新页面仍有效）；命中缓存不发请求（**界面上不再标「缓存」**——省额度是内部实现，不是用户要看的信息），要最新数据点「↻ 刷新」 |
 | 字段差异 | 高德无「体感温度/风速」，提供的是 `winddirection`（风向）与 `windpower`（风力级别），故 `WeatherData` 中相关字段为可选                                                         |
 | 天气图标 | 高德不提供图标，改用中文天气现象 → emoji 的纯函数映射（`weatherIcon`），不依赖外部图片                                                                                         |
 
@@ -291,7 +387,7 @@ VITE_AMAP_KEY=你的Key
 | 位置文案   | 行政区名只能取自逆地理编码（天气接口按区级 adcode 查询时 `city` 其实是**区名**）：普通城市 = **区 · 城市 · 省份**（「青山湖区 · 南昌市 · 江西省」）；直辖市 = **区 · 城市**（「黄浦区 · 上海市」，此时城市即 province）。见 `utils/placeFormatter.ts` |
 | 参数顺序   | `location=经度,纬度`（经度在前！写反会定位到完全不同的地方）                                                                                                                                                                                          |
 | 位置记忆   | 定位成功即把 `{ adcode, label }` 写入 `smart-workspace:last-place`；**定位被拒/失败时优先回退到它**（比默认城市更贴近用户），请求直接走 adcode，不再消耗一次逆地理编码                                                                                |
-| 交互       | 卡片默认展示当前位置天气，另有「🏙 城市」手动切换（输入城市名或点常用城市快捷键）；「📍 定位」重新定位、「↻ 刷新」跳过缓存重取；手动切换的城市也会写入位置记忆                                                                                         |
+| 交互       | 卡片默认展示当前位置天气，另有「🏙 城市」手动切换（输入城市名、点常用城市快捷键，或点面板里的「📍 用当前位置」回到自动定位）；**「↻ 刷新」= 重新定位 + 跳过缓存取最新**，所以工具栏不再单独放「📍 定位」按钮——展示的是定位结果就重新定位，手动选过城市则只刷新那座城市、不把定位盖回去；手动切换的城市也会写入位置记忆 |
 | 权限被拒   | 记录标记，之后进站直接用记忆位置（无记忆则默认城市），并在卡片内说明「定位权限已被拒绝」                                                                                                                                                              |
 | 坐标纠偏   | 浏览器给的是 WGS84、高德用 GCJ-02，差异仅几百米，对「查哪个城市」无影响，故不做纠偏以省一次请求                                                                                                                                                       |
 
@@ -370,6 +466,27 @@ create policy "todos: own rows only" on public.todos
   「自动暴露新表」，Supabase 就不再自动授权新表，缺了这行会直接报 `42501 permission denied`
 - 头像 bucket `avatars`：公开读，写入限本人目录 `user_id/avatar.webp`（策略校验路径第一段 = `auth.uid()`）
 
+#### 第九阶段新增：`user_settings` 表与 `user-assets` bucket
+
+```sql
+create table public.user_settings (
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  key        text not null,                 -- 前端 localStorage 键同名
+  value      jsonb not null default 'null'::jsonb,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, key)
+);
+create policy "user_settings: own rows only" on public.user_settings
+  for all to authenticated
+  using (auth.uid() = user_id) with check (auth.uid() = user_id);
+```
+
+- **一行一个 key，而不是"一行一坨 JSON"**：手机上改主题、桌面上调卡片顺序，
+  挤在同一个 jsonb 里就会互相覆盖（整坨 LWW）。拆键后冲突范围收敛到"同一个设置项"
+- 同一套 `GRANT`/`REVOKE` 口径（授 `authenticated`、`revoke anon`）
+- `user-assets` bucket：公开读、写入限本人目录 `user_id/wallpaper-<时间戳>.webp`——
+  路径带时间戳，换图即换地址，天然绕开浏览器与 CDN 缓存（头像用的是固定路径 + `?v=` 版本号）
+
 ### 同步模型：云端为准 + 本地缓存 + 离线队列（`stores/todoStore.ts`）
 
 | 场景              | 行为                                                                                                                                |
@@ -398,7 +515,7 @@ create policy "todos: own rows only" on public.todos
 
 | 时机           | 反馈                                                                                                                  |
 | -------------- | --------------------------------------------------------------------------------------------------------------------- |
-| 跨入离线       | **Toast 警告**「当前处于离线模式：改动已保存在本地，恢复网络后自动同步」+ 侧边栏常驻徽章「云同步 · 离线」+ 设置页文案 |
+| 跨入离线       | **Toast 警告**「当前处于离线模式：改动已保存在本地，恢复网络后自动同步」+ 设置页文案（侧边栏不再挂常驻徽章：导航区不放状态，状态归设置页） |
 | 网络恢复       | **Toast 成功**「网络已恢复，改动已同步到云端」（只有真离线过才提示，正常同步不打扰）                                  |
 | 旧数据迁移完成 | **Toast 成功**「已把本地 N 条任务迁移到云端」（同一条只提示一次）                                                     |
 
@@ -413,7 +530,7 @@ create policy "todos: own rows only" on public.todos
 
 ### 路由与守卫（`router/` + `router/authGuard.ts`）
 
-- **页面拆分**：`/` 仪表板、`/todos` 任务、`/stats` 统计、`/settings` 设置、`/login` 登录（不套布局）；
+- **页面拆分**：`/` 仪表板、`/todos` 任务、`/stats` 统计、`/annual` 年度报告、`/settings` 设置、`/login` 登录（不套布局）；
   页面组件一律 `() => import()` 懒加载，构建后每页独立 chunk，首屏只加载仪表板
 - **会话恢复不能闪跳**：`authStore` 初始状态是 `loading`，守卫 `await ensureReady()` 后再判定——
   刷新页面时 `getSession()` 还没回来就判"未登录"，已登录用户会被踢到登录页再弹回来
@@ -438,6 +555,53 @@ create policy "todos: own rows only" on public.todos
 6. **一个隐藏的坑**：裁剪结果是 `Blob`，**必须用 `shallowRef` 而不是 `ref`**——
    普通 `ref` 会把对象包成响应式 Proxy，而 `Blob` 的方法依赖内部槽，
    Proxy 包装后在浏览器里调用 `upload/arrayBuffer` 会直接抛 `Illegal invocation`（已被用例覆盖）
+
+## 🔄 账号级数据一致性（第九阶段）
+
+第五阶段只把**任务**送上了云，于是"换了台设备就像换了个应用"：主题、标签、快捷导航、布局、秒表配置全在另一台机器上。
+第九阶段把**偏好类数据**也挂到账号上——判断标准只有一条：**同账号在任何设备（浏览器 / 桌面版 / 手机）登录，看到的是同一套。**
+
+### 谁跟账号走、谁留在本机
+
+| 跟账号走（`user_settings`，16 项） | 留在本机（刻意，不是漏了） |
+| --- | --- |
+| 主题与外观、壁纸、标签、快捷导航、纪念日倒计时、发薪日 | **AI Key（BYOK）/ 微信推送 UID**——用户级凭证，进数据库等于多一份泄露面，换设备重填一次即可 |
+| 仪表板卡片顺序/显隐/大小/自定义标记、周目标 | **已通知标记**——同步过去会让另一台设备该提醒时被标成"已提醒"而静默不响 |
+| 赚钱秒表配置与迷你模式、投入时长日志、提醒设置、默认搜索引擎 | **天气缓存 / 上次定位城市 / 定位被拒标记**——设备相关，手机与桌面本来就不在同一座城市 |
+| 任务（走自己的增量同步通道，见第五阶段） | **侧边栏折叠状态**——跟着屏幕尺寸走的界面细节 |
+
+> 设置页「数据同步 → 偏好设置」里有可展开的清单与逐条理由：用户不必读源码就知道**什么被传上去了**。
+
+### 同步层怎么工作（`composables/useSyncedStorage.ts`）
+
+用法与 `useLocalStorage` 一模一样（`useSyncedStorage(key, default)`），多的是一层云同步：
+
+1. **本地优先**：读写先落 localStorage（同步、瞬时、离线可用），云端只是"另一个副本"；
+   绝不做成"等网络回来再渲染"——那样断网等于应用坏了。
+2. **逐键合并**：一行一个 key，冲突范围收敛到"同一个设置项"（见上面的表结构）。
+3. **localStorage 是本地唯一真相，ref 只是视图**：同一个键可能被多处持有
+   （`useEarnings` 在 App.vue 与秒表卡各一次、`useWorkLog` 四个页面都有），
+   所以同步层不"挑一个 ref 当代表"，而是读存储、并把云端值写回**所有**订阅者。
+4. **冲突判定不看本机时钟**：只比「本地是否有未推送的改动」+「云端 `updated_at` 是否变过我上次推上去的那一版」。
+   笔记本时区错了、系统时间被改过都不会算错。合并规则：本地有未推送改动 → 本地赢；否则云端时间戳更新 → 云端赢。
+5. **离线队列只记"哪个键脏了"**：推送时取当前值（设置项是整值快照语义，重放旧操作反而会把中间态推上去）。
+   断网时从失败那一项起保留队列，联网（`window online`）或手动「立即同步」再补发。
+6. **合并型键要"先读后合并再推"**：投入时长日志按日期逐项取大值合并——
+   两台设备各记了不同的日子，直接用本地覆盖会把另一台那几天抹掉，而这份数据不可再生
+   （用户不会记得三天前在另一台电脑上工作了几小时）。所以它推送前会先拉云端那一行做合并。
+7. **跨账号隔离**：`settings-owner` 记住本地数据属于谁。**换账号登录时先把本地重置为默认再拉新账号的**，
+   绝不把 A 的偏好写进 B 的账号（同一台电脑换人用很常见）；登出后再登**同一个**账号不算换账号，不白重置。
+8. **首次登录即迁移**：本地模式下攒下的设置（非默认值的那些）在第一次登录时一次性推上账号。
+
+### 壁纸（二进制怎么办）
+
+配置（纯色/渐变/图片地址）走 `user_settings`，**图片本体走 Supabase Storage `user-assets`**：
+已登录时保存图片会顺带上传，配置里记下公开地址，于是换设备登录直接就能看到同一张壁纸；
+上传失败只降级"换设备也能看到"这一条，本机壁纸照常生效（本机那份仍存 IndexedDB，离线可用）。
+展示优先级：云端地址 → 本机 blob。
+
+> **桌面版与浏览器的数据隔离因此不再是问题**：本地缓存各存各的（WebView2 有自己的用户数据目录），
+> 但**登录后云端才是共同真相**，两边看到的是同一套任务与设置。
 
 ## 在线部署
 
@@ -543,18 +707,106 @@ GitHub 的已知问题（[actions/deploy-pages#22](https://github.com/actions/de
 工作流的「清理陈旧的部署记录」步骤会在部署前，用 Deployments API 把非 `success` 的历史部署标为
 `inactive` 并删除（删的是记录，不影响已发布的内容），因此流水线能自愈、不用手工干预。
 
+### 步骤（自有服务器 IIS，子路径 `/workspace/`）
+
+> **目标形态**：`http://124.220.159.58/workspace/`。服务器是 **Windows Server 2012 R2 + IIS 8.5**，
+> 80 端口上已经跑着另一个站点（图片二维码工具），**不能覆盖、但可以挂子路径共存**；
+> 5000 是个税项目、9090 是系统 HTTPAPI 服务、3389 是 RDP，都不能碰。
+> 既然不动安全组、不开新端口，就复用唯一已放行的 **80**。
+
+| 决策点   | 选择                                                 | 理由                                                                       |
+| -------- | ---------------------------------------------------- | -------------------------------------------------------------------------- |
+| 部署方式 | **RDP 3389 + 一键部署包**                            | 445/5985/135 全关、不装 SSH → 没有命令行通道；RDP 剪贴板原生支持文件复制   |
+| 访问地址 | **`http://124.220.159.58/workspace/`**（80 子应用）  | 用户不愿动腾讯云控制台 → 复用已开放的 80，与主站二维码工具共存互不影响     |
+| 前端产物 | **`BASE_PATH=/workspace/` 构建**                     | 子路径部署必须让 assets 引用带前缀，否则白屏（`vite.config.ts` 已支持该变量） |
+| 缓存策略 | **入口 HTML `no-cache`，`assets/` 长缓存一年**       | IIS 默认不发 `Cache-Control`，浏览器按启发式猜新鲜度、明文 HTTP 上代理还会自行缓存 → 会出现「同一个链接、两台设备两个版本」的幽灵旧版（旧 index.html 配旧 assets 永远自洽）。见 `deploy/web.config` 末尾两处配置 |
+| HTTPS    | 本期不做（纯 HTTP + IP）                             | 无域名无证书；限制见下方「已知限制」，绑域名后可随时升级                   |
+
+**本机打包**（一条命令，产物已 gitignore）：
+
+```powershell
+pnpm deploy:package        # = BASE_PATH=/workspace/ pnpm build + 组装 + 校验 + 打 zip
+# 产物：deploy-package.zip
+#   ├── dist/           按 /workspace/ 构建的前端产物
+#   ├── web.config      子目录版：SPA fallback + MIME 补登记 + 安全响应头 + 缓存策略
+#   ├── install.ps1     幂等部署脚本（管理员 PowerShell 跑一次）
+#   └── 部署说明.txt     服务器侧操作与排障说明
+```
+
+**服务器侧**（约 1 分钟）：RDP 登录 3389 → 把 zip 粘进远程会话 → 解压 → 右键 `install.ps1`「使用 PowerShell 运行」。
+`install.ps1` 做四件事，全部幂等（改完代码重新打包、再拖进去覆盖即更新）：
+
+1. **URL Rewrite 检测/安装**：查注册表，缺失就从微软官方 CDN 静默装 `rewrite_amd64_en-US.msi`
+   （服务器不通外网时，把 msi 与脚本放同目录即可离线安装；2012 R2 的 TLS 1.0 默认值会让下载直接失败，脚本里显式启用了 TLS 1.2）
+2. **探测主站点**：`Get-Website` 找 80 端口已启动的那个，**不硬编码 "Default Web Site"**；在其下建子应用 `workspace`
+   （已存在则只更新文件；目录已存在但不是应用则 `ConvertTo-WebApplication` 就地升级）
+3. **同步文件**：清空并复制 `dist/*` + `web.config`，授予 `IIS_IUSRS` 读取权限
+4. **自检**：本机请求 `/workspace/` 与 `/workspace/dashboard`，把响应码打出来
+
+`web.config` 是"刷新子路由不 404"的关键：Vue Router 用 History 模式，`/workspace/dashboard` 在磁盘上没有对应文件，
+rewrite 规则只对**既不是文件也不是目录**的请求回退到 `/workspace/index.html`（`assets/*.js` 这类真实文件不受影响）。
+规则写在子目录的 `web.config` 里，IIS 配置继承是父→子单向的，**主站根目录完全不受影响**；真要回退，删掉 `workspace` 子应用即可。
+
+**已知限制（必须知晓）**：纯 HTTP + IP 属于浏览器定义的**非安全上下文**，两个 API 会被禁用 ——
+
+- **Geolocation**（天气自动定位）→ 自动走降级链（`上次位置 → 高德 /v3/ip → 默认城市`），功能不挂：明文 HTTP 下浏览器**必然**拒绝定位（平台规则，不是用户能点的开关），所以这两级兜底是网页端唯一还能自动贴近用户的途径，IP 定位能落到城市级（南昌而不是默认的北京）
+- **Notification**（网页版系统通知）→ 应用内铃铛/Toast 兜底正常；**桌面版 exe 走 Windows 原生通知，不受影响**
+
+升级路径：绑域名 → 解析到本 IP → IIS 绑域名 + win-acme 申请免费证书 → HTTPS 全解锁，随时可做、不阻塞本期上线。
+
+> 部署后别忘了回 **Supabase → Authentication → URL Configuration**，把 Site URL 与 Redirect URLs 加上
+> `http://124.220.159.58/workspace/`，否则邮件里的验证/重置链接会跳回旧地址。
+
+> 本地想先验一遍子路径构建（不需要 IIS）：`$env:BASE_PATH='/workspace/'; pnpm build; pnpm preview`，
+> 然后访问 `http://localhost:4173/workspace/dashboard` —— 应为 200，且 `/workspace/assets/*.js` 返回 `text/javascript`。
+
+### 部署自检记录（本机实测，2026-09-13）
+
+| 检查项                                      | 结果                                                                                                            |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| 子路径构建                                  | `BASE_PATH=/workspace/ pnpm build` 后 `dist/index.html` 的 9 处资源引用全部带 `/workspace/` 前缀，产物零硬编码绝对路径 |
+| 子路径预览（等价于 IIS 的 rewrite 语义）    | `pnpm preview` 下 `/workspace/`、`/workspace/dashboard` 均 200（回退 index.html）；`/workspace/assets/*.js` 返回 `text/javascript`、`*.css` 返回 `text/css`（不是被 fallback 吞成 HTML） |
+| 部署包结构                                  | 33 个文件 / ~520 KB，根目录恰为 `dist/` + `web.config` + `install.ps1` + `部署说明.txt`，解压后逐项校验通过    |
+| `web.config` 正确性                         | XML 可解析；rewrite 动作为 `/workspace/index.html` + 两个 negate 条件；8 条 MIME 补登记；默认文档 index.html      |
+| `install.ps1` 语法                          | Windows PowerShell 解析零错误（打包脚本内置该检查，语法错直接拒绝出包）                                          |
+| `install.ps1` 站点探测逻辑                  | 用桩函数（模拟 WebAdministration 真实返回形态）驱动 **18 项用例全通过**：单站点 `*:80:`、`Get-WebBinding` 优先、多站点挑 80 且已启动、仅主机头绑定、80 站点未启动、绑定串取不到时单站点兜底、错误信息带真实绑定串、`-SiteName` 指定、裸字符串数组兼容、应用存在性判定的三种属性名与配置查询兜底、物理路径展开与兜底 |
+| 交付脚本编码                                | `install.ps1` 与 `部署说明.txt` 均为 UTF-8 **带 BOM**（2012 R2 的 Windows PowerShell 4.0 无 BOM 会按 GBK 读，中文提示全乱码） |
+| 服务器实机部署（第一轮）                    | 跑到 2/6 暴露一个真 bug（见下方"服务器首跑挖出的坑"），已修复并重新出包                                |
+| 服务器实机部署（第二轮）                    | **待用户 RDP 执行**（本机无 IIS，无法预演；`install.ps1` 自带部署后连通性自检，跑完会直接打印响应码）  |
+
+**服务器首跑挖出的坑：`Get-Website` 的 `Bindings` 不能直接匹配**
+
+第一轮在服务器上（Windows Server 2012 R2 / IIS 8.5）跑到 2/6 报：
+
+```
+部署失败：没有找到绑定 80 端口的已启动站点。现有站点：Default Web Site [Microsoft.IIs.PowerShell.Framework.ConfigurationElement]。
+```
+
+`Get-Website` 返回的是 IIS 配置对象，`$site.Bindings` 直接 `-match` / `-join` 只能得到**类型名**（配置元素集合并不会摊平成绑定串），
+所以 `"http/*:80:"` 永远匹配不到。修法是从集合里取 `bindingInformation`：
+
+| 改动 | 内容 |
+| --- | --- |
+| 取绑定串（新增 `Get-SiteBindingInfo`） | 策略 1：`Get-WebBinding -Name <站点>`；策略 2：`$site.Bindings.Collection` 里逐项取 `bindingInformation`（大小写两种写法都试），并兼容"裸字符串数组"形态 |
+| 站点选择兜底（重写 `Get-MainSite`） | ① 绑定该端口且已启动 ② 只有一个已启动站点就直接用（打印其绑定串供复核） ③ 绑定该端口但未启动（提示）④ 都不满足才报错，且错误信息列出**每个站点的真实绑定串与状态** |
+| 同源加固（新增 `Test-WebApplicationExists`） | 幂等性判定同样依赖属性名：`Get-WebApplication` 的返回对象在 `Path`/`Name`/`PSChildName` 之间因版本而异，写死一个就会把"已存在"误判成"不存在"→ 二次部署重复建应用报错。改为三个属性轮询 + `Get-WebConfiguration` 查询兜底 |
+| 零散加固 | `PhysicalPath` 为空时从 IIS 提供程序兜底读取；应用池名取不到时不传 `-ApplicationPool`（交给 IIS 用默认池），避免传空值报参数错误 |
+
 ### 上线后的自检清单
 
 - [ ] 首页仪表板能出数字（秒表在计薪时间内会跳动、今日完成度环形图有渲染）
-- [ ] 刷新 `/todos`、`/stats`、`/settings` 这些子路由**不 404**（Vercel 靠 `vercel.json` 的 rewrite；
-      Cloudflare / Netlify 靠 `_redirects`；GitHub Pages 靠 `404.html`）
+- [ ] 刷新 `/todos`、`/stats`、`/annual`、`/settings` 这些子路由**不 404**（Vercel 靠 `vercel.json` 的 rewrite；
+      Cloudflare / Netlify 靠 `_redirects`；GitHub Pages 靠 `404.html`；自有服务器靠子目录 `web.config` 的 rewrite）
+- [ ] 统计页四张新图有渲染且跟随主题（深色模式下坐标轴文字清晰、不发白）；切「本周/本月/全部」数字跟着变
+- [ ] 年度报告页能生成分享卡并保存为图片（`canvas.toDataURL` 在真实浏览器里才有 2D 上下文）
 - [ ] 天气卡能显示当前位置（必须 HTTPS，浏览器才给定位权限；`http://局域网 IP` 会直接被拒）
 - [ ] 未登录访问 `/todos` 会跳到 `/login`，登录后回到 `/todos`（配了 Supabase 才有登录环节）
 - [ ] 换一台设备／无痕窗口登录同一账号，任务数据一致
 - [ ] 头像上传后侧边栏与设置页都显示圆形头像
+- [ ] 自有服务器：`/workspace/` 首页正常、`/workspace/dashboard` 直接刷新不 404、主站 `http://124.220.159.58/` 二维码工具完好
 
 本地也可以先验一遍"路由能不能直接访问"：`pnpm build && pnpm preview`，然后直接请求 `/`、`/todos`、`/stats`、
-`/settings`、`/login`——5 条都应返回 200 且是应用 HTML（等价于上面那条 SPA rewrite）。
+`/annual`、`/settings`、`/login`——6 条都应返回 200 且是应用 HTML（等价于上面那条 SPA rewrite）。
 
 ## 🖥️ 桌面版（Tauri 2）
 
@@ -594,6 +846,12 @@ pnpm tauri build          # 只打包，产物留在 src-tauri/target/release/
 ```
 
 **改完网页端要出桌面版：一条命令（推荐）**
+
+> 🧭 **工作流约定（2026-09-13 起）**：开发期间**不要改一处就重建一次桌面端**——一次打包 4~5 分钟，
+> 还会强杀正在运行的窗口。**需求成批改完（或明确说「可以出包了」）再统一跑一次**
+> `pnpm desktop:build:kill`。改的过程中想即时看效果，用 `pnpm tauri dev`
+> （起 Vite + 壳窗口，前端热更新、不产出 exe）或 `pnpm dev` + 浏览器。
+> 换句话说：源码改了但 exe 还是旧的，属预期状态，不是 bug。
 
 ```bash
 pnpm desktop:build        # = typecheck + 单测 + lint → pnpm build → tauri build → 拷产物到项目根
@@ -665,13 +923,18 @@ src-tauri/target/release/bundle/nsis/智能工作台_0.1.0_x64-setup.exe  ← �
 | **默认紧凑密度** | 首次进入桌面版时写入 `compact` | 桌面屏空间大，信息密度优先；设置面板仍可调 |
 | **窗口状态记忆** | `tauri-plugin-window-state` | 位置/尺寸/最大化状态不用每次重设 |
 | **单实例锁** | `tauri-plugin-single-instance`（必须**第一个**注册） | 第二次启动不该开第二份，而是把已有窗口拉到前台 |
-| **定位兜底** | 浏览器定位 → 上次位置 → **高德 `/v3/ip`** → 默认城市 | WebView2 定位要过系统隐私设置，被拒后没别的办法；IP 定位只要联网就能出城市级位置 |
+| **定位兜底** | 浏览器定位 → 上次位置 → **高德 `/v3/ip`** → 默认城市 | 浏览器版与桌面版**默认都开**：明文 HTTP 部署下浏览器必然拒绝定位（安全上下文限制），IP 定位只要联网就能出城市级位置；WebView2 的定位则要过系统隐私设置，被拒后同样只剩这一条路 |
 | **vite base 双形态** | `TAURI_ENV_PLATFORM` 存在时强制 `base: '/'` | 桌面壳里带子路径会资源 404 → 白屏 |
 
 ### 数据隔离（要知道的一件事）
 
 桌面版的 localStorage / IndexedDB 落在 `%LOCALAPPDATA%\<identifier>\EBWebView`（WebView2 的用户数据目录），
-**与浏览器数据天然不共享**。想在两个渠道之间搬数据，可用未来要做的 JSON 导入导出，或直接登录 Supabase 云同步。
+**与浏览器数据天然不共享**。
+
+> **第九阶段之后这条基本不用操心了**：本地目录仍然是各存各的（那是浏览器的实现，改不了），
+> 但**登录同一账号后云端是共同真相**——任务、主题、标签、布局、壁纸全都会同步过来。
+> 所以「在浏览器里配好，回桌面版接着用」是登录一下的事，不需要搬文件。
+> 只有**不登录**（纯本地模式）时才需要搬数据：可用未来要做的 JSON 导入导出。
 
 > 两个目录别混：**Web 数据**在 `%LOCALAPPDATA%\com.smartworkspace.desktop\EBWebView`，
 > 而**窗口位置尺寸**在 `%APPDATA%\com.smartworkspace.desktop\.window-state.json`——
@@ -799,25 +1062,31 @@ src-tauri/target/release/bundle/nsis/智能工作台_0.1.0_x64-setup.exe  ← �
 | `getCurrentCoords` 同步抛错未收敛 | 上层 `e instanceof GeoError` 判断落空，「已拒绝定位」标记记不住，每次进站都白试一次 | 同步异常也包成 `GeoError`，并校验坐标非 NaN |
 | 标题栏自己绑了双击最大化（第七阶段查框架源码时发现） | Tauri 注入的 `drag.js` 已按 `e.detail === 2` 调 `internal_toggle_maximize`，我们再绑一次 `@dblclick` 就是第二次切换——**双击标题栏表现为毫无反应**（最大化后立刻还原） | 删掉自绑的 handler，只留 `data-tauri-drag-region` 标记；测试反过来断言「双击不得调用 toggleMaximize」防后人加回来 |
 | 托盘图标被建了两次（第七阶段验收枚举进程窗口时发现） | `tauri.conf.json` 的 `app.trayIcon` 与 Rust 的 `TrayIconBuilder` 各建一个托盘。而托盘一旦 `register()` 就进了 App 资源表，**丢弃返回值也不会被回收**（`tray/mod.rs` 写着「最后一个实例析构时才移除」）→ 通知区出现**两个图标**，且配置那个没有任何菜单、点了没反应 | 删掉配置块，托盘只由 Rust 建一次（菜单与左键行为本来也只在 Rust 侧）；实测进程内 `tray_icon_app` 隐藏窗口从 **2 个降为 1 个** |
+| `pruneWorkLog` 只看「有没有被时间窗裁掉」（第八阶段写新代码时被自己的用例当场抓住） | 条数上限是**另一条**约束：日志全都落在 400 天窗口内但数量超限时（例如一次性导入几千条），它直接原样返回——上限形同虚设，localStorage 可以无限长胖 | 早返回条件补上 `kept.length <= limit`，两条约束同时判定 |
 
 ## 待优化项
 
-- **主题偏好跨设备同步**：目前留在 localStorage，后续可选挂到 `auth.users.user_metadata`（本期不做，不阻塞主线）
-- **冲突解决**：当前是"最后一次写入生效"（last-write-wins），多端同时编辑同一条任务可能互相覆盖；
-  更严谨可引入 `updated_at` 版本号做乐观并发控制
+- **任务级冲突解决**：任务目前是"最后一次写入生效 + 指纹差异合并"（见 `utils/todoSync.ts`），
+  多端**同时**编辑同一条任务仍可能互相覆盖；更严谨可引入每条任务的 `updated_at` 做乐观并发控制
+  （设置项已经是逐键 LWW + 逐键时间戳，不受此限）
+- **未同步的两类数据**（有意为之，见第九阶段）：BYOK 凭证与设备相关项留在本机；
+  如果将来想连凭证一起同步，需要先决定"云端加密"方案，而不是直接塞进 `user_settings`
 - **提醒的"关页面也能收"**：已完成到 Edge Function 代理这一层，但服务端定时扫描（Supabase pg_cron）
   只在文档里给了方案没落地——它还需要把 UID 上服务端、service_role key 入 Vault 两个前置条件
-- PWA 离线、数据导入导出、命令面板完整版（聚合搜索是其雏形）、Bing 每日壁纸
+- PWA 离线、数据导入导出（纯本地模式搬数据用）、命令面板完整版（聚合搜索是其雏形）、Bing 每日壁纸
 - **功能截图**：README 里的截图小节仍缺——它需要真实运行的界面截图（含暗色模式对比），
   不该用占位图凑数，等部署到 Pages 后补
 - **法定节假日数据每年初需更新**（`src/data/holidays.json`，来源见 `src/utils/holidays.ts` 头注释）
+- **投入日志的采集时机**：它由赚钱秒表的实例写入。第九阶段起 `App.vue` 会额外起一个
+  `useEarnings({ autoTick: false })` 只为注册同步键，所以**打开应用就会把当天已计薪时长记一次**；
+  但"应用一整天没打开"的日子仍然没有记录（这是没有常驻进程的固有边界）
 - **桌面版自动更新**：规划里标为「可选」，本期未做——需要 `tauri-plugin-updater` + 一对签名密钥，
   且更新包要挂在 GitHub Releases 上；CI 已经会打 tag 出安装包，接上这一步只差配置
 
 ## 致谢
 
 - **设计灵感来源：[薪跳 PayDance](https://github.com/MrBaoboer/PayDance)**（AGPL-3.0）。
-  赚钱秒表的「薪资模式 / 状态机文案 / 诚实免责声明」等产品设计参考了它，但**没有使用其任何代码**，
+  赚钱秒表的「薪资模式 / 状态机文案」等产品设计参考了它，但**没有使用其任何代码**，
   本项目为自研实现，许可证仍为 MIT。
 - 生产热力图与迷你月历的视觉语言参考了 GitHub 贡献图与 Finexy 风格仪表板。
 
@@ -837,6 +1106,12 @@ src-tauri/target/release/bundle/nsis/智能工作台_0.1.0_x64-setup.exe  ← �
 | CSP 只列 5 个 API 域名            | `connect-src 'self' ipc: http://ipc.localhost https:`                | 规划要求「白名单」，但第六阶段是 **BYOK**：用户可把 AI `baseUrl` 指向自建网关，Supabase 也可自托管——域名写死会让这些功能在壳里静默失效，违背「Web 版功能原样可用」。真正的防线是 `script-src 'self'`（没有可执行注入就不存在可利用的连接），故 `connect-src` 放开 `https:` |
 | 绿色版叫 `智能工作台.exe`         | 实际为 `smart-workspace.exe`                                        | Cargo 的 crate/二进制名只能是 ASCII；`productName` 的「智能工作台」用于窗口标题与安装包名，两者不同名是工具链约束 |
 | 通知「点击聚焦窗口并跳转任务」    | 桌面版只能弹 Toast，点击不深链；应用内兜底路径照常高亮任务           | 插件能力边界：`tauri-plugin-notification` 2.4.0 桌面端 `invoke_handler` 只注册 `notify`/`request_permission`/`is_permission_granted`，JS 侧 `onAction`/`onNotificationReceived` 依赖的 `register_listener` 与 `desktop.rs` 的点击处理**都只在移动端存在**——不是没写，是拿不到回调 |
+| 子应用建在 `C:\inetpub\wwwroot\workspace` | 由 `Get-Website` 读出主站 `PhysicalPath` 再拼 `\workspace` | 主站在注册表里的物理路径可能被改过（也可能压根不是 Default Web Site）；写死路径会在那种机器上把文件拷到 IIS 根本不看的地方——部署成功却打不开 |
+| 部署包直接放 `dist/`             | `dist/` 之外还放了 `部署说明.txt`，脚本里带 4 项自检（管理员/包完整性/base 前缀/install.ps1 语法） | 这份包是给"RDP 里点一下"的人用的：白屏、500.19、404.3 这些失败的现场在服务器上很难查，所以把校验前移——打包时就拦掉 base 忘设、脚本语法错这类低级事故 |
+| 散点图的「秒表每日累计时长」直接读 store | 新增**按天的投入日志**（`utils/workLog.ts` + `smart-workspace:worklog` 键），由赚钱秒表 tick 时写入 | 秒表快照只描述「此刻」，关掉页面后昨天的计薪时长无从得知——不落日志就没有"每日"这个维度；详见「投入时长从哪来」 |
+| 标签占比「各标签完成数占比」     | 按任务的**第一个标签**归类，无标签单列一片 | 一个任务挂多个标签时各计一次，各切片占比之和 > 100%，环形图的"占比"就不成立了 |
+| 统计页保留第六阶段的「近 30 天完成趋势」柱状图 | 该图已被「完成趋势柱线混合图」取代并从 `StatisticsCard` 删除 | 同一个数字在同一页出现两种画法只会互相打架；优先级环图仍留在 `StatisticsCard` |
+| 侧边栏主导航保持 4 项           | 年度报告 `/annual` 从统计页的按钮进入，不进侧边栏 | 视觉规范写明「上组=主导航 4 项」，为一张报告页破例会牵动整块导航的视觉节奏 |
 
 ## 许可证
 

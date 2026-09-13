@@ -7,7 +7,7 @@ import { computed, ref } from 'vue'
 
 import { defineStore } from 'pinia'
 
-import { useLocalStorage } from '@/composables/useLocalStorage'
+import { useSyncedStorage } from '@/composables/useSyncedStorage'
 import { THEME_COLOR_PRESETS } from '@/utils/themeColor'
 import type { ThemeColorName } from '@/utils/themeColor'
 
@@ -45,7 +45,8 @@ function readSystemDark(): boolean {
 }
 
 export const useThemeStore = defineStore('theme', () => {
-  const prefs = useLocalStorage<ThemePrefs>(THEME_STORAGE_KEY, { ...DEFAULT_THEME })
+  // 第九阶段：外观偏好跟账号走（换设备不再"像换了个应用"）
+  const prefs = useSyncedStorage<ThemePrefs>(THEME_STORAGE_KEY, { ...DEFAULT_THEME })
   /** 系统深色偏好（运行时，不持久化） */
   const systemDark = ref(readSystemDark())
 

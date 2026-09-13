@@ -127,9 +127,105 @@ create policy "avatars: owner delete"
   );
 
 -- ============================================================================
+-- 第九阶段 · 账号级数据一致性：user_settings（偏好设置） + user-assets（用户上传的图片）
+--
+-- 背景：第五阶段只有 todos 一张表，于是「换了设备就像换了个应用」——
+-- 主题、标签、快捷导航、倒计时、仪表板布局、秒表配置、投入日志、壁纸全锁在各设备本机。
+-- 这一节把**偏好类**数据也搬到账号上（凭证类与设备相关项刻意留在本机，见文件末尾说明）。
+--
+-- 为什么是「一行一个 key」而不是「一行一坨 JSON」：
+-- 手机上改主题、桌面上调卡片顺序，如果两份数据同住一行的同一个 jsonb，
+-- 后写的那次会把另一次一起覆盖掉（整坨 LWW）。拆成一行一个 key 之后，
+-- 冲突范围收敛到「同一个设置项」，两处改动互不干扰。
+-- ---------------------------------------------------------------------------
+create table if not exists public.user_settings (
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  key        text not null,
+  value      jsonb not null default 'null'::jsonb,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, key)
+);
+
+-- 按用户整取（登录/进设置页都会拉一遍全量偏好）
+create index if not exists user_settings_user_idx on public.user_settings (user_id);
+
+drop trigger if exists user_settings_touch_updated_at on public.user_settings;
+create trigger user_settings_touch_updated_at
+  before update on public.user_settings
+  for each row execute function public.touch_updated_at();
+
+alter table public.user_settings enable row level security;
+
+drop policy if exists "user_settings: own rows only" on public.user_settings;
+create policy "user_settings: own rows only"
+  on public.user_settings
+  for all
+  to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- 表级权限：与 todos 同一套理由（关掉「自动暴露新表」时没有 GRANT 会 42501；
+-- 且只授权 authenticated，anon 连表权限都没有）
+grant select, insert, update, delete on table public.user_settings to authenticated;
+revoke all on table public.user_settings from anon;
+
+-- ---------------------------------------------------------------------------
+-- 用户上传的图片（壁纸）：user-assets bucket
+--   路径约定 `<user_id>/<name>-<时间戳>.<ext>`，写入限本人目录；
+--   与 avatars 桶一样公开读——壁纸要用 <img>/background-image 直接引用，
+--   私有桶得每次生成签名 URL（会过期、要刷新），复杂度不值当。
+--   路径里带时间戳：换图就是新地址，天然绕开浏览器/CDN 缓存。
+-- ---------------------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('user-assets', 'user-assets', true)
+on conflict (id) do update set public = true;
+
+drop policy if exists "user-assets: public read" on storage.objects;
+create policy "user-assets: public read"
+  on storage.objects
+  for select
+  using (bucket_id = 'user-assets');
+
+drop policy if exists "user-assets: owner insert" on storage.objects;
+create policy "user-assets: owner insert"
+  on storage.objects
+  for insert
+  to authenticated
+  with check (
+    bucket_id = 'user-assets'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "user-assets: owner update" on storage.objects;
+create policy "user-assets: owner update"
+  on storage.objects
+  for update
+  to authenticated
+  using (
+    bucket_id = 'user-assets'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  )
+  with check (
+    bucket_id = 'user-assets'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "user-assets: owner delete" on storage.objects;
+create policy "user-assets: owner delete"
+  on storage.objects
+  for delete
+  to authenticated
+  using (
+    bucket_id = 'user-assets'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+-- ============================================================================
 -- 自检（跑完这一段直接在下方 Results 里看结果）
 --   期望值：todos_table=1 · rls_enabled=true · todo_policies=1
 --           avatar_bucket=1 · avatar_policies=4 · anon_can_read=false
+--           settings_table=1 · settings_rls=true · settings_policies=1 · anon_can_read_settings=false
+--           asset_bucket=1 · asset_policies=4
 --   任何一项不对就说明脚本没跑完（常见：只选中了前面一部分就点 Run）
 -- ============================================================================
 select
@@ -144,7 +240,19 @@ select
      where schemaname = 'storage' and tablename = 'objects'
        and policyname like 'avatars:%') as avatar_policies,
   -- 未登录角色应当连表权限都没有（revoke 生效）
-  has_table_privilege('anon', 'public.todos', 'select') as anon_can_read;
+  has_table_privilege('anon', 'public.todos', 'select') as anon_can_read,
+  -- 第九阶段
+  (select count(*) from information_schema.tables
+     where table_schema = 'public' and table_name = 'user_settings') as settings_table,
+  (select relrowsecurity from pg_class
+     where oid = 'public.user_settings'::regclass) as settings_rls,
+  (select count(*) from pg_policies
+     where schemaname = 'public' and tablename = 'user_settings') as settings_policies,
+  has_table_privilege('anon', 'public.user_settings', 'select') as anon_can_read_settings,
+  (select count(*) from storage.buckets where id = 'user-assets') as asset_bucket,
+  (select count(*) from pg_policies
+     where schemaname = 'storage' and tablename = 'objects'
+       and policyname like 'user-assets:%') as asset_policies;
 
 -- ============================================================================
 -- 第六阶段 6.5 · 提醒体系：**不需要改表**
@@ -242,4 +350,17 @@ select
 --
 -- -- 运行记录（排查「到底跑没跑」）
 -- -- select * from cron.job_run_details order by start_time desc limit 20;
+
+-- ============================================================================
+-- 第九阶段 · 刻意**不上云**的数据（不是漏了，是设计）
+--
+-- 前端把这些键留在本机（见 src/types/settings.ts 的 SYNCED_KEYS / LOCAL_ONLY_KEYS）：
+--   · 用户级凭证：AI Key（BYOK）、WxPusher UID —— 进了数据库就等于多一份泄露面，
+--     而它们的价值只在「这台设备要用」，换设备重填一次即可
+--   · 设备相关：定位记忆 / 定位被拒标记 / 天气缓存（移动端与桌面端本来就在不同城市）、
+--     已通知标记（若同步，另一台设备该提醒时会被标成"已提醒"而静默不响）
+--   · 界面细节：侧边栏折叠状态（跟着屏幕尺寸走，与账号无关）
+--
+-- 也就是说：**任务 + 偏好 + 壁纸**三样跟账号走，凭证与设备状态各留各的。
+-- ============================================================================
 

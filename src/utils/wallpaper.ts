@@ -13,15 +13,21 @@ import { formatBytes } from '@/utils/avatarImage'
 /** 壁纸类型：关闭 / 纯色 / 渐变 / 本地图片 */
 export type WallpaperKind = 'none' | 'solid' | 'gradient' | 'image'
 
-/** 壁纸配置（可整份序列化进 localStorage，所以这里不存图片本体，只存 IndexedDB 的键） */
+/** 壁纸配置（可整份序列化进 localStorage，所以这里不存图片本体，只存地址/键） */
 export interface WallpaperConfig {
   kind: WallpaperKind
   /** solid 用 */
   color: string
   /** gradient 用（CSS 渐变串） */
   gradient: string
-  /** image 用：IndexedDB 里的键 */
+  /** image 用：IndexedDB 里的键（本机离线副本） */
   imageKey?: string
+  /**
+   * image 用：云端公开地址（Supabase Storage，第九阶段）。
+   * 与 imageKey 是**两条来源**，不是互斥：登录后地址跟着账号走，
+   * 未登录/离线时靠本机 blob。展示优先用地址（任意设备都成立）。
+   */
+  imageUrl?: string
 }
 
 /** 单个预设色块/渐变（label 只用于无障碍与 tooltip） */
