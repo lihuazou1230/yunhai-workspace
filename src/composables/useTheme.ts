@@ -2,7 +2,8 @@
  * 主题组合式函数：应用 html.dark、监听系统深色偏好、生成 CSS 变量。
  * - 深色类挂 html（Tailwind darkMode: 'class' + Element Plus dark 共用）
  * - systemDark 通过 matchMedia 同步到 themeStore
- * - themeVars 供根节点绑 style，驱动 Element Plus 主题色/圆角
+ * - themeVars 生成 Element Plus 主题色/圆角变量，并**直接写到 `<html>` 上**
+ *   （teleport 到 body 的弹窗/下拉要能继承，挂在组件节点上它们拿不到）
  */
 
 import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
@@ -80,6 +81,27 @@ export function useTheme() {
       '--app-radius': `${store.radiusPx}px`,
     }
   })
+
+  /**
+   * 变量写到 **`<html>`** 上，而不是某个组件节点。
+   *
+   * 为什么必须这样：Element Plus 的弹窗/下拉/日期面板会 teleport 到 `body` 下，
+   * 它们不在 App 根节点的子树里，**继承不到**挂在根 div 上的 CSS 变量 ——
+   * 于是用户把主题色改成 lavender 后，页面里的按钮是 lavender，
+   * 弹窗里的按钮却回退成静态兜底的 emerald（圆角同理）。
+   *
+   * 顺带解决了优先级：内联在 `<html>` 上的值优先于任何样式表规则，
+   * 所以它既能压过 element-theme.css 的静态基准，也能压过
+   * `element-plus/theme-chalk/dark/css-vars.css` 里 `html.dark{--el-color-primary:...}`。
+   */
+  function applyThemeVars(vars: Record<string, string>) {
+    if (typeof document === 'undefined') return
+    const root = document.documentElement
+    for (const [key, value] of Object.entries(vars)) root.style.setProperty(key, value)
+  }
+
+  // immediate：首帧就要生效，不然会先闪一下静态兜底色
+  watch(themeVars, (vars) => applyThemeVars(vars), { immediate: true })
 
   return { store, isDark: computed(() => store.isDark), toggleDark, themeVars }
 }

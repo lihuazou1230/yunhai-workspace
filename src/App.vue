@@ -26,7 +26,8 @@ import { useSyncNotifications } from '@/composables/useSyncNotifications'
 import { defaultDensity, isExternalHttpUrl, isTauri, openExternal } from '@/utils/platform'
 
 const themeStore = useThemeStore()
-const { themeVars } = useTheme()
+// 主题：深色类、系统偏好监听，以及运行时 CSS 变量（变量直接写到 <html> 上，见 useTheme）
+useTheme()
 
 const authStore = useAuthStore()
 const todoStore = useTodoStore()
@@ -113,7 +114,7 @@ useEventListener(document, 'click', onDocumentClick)
       <TitleBar v-if="desktop" />
       <!-- 壁纸铺在根容器上：卡片是不透明白底，所以不影响内容可读性 -->
       <div
-        :style="{ ...themeVars, ...wallpaperStore.style }"
+        :style="wallpaperStore.style"
         class="min-h-0 flex-1 bg-cover bg-fixed bg-center"
         data-testid="app-root"
       >

@@ -7,6 +7,12 @@ import { useAuthStore } from './stores/authStore'
 import '@/assets/styles/main.css'
 import '@/assets/styles/element-theme.css'
 import '@/assets/styles/custom.css'
+// Element Plus 的深色令牌（html.dark 下的 --el-bg-color/--el-text-color 等）。
+// 少了这一句，html.dark 只切到了 Tailwind 那一半：弹窗、下拉、日期面板、
+// el-switch、ElMessage 全都还是浅色 —— 深色页面里嵌一片白。
+// 它会给 html.dark 设 --el-color-primary，但 useTheme 把运行时主题色内联在
+// <html> 上，内联优先于样式表，所以用户自定义的主色仍然胜出。
+import 'element-plus/theme-chalk/dark/css-vars.css'
 
 async function bootstrap() {
   const app = createApp(App)
