@@ -37,6 +37,7 @@ import {
   unarchiveTodo,
   unsnoozeTodo,
 } from '@/utils/tagHelper'
+import { normalizeTodos } from '@/utils/todoNormalize'
 
 export const TODO_STORAGE_KEY = 'smart-workspace:todos'
 
@@ -54,8 +55,13 @@ function createId(): string {
 
 export const useTodoStore = defineStore('todo', () => {
   // ---- 持久化状态 ----
-  /** 完整任务列表；软删除期间不落盘，真正删除（commitDelete）才写入 */
-  const todos = useLocalStorage<Todo[]>(TODO_STORAGE_KEY, [])
+  /**
+   * 完整任务列表；软删除期间不落盘，真正删除（commitDelete）才写入。
+   *
+   * 第 4 个参数是**归一化**：存储里的值不可信（手改过、或来自只含 6 个字段的旧版本），
+   * 而下面 `liveTodos` 直接 `.filter(...)` —— 少了它，一条 `'{"a":1}'` 就能让任务页白屏。
+   */
+  const todos = useLocalStorage<Todo[]>(TODO_STORAGE_KEY, [], undefined, normalizeTodos)
 
   // ---- 运行时状态（不持久化） ----
   /** 当前筛选视图（默认进行中；运行时，进入页面即重置为进行中） */

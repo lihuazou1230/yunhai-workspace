@@ -32,6 +32,65 @@ describe('todoStore', () => {
     expect(store.totalCount).toBe(1)
   })
 
+  /**
+   * 本地存储是「不可信输入」：用户可以手改，也可能残留旧版本格式。
+   * 回归的是这条高危：`liveTodos` 直接 `todos.value.filter(...)`，
+   * 只要解析出来的不是数组就会在渲染期抛 TypeError —— 任务页白屏，刷新也一样。
+   */
+  describe('本地存储脏数据', () => {
+    it('存储不是数组时按空列表处理，不抛错', () => {
+      localStorage.setItem(TODO_STORAGE_KEY, '{"a":1}')
+
+      const store = useTodoStore()
+
+      expect(store.filteredTodos).toEqual([])
+      expect(store.totalCount).toBe(0)
+    })
+
+    it("存储是字面量 'null' 时不抛错", () => {
+      localStorage.setItem(TODO_STORAGE_KEY, 'null')
+
+      const store = useTodoStore()
+
+      expect(store.filteredTodos).toEqual([])
+    })
+
+    it('旧版本缺字段的记录被补齐（否则 TodoItem 读 subtasks/tags 会炸）', () => {
+      // 第 1 阶段的 Todo 只有 id/title/status/priority/dueDate/createdAt
+      localStorage.setItem(
+        TODO_STORAGE_KEY,
+        JSON.stringify([
+          {
+            id: 'old-1',
+            title: '旧任务',
+            status: 'active',
+            priority: 'medium',
+            createdAt: '2026-09-01T00:00:00.000Z',
+          },
+        ]),
+      )
+
+      const store = useTodoStore()
+      const [todo] = store.filteredTodos
+
+      expect(todo.title).toBe('旧任务')
+      expect(todo.subtasks).toEqual([])
+      expect(todo.tags).toEqual([])
+      expect(todo.pinned).toBe(false)
+    })
+
+    it('没有 id 的垃圾记录被丢掉，合法记录保留', () => {
+      localStorage.setItem(
+        TODO_STORAGE_KEY,
+        JSON.stringify([{ title: '垃圾' }, { id: 'ok', title: '好的' }]),
+      )
+
+      const store = useTodoStore()
+
+      expect(store.filteredTodos.map((t) => t.id)).toEqual(['ok'])
+    })
+  })
+
   it('updateTodo 合并部分字段', () => {
     const store = useTodoStore()
     const { a } = seedTodos()
