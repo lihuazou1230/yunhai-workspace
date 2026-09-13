@@ -250,6 +250,61 @@ describe('TodoItem', () => {
     expect(snooze?.[1]).toBe(addDays(today, 1))
   })
 
+  /**
+   * 回归：选项曾是零依赖 computed，首帧求值后被永久缓存 ——
+   * 页面开着过了零点再点「明天」，写入的仍是昨天算出的那个日期（= 今天），
+   * 而 `isSnoozed` 要求严格晚于今天，于是任务不隐藏、计数不变，
+   * 用户看到的是「点了没反应」，界面上却已经显示「💤 隐藏至 X」。
+   */
+  it('跨零点后「明天」跟着走（选项在展开时现算，不是首帧缓存）', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 8, 15, 23, 59)) // 9/15 23:59
+    const wrapper = mount(TodoItem, { props: { todo: makeTodo({ id: '1', title: '写周报' }) } })
+
+    // 第一次展开：选项在这一刻算出来（旧实现就此把 9/16 缓存住）
+    await wrapper.find('[data-testid="todo-more"]').trigger('click')
+    await wrapper.find('[data-testid="todo-snooze"]').trigger('click')
+    expect(wrapper.find('[data-testid="todo-snooze-tomorrow"]').text()).toContain('09-16')
+    await wrapper.find('[data-testid="todo-snooze"]').trigger('click') // 收起
+
+    vi.setSystemTime(new Date(2026, 8, 16, 0, 1)) // 过了零点
+
+    // 再展开：必须给出相对「新的今天」的明天 = 9/17
+    await wrapper.find('[data-testid="todo-snooze"]').trigger('click')
+    expect(wrapper.find('[data-testid="todo-snooze-tomorrow"]').text()).toContain('09-17')
+    await wrapper.find('[data-testid="todo-snooze-tomorrow"]').trigger('click')
+    expect(wrapper.emitted('snooze')?.[0]).toEqual(['1', '2026-09-17'])
+
+    vi.useRealTimers()
+  })
+
+  it('选了今天/过去的日期不发事件（那不是有效的 snooze，只会让任务不隐藏）', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 8, 15, 10, 0))
+    const wrapper = mount(TodoItem, { props: { todo: makeTodo({ id: '1', title: '写周报' }) } })
+
+    await wrapper.find('[data-testid="todo-more"]').trigger('click')
+    await wrapper.find('[data-testid="todo-snooze"]').trigger('click')
+
+    const input = wrapper.find('input[aria-label="自定义稍后再做日期"]')
+    // 日期选择器也给了 min=今天 的下限
+    expect(input.attributes('min')).toBe('2026-09-15')
+
+    await input.setValue('2026-09-15') // 今天
+    await wrapper.find('[data-testid="todo-snooze-custom-confirm"]').trigger('click')
+    expect(wrapper.emitted('snooze')).toBeUndefined()
+
+    await input.setValue('2026-09-14') // 过去
+    await wrapper.find('[data-testid="todo-snooze-custom-confirm"]').trigger('click')
+    expect(wrapper.emitted('snooze')).toBeUndefined()
+
+    await input.setValue('2026-09-16') // 明天可用
+    await wrapper.find('[data-testid="todo-snooze-custom-confirm"]').trigger('click')
+    expect(wrapper.emitted('snooze')?.[0]).toEqual(['1', '2026-09-16'])
+
+    vi.useRealTimers()
+  })
+
   it('稍后再做支持自定义日期，非法日期不发事件', async () => {
     const wrapper = mount(TodoItem, { props: { todo: makeTodo({ id: '1', title: '写周报' }) } })
 

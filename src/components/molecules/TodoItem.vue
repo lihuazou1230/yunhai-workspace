@@ -23,7 +23,7 @@ import { onClickOutside } from '@vueuse/core'
 import type { Todo, TodoListView } from '@/types/todo'
 import type { Tag } from '@/types/tag'
 import { TAG_COLOR_DOT, TAG_COLOR_TEXT } from '@/types/tag'
-import { formatDueLabel, isOverdue, isToday } from '@/utils/dateFormatter'
+import { formatDueLabel, isOverdue, isToday, todayKey } from '@/utils/dateFormatter'
 import { isValidDateKey } from '@/utils/validation'
 import { priorityLabel } from '@/utils/priorityHelper'
 import { formatReminderTime } from '@/utils/reminderSchedule'
@@ -277,7 +277,20 @@ const menuOpen = ref(false)
 /** 「稍后再做」子菜单（明天 / 后天 / 下周一 / 自定义） */
 const snoozeOpen = ref(false)
 const customSnoozeDate = ref('')
-const quickSnoozeOptions = computed(() => snoozeOptions())
+const quickSnoozeOptions = ref(snoozeOptions())
+
+/**
+ * 展开「稍后再做」时**现算**一次选项。
+ *
+ * 以前是 `computed(() => snoozeOptions())`：它没有任何响应式依赖，
+ * 首帧求值后会被永久缓存 —— 页面开着过了零点再点「明天」，写入的仍是
+ * **昨天算出来的"明天"**（也就是今天）。而 `isSnoozed` 要求严格晚于今天，
+ * 于是任务不隐藏、计数不变，用户看到的就是「点了没反应」。
+ */
+function toggleSnoozeMenu() {
+  snoozeOpen.value = !snoozeOpen.value
+  if (snoozeOpen.value) quickSnoozeOptions.value = snoozeOptions()
+}
 
 onClickOutside(menuRef, () => {
   menuOpen.value = false
@@ -311,7 +324,10 @@ function onAiBreakdown() {
 }
 
 function onSnooze(until: string) {
-  if (!isValidDateKey(until)) return
+  // 必须合法且**严格晚于今天**：`isSnoozed` 用的就是 `> 今天` 的判定，
+  // 选了今天或更早的日期只会「看起来点了没反应」（任务不隐藏、隐藏计数不变），
+  // 而界面上却已经显示「💤 隐藏至 X」，自相矛盾。
+  if (!isValidDateKey(until) || until <= todayKey()) return
   menuOpen.value = false
   snoozeOpen.value = false
   customSnoozeDate.value = ''
@@ -711,7 +727,7 @@ function onPurge() {
               role="menuitem"
               class="w-full rounded-lg px-2 py-1.5 text-left text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
               data-testid="todo-snooze"
-              @click="snoozeOpen = !snoozeOpen"
+              @click="toggleSnoozeMenu"
             >
               💤 稍后再做
             </button>
@@ -746,6 +762,7 @@ function onPurge() {
                   v-model="customSnoozeDate"
                   type="date"
                   aria-label="自定义稍后再做日期"
+                  :min="todayKey()"
                   class="w-full rounded-md border border-slate-200 bg-transparent px-1.5 py-1 text-[11px] outline-none dark:border-slate-600"
                 />
                 <button
