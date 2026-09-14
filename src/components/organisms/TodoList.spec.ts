@@ -3,6 +3,7 @@ import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { mount } from '@vue/test-utils'
+import Sortable from 'sortablejs'
 
 import { useTodoStore } from '@/stores/todoStore'
 import { toDateKey, todayKey } from '@/utils/dateFormatter'
@@ -71,6 +72,20 @@ describe('TodoList', () => {
       .join(' | ')
     expect(liText).toContain('任务甲')
     expect(liText).toContain('任务乙')
+  })
+
+  it('拖拽走 SortableJS 的 fallback 模式（Tauri 窗口里原生 HTML5 拖放会被系统级 drag-drop 吃掉）', async () => {
+    const { wrapper, store } = await mountWithStore()
+    store.addTodo({ title: '任务甲', priority: 'high' })
+    store.addTodo({ title: '任务乙', priority: 'low' })
+    await nextTick()
+
+    const instance = Sortable.get(wrapper.find('ul').element as HTMLElement)
+    expect(instance).toBeDefined()
+    expect(instance?.options.forceFallback).toBe(true)
+    expect(instance?.options.fallbackOnBody).toBe(true)
+    // 列表依旧只认把手，避免与行内按钮/子任务输入框抢事件
+    expect(instance?.options.handle).toBe('.drag-handle')
   })
 
   it('新建任务从左滑入（anim-enter-left）', async () => {

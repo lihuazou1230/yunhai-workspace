@@ -26,6 +26,7 @@ import type { SortableEvent } from 'sortablejs'
 
 import BaseBadge from '@/components/atoms/BaseBadge.vue'
 import BaseButton from '@/components/atoms/BaseButton.vue'
+import UiIcon from '@/components/atoms/UiIcon.vue'
 import CountdownCard from '@/components/organisms/CountdownCard.vue'
 import DailyGreeting from '@/components/organisms/DailyGreeting.vue'
 import EarningsClock from '@/components/organisms/EarningsClock.vue'
@@ -54,7 +55,7 @@ const gridRef = ref<HTMLElement | null>(null)
 
 /** 卡片标题（编辑模式的工具条与「已隐藏」列表用） */
 const CARD_TITLES: Record<DashboardCardId, string> = {
-  earnings: '赚钱秒表',
+  earnings: 'PayDance',
   'today-progress': '今日完成度',
   weather: '天气',
   'mini-calendar': '迷你月历',
@@ -252,29 +253,37 @@ function onPickDate(dateKey: string) {
 </script>
 
 <template>
-  <div class="space-y-5">
-    <!-- 页头：问候 + 日期 ｜ 格言（合并进页头，不单独占卡） -->
-    <DailyGreeting />
+  <div class="space-y-6">
+    <!--
+      页头 = 问候 + 格言 + 当前时间（DailyGreeting），右侧只挂一个「编辑布局」入口。
+      刻意**没有「今日概览」这样的眉标标题**：页头已经承担了定位，卡片标题各自说明内容，
+      再加一行小字只是把视觉重量从真正的信息上分走（原来那一行的作用只剩下承载按钮）。
+    -->
+    <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+      <DailyGreeting class="min-w-0 flex-1" />
 
-    <!-- 布局工具条 -->
-    <div class="flex flex-wrap items-center gap-2">
-      <h2 class="text-sm font-semibold text-slate-500 dark:text-slate-400">今日概览</h2>
+      <BaseButton
+        v-if="!editing"
+        size="sm"
+        variant="ghost"
+        class="shrink-0 text-slate-500 dark:text-slate-400"
+        data-testid="dashboard-edit-layout"
+        @click="startEditing"
+      >
+        <UiIcon name="pencil" class="h-4 w-4" />
+        编辑布局
+      </BaseButton>
+    </div>
 
-      <template v-if="!editing">
-        <BaseButton
-          size="sm"
-          variant="secondary"
-          data-testid="dashboard-edit-layout"
-          @click="startEditing"
-        >
-          ⚙ 编辑布局
-        </BaseButton>
-      </template>
-
-      <template v-else>
-        <span class="text-xs text-slate-400 dark:text-slate-500">
-          按住卡片任意位置拖动换位 · 可隐藏或调整大小
-        </span>
+    <!-- 编辑模式工具条：只在编辑态出现，占据一行说明 + 两个出口动作 -->
+    <div
+      v-if="editing"
+      class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl bg-slate-100 px-3 py-2 dark:bg-slate-800/70"
+    >
+      <p class="text-xs text-slate-500 dark:text-slate-400">
+        按住卡片任意位置拖动换位 · 可隐藏或调整大小
+      </p>
+      <div class="ml-auto flex items-center gap-2">
         <BaseButton
           size="sm"
           variant="secondary"
@@ -291,26 +300,26 @@ function onPickDate(dateKey: string) {
         >
           完成
         </BaseButton>
-      </template>
+      </div>
+    </div>
 
-      <!-- 已隐藏的卡片：编辑态下可一键放回 -->
-      <span
-        v-if="editing && hiddenCards.length > 0"
-        class="flex flex-wrap items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500"
-        data-testid="dashboard-hidden-cards"
+    <!-- 编辑态下把已隐藏的卡片放回来（没有隐藏卡片时整行不渲染） -->
+    <div
+      v-if="editing && hiddenCards.length > 0"
+      class="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400"
+      data-testid="dashboard-hidden-cards"
+    >
+      <span>已隐藏：</span>
+      <button
+        v-for="id in hiddenCards"
+        :key="id"
+        type="button"
+        class="rounded-full border border-slate-200 px-2 py-0.5 text-slate-500 transition-colors hover:border-[var(--el-color-primary-light-5)] hover:text-[var(--el-color-primary)] dark:border-slate-600 dark:text-slate-400"
+        :data-testid="`dashboard-restore-${id}`"
+        @click="dash.toggleHidden(id)"
       >
-        已隐藏：
-        <button
-          v-for="id in hiddenCards"
-          :key="id"
-          type="button"
-          class="rounded-full border border-slate-200 px-2 py-0.5 text-slate-500 transition-colors hover:border-[var(--el-color-primary-light-5)] hover:text-[var(--el-color-primary)] dark:border-slate-600 dark:text-slate-400"
-          :data-testid="`dashboard-restore-${id}`"
-          @click="dash.toggleHidden(id)"
-        >
-          ＋ {{ CARD_TITLES[id] }}
-        </button>
-      </span>
+        ＋ {{ CARD_TITLES[id] }}
+      </button>
     </div>
 
     <!-- 卡片网格：默认三列 bento，自定义/编辑态切等槽 -->

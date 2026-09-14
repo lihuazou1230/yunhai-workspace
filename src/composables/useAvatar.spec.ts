@@ -10,7 +10,6 @@ import type { AuthResult, AuthUser, SignUpPayload } from '@/types/auth'
 const api = vi.hoisted(() => ({
   describeAuthError: vi.fn<(error: unknown) => string>(),
   getCurrentSessionUser: vi.fn<() => Promise<AuthUser | null>>(),
-  signInWithGitHub: vi.fn<(redirectTo?: string) => Promise<AuthResult>>(),
   signInWithPassword: vi.fn<(email: string, password: string) => Promise<AuthResult>>(),
   signOutUser: vi.fn<() => Promise<AuthResult>>(),
   signUpWithPassword: vi.fn<(payload: SignUpPayload) => Promise<AuthResult>>(),

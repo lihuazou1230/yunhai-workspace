@@ -1,5 +1,5 @@
 {
-  "name": "vue3-smart-workspace",
+  "name": "yunhai-workspace",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -11,6 +11,10 @@
     "dev:open": "vite --open",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
+    "desktop:build": "node scripts/desktop-build.mjs --verify",
+    "desktop:build:fast": "node scripts/desktop-build.mjs",
+    "desktop:build:kill": "node scripts/desktop-build.mjs --kill",
+    "deploy:package": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-deploy-package.ps1",
     "typecheck": "vue-tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",

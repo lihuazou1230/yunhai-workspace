@@ -59,7 +59,7 @@ describe('TitleBar', () => {
   it('渲染应用名、可拖拽区与三个窗口键', async () => {
     const wrapper = await mountBar()
 
-    expect(wrapper.text()).toContain('智能工作台')
+    expect(wrapper.text()).toContain('云海工作台')
     expect(wrapper.find('[data-testid="title-bar-drag-region"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="window-minimize"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="window-maximize"]').exists()).toBe(true)

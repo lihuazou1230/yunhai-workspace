@@ -5,12 +5,16 @@ import type { AuthResult, AuthUser, SignUpPayload } from '@/types/auth'
 
 /** 认证 API 全部换成桩：这一层只验证 store 的状态流转（按真实签名声明，便于断言调用参数） */
 const api = vi.hoisted(() => ({
+  consumeAuthRedirect: vi.fn<(url?: string) => Promise<AuthResult | null>>(),
   describeAuthError: vi.fn<(error: unknown) => string>(),
   getCurrentSessionUser: vi.fn<() => Promise<AuthUser | null>>(),
-  resendConfirmEmail: vi.fn<(email: string, redirectTo?: string) => Promise<AuthResult>>(),
-  sendPasswordReset: vi.fn<(email: string, redirectTo?: string) => Promise<AuthResult>>(),
+  resendConfirmEmail:
+    vi.fn<(email: string, redirectTo?: string, captchaToken?: string) => Promise<AuthResult>>(),
+  sendPasswordReset:
+    vi.fn<(email: string, redirectTo?: string, captchaToken?: string) => Promise<AuthResult>>(),
   signInWithGitHub: vi.fn<(redirectTo?: string) => Promise<AuthResult>>(),
-  signInWithPassword: vi.fn<(email: string, password: string) => Promise<AuthResult>>(),
+  signInWithPassword:
+    vi.fn<(email: string, password: string, captchaToken?: string) => Promise<AuthResult>>(),
   signOutUser: vi.fn<() => Promise<AuthResult>>(),
   signUpWithPassword: vi.fn<(payload: SignUpPayload) => Promise<AuthResult>>(),
   subscribeAuthChanges: vi.fn<(cb: (user: AuthUser | null) => void) => () => void>(),
@@ -41,6 +45,7 @@ describe('authStore', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     configured(true)
+    api.consumeAuthRedirect.mockResolvedValue(null)
     api.describeAuthError.mockImplementation((error) => `err:${String(error)}`)
     api.getCurrentSessionUser.mockResolvedValue(null)
     api.resendConfirmEmail.mockResolvedValue({
@@ -113,6 +118,41 @@ describe('authStore', () => {
     expect(store.initial).toBe('张三')
   })
 
+  it('邮件链接落地：先认领凭据再恢复会话（顺序反了会判成未登录，用户得手动登一次）', async () => {
+    api.consumeAuthRedirect.mockResolvedValue({ ok: true, message: '邮箱验证成功，已自动登录' })
+    api.getCurrentSessionUser.mockResolvedValue(SESSION_USER)
+
+    const store = useAuthStore()
+    await store.init()
+
+    expect(api.consumeAuthRedirect).toHaveBeenCalledTimes(1)
+    expect(store.isAuthed).toBe(true)
+    expect(store.redirectNotice?.message).toContain('已自动登录')
+    // 顺序：consumeAuthRedirect 的调用时刻必须早于 getSession
+    const redirectOrder = api.consumeAuthRedirect.mock.invocationCallOrder[0]
+    const sessionOrder = api.getCurrentSessionUser.mock.invocationCallOrder[0]
+    expect(redirectOrder).toBeLessThan(sessionOrder)
+  })
+
+  it('邮件链接失效：把原因记成可展示的提示，取一次就清掉', async () => {
+    api.consumeAuthRedirect.mockResolvedValue({ ok: false, message: '邮件链接已失效' })
+
+    const store = useAuthStore()
+    await store.init()
+
+    expect(store.takeRedirectNotice()?.message).toBe('邮件链接已失效')
+    expect(store.takeRedirectNotice()).toBeNull()
+    expect(store.lastError).toBe('邮件链接已失效')
+  })
+
+  it('本地模式不处理邮件链接（没有云配置就没有这回事）', async () => {
+    configured(false)
+    const store = useAuthStore()
+    await store.init()
+
+    expect(api.consumeAuthRedirect).not.toHaveBeenCalled()
+  })
+
   it('会话恢复失败时降级为未登录并记录原因，不抛错', async () => {
     api.getCurrentSessionUser.mockRejectedValue(new Error('network down'))
     const store = useAuthStore()
@@ -160,10 +200,14 @@ describe('authStore', () => {
     await store.init()
 
     api.getCurrentSessionUser.mockResolvedValue(SESSION_USER)
-    const result = await store.signIn(' zhang@example.com ', 'pw123456')
+    const result = await store.signIn(' zhang@example.com ', 'pw123456', 'turnstile-token')
 
     expect(result.ok).toBe(true)
-    expect(api.signInWithPassword).toHaveBeenCalledWith('zhang@example.com', 'pw123456')
+    expect(api.signInWithPassword).toHaveBeenCalledWith(
+      'zhang@example.com',
+      'pw123456',
+      'turnstile-token',
+    )
     expect(store.isAuthed).toBe(true)
   })
 
@@ -259,8 +303,12 @@ describe('authStore', () => {
     const store = useAuthStore()
     await store.init()
 
-    await store.resendConfirm('  zhang@example.com  ')
-    expect(api.resendConfirmEmail).toHaveBeenCalledWith('zhang@example.com')
+    await store.resendConfirm('  zhang@example.com  ', 'turnstile-token')
+    expect(api.resendConfirmEmail).toHaveBeenCalledWith(
+      'zhang@example.com',
+      undefined,
+      'turnstile-token',
+    )
 
     api.resendConfirmEmail.mockResolvedValue({ ok: false, message: '操作过于频繁，请稍后再试' })
     const result = await store.resendConfirm('zhang@example.com')
@@ -272,9 +320,13 @@ describe('authStore', () => {
     const store = useAuthStore()
     await store.init()
 
-    const result = await store.sendResetEmail('  zhang@example.com ')
+    const result = await store.sendResetEmail('  zhang@example.com ', 'turnstile-token')
     expect(result.ok).toBe(true)
-    expect(api.sendPasswordReset).toHaveBeenCalledWith('zhang@example.com')
+    expect(api.sendPasswordReset).toHaveBeenCalledWith(
+      'zhang@example.com',
+      undefined,
+      'turnstile-token',
+    )
 
     api.sendPasswordReset.mockResolvedValue({ ok: false, message: '重置密码邮件发送失败' })
     const failed = await store.sendResetEmail('zhang@example.com')

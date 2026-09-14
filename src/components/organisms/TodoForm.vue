@@ -155,28 +155,35 @@ defineExpose({
 
     <p v-if="error" class="text-xs text-rose-500" role="alert">{{ error }}</p>
 
-    <div class="flex flex-wrap items-center gap-4">
-      <fieldset class="flex items-center gap-1">
-        <legend class="sr-only">优先级</legend>
-        <BaseButton
-          v-for="p in priorityOptions"
-          :key="p"
-          size="sm"
-          :variant="priority === p ? 'primary' : 'secondary'"
-          type="button"
-          @click="priority = p"
-        >
-          {{ priorityLabel(p) }}
-        </BaseButton>
-      </fieldset>
+    <!--
+      字段行统一「左标签 + 右内容」两栏：标签固定 10（40px）宽，
+      各行左边缘因此对齐。原来优先级/标签/提醒三行的标签宽度各不相同，
+      chip 各自起跳，整块看起来是散的；而且 390px 宽时日期快捷键与截止日期会互相挤压换行。
+    -->
+    <div class="space-y-2.5">
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
+        <span class="w-10 shrink-0 text-xs text-slate-500 dark:text-slate-400">优先级</span>
+        <fieldset class="flex items-center gap-1">
+          <legend class="sr-only">优先级</legend>
+          <BaseButton
+            v-for="p in priorityOptions"
+            :key="p"
+            size="sm"
+            :variant="priority === p ? 'primary' : 'secondary'"
+            type="button"
+            @click="priority = p"
+          >
+            {{ priorityLabel(p) }}
+          </BaseButton>
+        </fieldset>
+      </div>
 
-      <div class="ml-auto flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-        <span class="flex items-center gap-1">
-          <BaseButton size="sm" variant="secondary" @click="shiftDue(1)">1天</BaseButton>
-          <BaseButton size="sm" variant="secondary" @click="shiftDue(7)">1周</BaseButton>
-          <BaseButton size="sm" variant="secondary" @click="shiftDue(0, 1)">1月</BaseButton>
-        </span>
-        <span>截止</span>
+      <!-- 截止日期：快捷键在前、日期选择器在后；窄屏各自换行时仍与上面几行左对齐 -->
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
+        <span class="w-10 shrink-0 text-xs text-slate-500 dark:text-slate-400">截止</span>
+        <BaseButton size="sm" variant="secondary" @click="shiftDue(1)">1 天</BaseButton>
+        <BaseButton size="sm" variant="secondary" @click="shiftDue(7)">1 周</BaseButton>
+        <BaseButton size="sm" variant="secondary" @click="shiftDue(0, 1)">1 月</BaseButton>
         <el-date-picker
           v-model="dueDate"
           type="date"
@@ -187,97 +194,101 @@ defineExpose({
           class="!w-40"
         />
       </div>
-    </div>
 
-    <!-- 标签：点选已有标签；没有合适的就地新建（8 色色板选色） -->
-    <div class="flex flex-wrap items-center gap-2 text-xs" data-testid="todo-form-tags">
-      <span class="text-slate-400 dark:text-slate-500">标签</span>
+      <!-- 标签：点选已有标签；没有合适的就地新建（8 色色板选色） -->
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-2" data-testid="todo-form-tags">
+        <span class="w-10 shrink-0 text-xs text-slate-500 dark:text-slate-400">标签</span>
 
-      <button
-        v-for="tag in tagStore.tags"
-        :key="tag.id"
-        type="button"
-        class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition-colors"
-        :class="
-          selectedTags.includes(tag.id)
-            ? 'border-[var(--el-color-primary)] bg-[var(--el-color-primary-light-9)] text-[var(--el-color-primary-dark-2)]'
-            : 'border-slate-200 text-slate-500 hover:border-slate-300 dark:border-slate-600 dark:text-slate-400'
-        "
-        :aria-pressed="selectedTags.includes(tag.id)"
-        @click="toggleTag(tag.id)"
-      >
-        <span class="h-2 w-2 rounded-full" :class="TAG_COLOR_DOT[tag.color]"></span>
-        {{ tag.name }}
-      </button>
-
-      <span v-if="!creatingTag">
-        <BaseButton
-          size="sm"
-          variant="ghost"
-          data-testid="todo-form-new-tag"
-          @click="creatingTag = true"
-        >
-          + 新标签
-        </BaseButton>
-      </span>
-
-      <span v-else class="flex flex-wrap items-center gap-1">
-        <input
-          v-model="newTagName"
-          type="text"
-          placeholder="标签名"
-          aria-label="新标签名"
-          class="w-24 rounded-md border border-slate-200 bg-transparent px-2 py-1 outline-none placeholder:text-slate-400 focus:border-[var(--el-color-primary)] dark:border-slate-600"
-          @keydown.enter.prevent="createTagInline"
-        />
         <button
-          v-for="color in colorPalette"
-          :key="color"
+          v-for="tag in tagStore.tags"
+          :key="tag.id"
           type="button"
-          class="h-4 w-4 rounded-full ring-offset-1 transition-all"
-          :class="[TAG_COLOR_DOT[color], newTagColor === color ? 'ring-2 ring-slate-400' : '']"
-          :aria-label="`选择${TAG_COLOR_LABEL[color]}色`"
-          :title="TAG_COLOR_LABEL[color]"
-          @click="newTagColor = color"
-        />
-        <BaseButton
-          size="sm"
-          variant="secondary"
-          :disabled="!canCreateTag"
-          data-testid="todo-form-create-tag"
-          @click="createTagInline"
+          class="inline-flex min-h-[28px] items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors"
+          :class="
+            selectedTags.includes(tag.id)
+              ? 'border-[var(--el-color-primary)] bg-[var(--el-color-primary-light-9)] text-[var(--el-color-primary-dark-2)]'
+              : 'border-slate-200 text-slate-500 hover:border-slate-300 dark:border-slate-600 dark:text-slate-400'
+          "
+          :aria-pressed="selectedTags.includes(tag.id)"
+          @click="toggleTag(tag.id)"
         >
-          创建
-        </BaseButton>
-        <BaseButton size="sm" variant="ghost" @click="creatingTag = false">取消</BaseButton>
-      </span>
-    </div>
+          <span class="h-2 w-2 rounded-full" :class="TAG_COLOR_DOT[tag.color]"></span>
+          {{ tag.name }}
+        </button>
 
-    <p v-if="tagError" class="text-xs text-rose-500" role="alert">{{ tagError }}</p>
+        <span v-if="!creatingTag">
+          <BaseButton
+            size="sm"
+            variant="ghost"
+            data-testid="todo-form-new-tag"
+            @click="creatingTag = true"
+          >
+            ＋ 新标签
+          </BaseButton>
+        </span>
 
-    <!-- 提醒：留空走默认策略（到期日 09:00），也可以指定具体时间或直接关掉 -->
-    <div class="flex flex-wrap items-center gap-2 text-xs" data-testid="todo-form-reminder">
-      <span class="text-slate-400 dark:text-slate-500">提醒</span>
-      <input
-        v-model="reminderLocal"
-        type="datetime-local"
-        aria-label="自定义提醒时间"
-        data-testid="todo-form-reminder-at"
-        :disabled="reminderOff"
-        class="rounded-md border border-slate-200 bg-transparent px-2 py-1 text-xs text-slate-600 outline-none focus:border-[var(--el-color-primary)] disabled:opacity-40 dark:border-slate-600 dark:text-slate-300"
-      />
-      <label class="flex items-center gap-1 text-slate-500 dark:text-slate-400">
+        <span v-else class="flex flex-wrap items-center gap-1">
+          <input
+            v-model="newTagName"
+            type="text"
+            placeholder="标签名"
+            aria-label="新标签名"
+            class="w-24 rounded-md border border-slate-200 bg-transparent px-2 py-1 text-xs outline-none placeholder:text-slate-400 focus:border-[var(--el-color-primary)] dark:border-slate-600"
+            @keydown.enter.prevent="createTagInline"
+          />
+          <button
+            v-for="color in colorPalette"
+            :key="color"
+            type="button"
+            class="h-4 w-4 rounded-full ring-offset-1 transition-all"
+            :class="[TAG_COLOR_DOT[color], newTagColor === color ? 'ring-2 ring-slate-400' : '']"
+            :aria-label="`选择${TAG_COLOR_LABEL[color]}色`"
+            :title="TAG_COLOR_LABEL[color]"
+            @click="newTagColor = color"
+          />
+          <BaseButton
+            size="sm"
+            variant="secondary"
+            :disabled="!canCreateTag"
+            data-testid="todo-form-create-tag"
+            @click="createTagInline"
+          >
+            创建
+          </BaseButton>
+          <BaseButton size="sm" variant="ghost" @click="creatingTag = false">取消</BaseButton>
+        </span>
+      </div>
+
+      <p v-if="tagError" class="text-xs text-rose-500" role="alert">{{ tagError }}</p>
+
+      <!--
+        提醒：留空走默认策略（到期日 09:00），也可以指定具体时间或直接关掉。
+        默认策略的说明独占一行——原来它跟在「不提醒」后面，
+        窄屏换行后看起来像属于「不提醒」这个勾选项。
+      -->
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-2" data-testid="todo-form-reminder">
+        <span class="w-10 shrink-0 text-xs text-slate-500 dark:text-slate-400">提醒</span>
         <input
-          v-model="reminderOff"
-          type="checkbox"
-          class="h-3.5 w-3.5 accent-[var(--el-color-primary)]"
-          data-testid="todo-form-reminder-off"
+          v-model="reminderLocal"
+          type="datetime-local"
+          aria-label="自定义提醒时间"
+          data-testid="todo-form-reminder-at"
+          :disabled="reminderOff"
+          class="rounded-md border border-slate-200 bg-transparent px-2 py-1 text-xs text-slate-600 outline-none transition-colors focus:border-[var(--el-color-primary)] disabled:opacity-40 dark:border-slate-600 dark:text-slate-300"
         />
-        不提醒
-      </label>
-      <span class="text-slate-400 dark:text-slate-500">
-        {{ reminderOff ? '这条任务不会打扰你' : defaultReminderHint }}
-      </span>
+        <label class="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+          <input
+            v-model="reminderOff"
+            type="checkbox"
+            class="h-3.5 w-3.5 accent-[var(--el-color-primary)]"
+            data-testid="todo-form-reminder-off"
+          />
+          不提醒
+        </label>
+        <span class="w-full text-xs text-slate-500 dark:text-slate-400">
+          {{ reminderOff ? '这条任务不会打扰你' : defaultReminderHint }}
+        </span>
+      </div>
     </div>
   </form>
 </template>

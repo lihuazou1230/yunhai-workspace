@@ -7,26 +7,28 @@
  * - 注册：昵称（可空）+ 邮箱 + 密码 + 确认密码
  * - GitHub OAuth：一键跳转授权，回跳后由 supabase-js 自动换会话
  *
- * 两个设计决策：
- * 1. **校验全用纯函数**（utils/validation）：逻辑可单测，组件只负责把错误显示出来
+ * 三个设计决策：
+ * 1. **校验全用纯函数**（utils/validation 管形状、utils/auth 管密码强度）：逻辑可单测，组件只负责把错误显示出来
  * 2. **未配置 Supabase 时给配置引导 + 「以本地模式进入」**：
  *    没有云配置就永远登不进去，不能让用户卡死在这个页面
+ * 3. **注册卡两道安全闸**（都卡在"发确认邮件之前"）：密码复杂度（本地实时提示）
+ *    + Cloudflare Turnstile（服务端核验）。两道闸都在提交前置灰按钮并说明缺什么，
+ *    而不是提交后甩一句服务端英文报错
  */
 
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import BaseButton from '@/components/atoms/BaseButton.vue'
 import BaseInput from '@/components/atoms/BaseInput.vue'
+import PasswordStrengthMeter from '@/components/atoms/PasswordStrengthMeter.vue'
+import TurnstileCaptcha from '@/components/atoms/TurnstileCaptcha.vue'
 import { useAuthStore } from '@/stores/authStore'
-import { SUPABASE_SETUP_HINT, checkSupabaseConnection, fetchAuthProviders } from '@/api/supabase'
-import type { ConnectionCheck } from '@/api/supabase'
-import {
-  validateDisplayName,
-  validateEmail,
-  validatePassword,
-  validatePasswordConfirm,
-} from '@/utils/validation'
+import { SUPABASE_SETUP_HINT, fetchAuthProviders } from '@/api/supabase'
+import { isTurnstileEnabled } from '@/composables/useTurnstile'
+import type { TurnstileStatus } from '@/composables/useTurnstile'
+import { validateLoginPassword, validatePassword } from '@/utils/auth'
+import { validateDisplayName, validateEmail, validatePasswordConfirm } from '@/utils/validation'
 import { parseRedirect } from '@/router/authGuard'
 
 const route = useRoute()
@@ -44,6 +46,43 @@ const displayName = ref('')
 const submitting = ref(false)
 const formErrors = ref<Record<string, string>>({})
 const feedback = ref<{ ok: boolean; message: string } | null>(null)
+
+/**
+ * Turnstile 人机验证（三个 Tab 都要）：
+ * - `captchaToken`：一次性 token，提交时带上（v-model 由子组件播上来）
+ * - `captchaStatus`：状态机，用来决定提交按钮是否置灰
+ *
+ * ⚠️ Supabase 的 Captcha 是**全局开关**：打开后不只注册，
+ * **登录（/token）、忘记密码（/recover）、重发验证邮件（/resend）** 都会要求 token——
+ * 只在注册页放验证码，一开开关就会登不进去。所以这里三条链路共用同一个 widget。
+ *
+ * 未配置 siteKey（`captchaEnabled === false`）时不拦任何操作：本地开发或还没申请站点时
+ * 不该把登录锁死——服务端没开 Captcha 校验时本来也不会拦。
+ */
+const captchaEnabled = isTurnstileEnabled()
+const captchaToken = ref('')
+const captchaStatus = ref<TurnstileStatus>(captchaEnabled ? 'idle' : 'disabled')
+const captchaRef = ref<InstanceType<typeof TurnstileCaptcha> | null>(null)
+/** 需要拦提交：配了验证码但还没通过（含加载失败——不放行正是因为不能绕过服务端核验） */
+const captchaBlocked = computed(() => captchaEnabled && captchaStatus.value !== 'passed')
+
+function onCaptchaStatus(status: TurnstileStatus) {
+  captchaStatus.value = status
+}
+
+/** 注册用的密码是否达标（强度条已逐条列出缺什么） */
+const passwordStrong = computed(() => validatePassword(password.value).valid)
+
+/**
+ * 提交按钮置灰条件：人机验证没过 / 注册密码不达标 / 忘记密码还在冷却。
+ * 置灰而不是提交后再报错，是为了让"差什么"停在用户顺手能看到的位置。
+ */
+const submitBlocked = computed(() => {
+  if (captchaBlocked.value) return true
+  if (tab.value === 'signUp') return !passwordStrong.value
+  if (tab.value === 'reset') return resendCooldown.value > 0
+  return false
+})
 
 /**
  * 等待邮箱验证的那个邮箱地址（注册成功后需要去邮箱确认时设置）。
@@ -74,11 +113,16 @@ async function resendConfirm() {
   if (resendCooldown.value > 0 || !pendingConfirmEmail.value) return
   submitting.value = true
   try {
-    const result = await authStore.resendConfirm(pendingConfirmEmail.value)
+    const result = await authStore.resendConfirm(
+      pendingConfirmEmail.value,
+      captchaToken.value || undefined,
+    )
     feedback.value = { ok: result.ok, message: result.message }
     if (result.ok) startResendCooldown(60)
   } finally {
     submitting.value = false
+    // 任何一次提交都会花掉一次性 token，重发同样要重新取
+    captchaRef.value?.reset()
   }
 }
 
@@ -93,6 +137,9 @@ function switchTab(next: Tab) {
   // 切走就清掉上一种模式留下的提示，避免「注册待验证」面板出现在忘记密码页
   pendingConfirmEmail.value = ''
   resetSentTo.value = ''
+  // 注意：**不重置验证码**。widget 挂在三个 Tab 之外、始终是同一个实例，
+  // 拿到的一次性 token 对登录/注册/忘记密码三条链路都有效（消费掉才失效），
+  // 切 Tab 就丢弃只会让用户白白再等一次校验。
 }
 
 /** 表单校验（纯函数），返回是否通过 */
@@ -102,16 +149,32 @@ function validateForm(): boolean {
   const emailCheck = validateEmail(email.value)
   if (!emailCheck.valid) errors.email = emailCheck.message ?? '邮箱格式不正确'
 
+  // 人机验证对三个 Tab 都要：服务端开了 Captcha，登录/忘记密码/重发也一样要求 token
+  if (captchaBlocked.value) errors.captcha = '请先完成人机验证'
+
   // 忘记密码只需要邮箱（此时还没有密码可校验）
   if (tab.value === 'reset') {
     formErrors.value = errors
     return Object.keys(errors).length === 0
   }
 
-  const passwordCheck = validatePassword(password.value)
-  if (!passwordCheck.valid) errors.password = passwordCheck.message ?? '密码不符合要求'
+  if (tab.value === 'signIn') {
+    /**
+     * 登录只查非空：复杂度规则是本期才加的，老账号未必合规，
+     * 而服务端才是权威——前端按新规则拦下来只会让用户连登录都做不到，
+     * 看到的还不是真实原因（真实原因只能是「密码不对」）。
+     */
+    const loginCheck = validateLoginPassword(password.value)
+    if (!loginCheck.valid) errors.password = loginCheck.message ?? '请输入密码'
+  } else {
+    /**
+     * 注册：硬性规则一条不落。
+     * 按钮虽然已置灰，但**回车照样会触发 form submit**，所以这里必须再拦一次；
+     * 报错只取第一条（强度条已经把"缺什么"逐条列在输入框下方，不重复念一遍）。
+     */
+    const strength = validatePassword(password.value)
+    if (!strength.valid) errors.password = strength.errors[0] ?? '密码不符合要求'
 
-  if (tab.value === 'signUp') {
     const nameCheck = validateDisplayName(displayName.value)
     if (!nameCheck.valid) errors.displayName = nameCheck.message ?? '昵称不符合要求'
 
@@ -133,7 +196,7 @@ async function sendReset() {
 
   submitting.value = true
   try {
-    const result = await authStore.sendResetEmail(email.value)
+    const result = await authStore.sendResetEmail(email.value, captchaToken.value || undefined)
     feedback.value = { ok: result.ok, message: result.message }
     if (result.ok) {
       resetSentTo.value = email.value.trim()
@@ -141,6 +204,7 @@ async function sendReset() {
     }
   } finally {
     submitting.value = false
+    captchaRef.value?.reset()
   }
 }
 
@@ -153,15 +217,18 @@ async function submit() {
   if (!validateForm()) return
 
   submitting.value = true
+  const isSignUp = tab.value === 'signUp'
+  // 没启用验证码时给 undefined（而不是空串）：payload 干净，服务端也不会收到空 token
+  const token = captchaToken.value || undefined
   try {
-    const result =
-      tab.value === 'signIn'
-        ? await authStore.signIn(email.value, password.value)
-        : await authStore.signUp({
-            email: email.value,
-            password: password.value,
-            displayName: displayName.value,
-          })
+    const result = isSignUp
+      ? await authStore.signUp({
+          email: email.value,
+          password: password.value,
+          displayName: displayName.value,
+          captchaToken: token,
+        })
+      : await authStore.signIn(email.value, password.value, token)
 
     feedback.value = { ok: result.ok, message: result.message }
     // 需要邮箱验证时不跳转：还没有会话，进去也会被守卫送回登录页
@@ -176,6 +243,12 @@ async function submit() {
     }
   } finally {
     submitting.value = false
+    /**
+     * Turnstile 的 token 是**一次性**的：这次提交已经把它花掉了（成功失败都一样），
+     * 必须重新取一枚，否则用户改个邮箱再点注册会被服务端直接拒掉（登录同样如此）。
+     * 这是这条链路里最容易漏的坑——状态机与重置都收口在 TurnstileCaptcha 里。
+     */
+    captchaRef.value?.reset()
   }
 }
 
@@ -195,24 +268,36 @@ function enterLocalMode() {
   void router.push(redirectTarget.value)
 }
 
-// ---- 连接自检：登录失败时先分清「地址写错」还是「密钥不对」 ----
-const checking = ref(false)
-const connectionResult = ref<ConnectionCheck | null>(null)
-
-async function testConnection() {
-  checking.value = true
-  try {
-    connectionResult.value = await checkSupabaseConnection()
-  } finally {
-    checking.value = false
-  }
-}
-
 // ---- 按服务端实际开启的登录方式来渲染按钮 ----
 /** null = 还没问到（保持按钮可见，不因一次网络抖动把功能藏起来） */
 const githubEnabled = ref<boolean | null>(null)
 
+/**
+ * 已经登录还落在登录页 → 直接送进应用。
+ *
+ * 两个真实场景：① 点了邮件验证链接，会话是在**本页挂载之后**才建立起来的
+ * （守卫那一轮判定时还没有会话）；② 用户在别的标签页登录过，又手动打开了 /login。
+ * 没有这一步，用户就得自己再点一次"登录"——看起来就像"验证完了却没登录"。
+ */
+watch(
+  () => authStore.isAuthed,
+  (authed) => {
+    if (authed) void router.replace(redirectTarget.value)
+  },
+  { immediate: true },
+)
+
 onMounted(async () => {
+  /**
+   * 先恢复会话（守卫通常已经调过；这里兜底，直接打开 /login 时也拿得到状态）。
+   * **必须在取 redirectNotice 之前 await**：邮件链接的落地结果是在 init() 里产生的。
+   */
+  await authStore.init()
+
+  // 邮件链接落地结果（验证成功 / 链接过期）展示一次
+  const notice = authStore.takeRedirectNotice()
+  if (notice) feedback.value = { ok: notice.ok, message: notice.message }
+
   if (isLocalMode.value) return
   const providers = await fetchAuthProviders()
   if (providers) githubEnabled.value = providers.github
@@ -226,7 +311,7 @@ onMounted(async () => {
     <div class="w-full max-w-md">
       <header class="mb-6 text-center">
         <h1 class="text-2xl font-bold tracking-tight text-slate-800 dark:text-slate-100">
-          🧭 Vue 3 智能工作台
+          🧭 云海工作台
         </h1>
         <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
           登录后任务数据多设备同步；不登录也能先用本地模式
@@ -350,7 +435,7 @@ onMounted(async () => {
               v-model="password"
               data-testid="login-password"
               type="password"
-              placeholder="至少 6 位"
+              :placeholder="tab === 'signUp' ? '至少 8 位，含大小写字母与数字' : '请输入密码'"
             />
             <p
               v-if="formErrors.password"
@@ -359,6 +444,8 @@ onMounted(async () => {
             >
               {{ formErrors.password }}
             </p>
+            <!-- 注册才给强度条：登录不校验复杂度（老账号未必合规，服务端才是权威） -->
+            <PasswordStrengthMeter v-if="tab === 'signUp'" :password="password" />
           </div>
 
           <!-- 确认密码（仅注册） -->
@@ -381,13 +468,34 @@ onMounted(async () => {
             </p>
           </div>
 
+          <!--
+            人机验证（三个 Tab 共用同一个 widget，所以放在 tab 条件之外，切 Tab 不重挂载）：
+            服务端一开 Attack Protection，登录 / 注册 / 忘记密码 / 重发都要求 token。
+            token 一次性，每次提交后由 submit()/sendReset()/resendConfirm() 负责重置重取。
+          -->
+          <div>
+            <TurnstileCaptcha
+              ref="captchaRef"
+              v-model="captchaToken"
+              data-testid="login-captcha"
+              @status="onCaptchaStatus"
+            />
+            <p
+              v-if="formErrors.captcha"
+              data-testid="login-error-captcha"
+              class="mt-1 text-xs text-rose-500"
+            >
+              {{ formErrors.captcha }}
+            </p>
+          </div>
+
           <!-- 提交 -->
           <BaseButton
             data-testid="login-submit"
             native-type="submit"
             variant="primary"
             block
-            :disabled="submitting || (tab === 'reset' && resendCooldown > 0)"
+            :disabled="submitting || submitBlocked"
           >
             {{
               tab === 'reset'
@@ -440,18 +548,6 @@ onMounted(async () => {
           </BaseButton>
         </template>
 
-        <p
-          v-else-if="githubEnabled === false"
-          data-testid="login-github-disabled"
-          class="mt-5 text-center text-xs leading-relaxed text-slate-400 dark:text-slate-500"
-        >
-          GitHub 登录未开启：可在 Supabase 控制台
-          <code class="rounded bg-slate-100 px-1 dark:bg-slate-800"
-            >Authentication → Providers</code
-          >
-          打开（需先创建 GitHub OAuth App）
-        </p>
-
         <!-- 反馈 -->
         <p
           v-if="feedback"
@@ -477,7 +573,7 @@ onMounted(async () => {
             type="button"
             data-testid="login-resend-confirm"
             class="mt-2 font-medium underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
-            :disabled="resendCooldown > 0 || submitting"
+            :disabled="resendCooldown > 0 || submitting || captchaBlocked"
             @click="resendConfirm"
           >
             {{
@@ -486,33 +582,6 @@ onMounted(async () => {
                 : '重新发送验证邮件'
             }}
           </button>
-        </div>
-
-        <!-- 连接自检：把「网络不可用」拆成可定位的结论 -->
-        <div v-if="!isLocalMode" class="mt-4 border-t border-slate-200 pt-3 dark:border-slate-700">
-          <button
-            type="button"
-            data-testid="login-connection-test"
-            class="text-xs text-slate-500 underline-offset-2 hover:underline disabled:opacity-50 dark:text-slate-400"
-            :disabled="checking"
-            @click="testConnection"
-          >
-            {{ checking ? '检测中…' : '🔌 登录失败？点这里测试与 Supabase 的连接' }}
-          </button>
-          <p
-            v-if="connectionResult"
-            data-testid="login-connection-result"
-            class="mt-2 rounded-xl border p-3 text-xs leading-relaxed"
-            :class="
-              connectionResult.ok
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200'
-                : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-900/30 dark:text-rose-200'
-            "
-          >
-            <span class="font-semibold">{{ connectionResult.ok ? '✅' : '❌' }}</span>
-            {{ connectionResult.message }}
-            <code class="mt-1 block break-all opacity-70">{{ connectionResult.detail }}</code>
-          </p>
         </div>
       </section>
 

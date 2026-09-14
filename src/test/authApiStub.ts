@@ -14,12 +14,16 @@ import { vi } from 'vitest'
 import type { AuthResult, AuthUser, SignUpPayload } from '@/types/auth'
 
 export const authApiStub = {
+  consumeAuthRedirect: vi.fn<(url?: string) => Promise<AuthResult | null>>(),
   describeAuthError: vi.fn<(error: unknown) => string>(),
   getCurrentSessionUser: vi.fn<() => Promise<AuthUser | null>>(),
-  resendConfirmEmail: vi.fn<(email: string, redirectTo?: string) => Promise<AuthResult>>(),
-  sendPasswordReset: vi.fn<(email: string, redirectTo?: string) => Promise<AuthResult>>(),
+  resendConfirmEmail:
+    vi.fn<(email: string, redirectTo?: string, captchaToken?: string) => Promise<AuthResult>>(),
+  sendPasswordReset:
+    vi.fn<(email: string, redirectTo?: string, captchaToken?: string) => Promise<AuthResult>>(),
   signInWithGitHub: vi.fn<(redirectTo?: string) => Promise<AuthResult>>(),
-  signInWithPassword: vi.fn<(email: string, password: string) => Promise<AuthResult>>(),
+  signInWithPassword:
+    vi.fn<(email: string, password: string, captchaToken?: string) => Promise<AuthResult>>(),
   signOutUser: vi.fn<() => Promise<AuthResult>>(),
   signUpWithPassword: vi.fn<(payload: SignUpPayload) => Promise<AuthResult>>(),
   subscribeAuthChanges: vi.fn<(cb: (user: AuthUser | null) => void) => () => void>(),
@@ -30,6 +34,7 @@ export const authApiStub = {
 /** 每个用例开始前调用：清空调用记录并恢复默认实现（默认全部成功、无会话） */
 export function resetAuthApiStub() {
   vi.clearAllMocks()
+  authApiStub.consumeAuthRedirect.mockResolvedValue(null)
   authApiStub.describeAuthError.mockImplementation((error) => `err:${String(error)}`)
   authApiStub.getCurrentSessionUser.mockResolvedValue(null)
   authApiStub.resendConfirmEmail.mockResolvedValue({

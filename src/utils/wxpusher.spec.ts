@@ -54,17 +54,17 @@ describe('HTML 转义', () => {
 })
 
 describe('深链', () => {
-  const base = 'https://lihuazou1230.github.io/vue3-smart-workspace/'
+  const base = 'https://lihuazou1230.github.io/yunhai-workspace/'
 
   it('带尾斜杠的部署地址：拼出单斜杠的规范地址', () => {
     expect(deepLink('t1', base)).toBe(
-      'https://lihuazou1230.github.io/vue3-smart-workspace/todos?focus=t1',
+      'https://lihuazou1230.github.io/yunhai-workspace/todos?focus=t1',
     )
   })
 
   it('不带尾斜杠同样只产生一个斜杠（GitHub Pages 子路径部署）', () => {
-    const expected = 'https://lihuazou1230.github.io/vue3-smart-workspace/todos?focus=t1'
-    expect(deepLink('t1', 'https://lihuazou1230.github.io/vue3-smart-workspace')).toBe(expected)
+    const expected = 'https://lihuazou1230.github.io/yunhai-workspace/todos?focus=t1'
+    expect(deepLink('t1', 'https://lihuazou1230.github.io/yunhai-workspace')).toBe(expected)
     expect(deepLink('t1', base.replace(/\/$/, ''))).toBe(expected)
     // 多个尾斜杠也只留一个
     expect(deepLink('t1', `${base}///`)).toBe(expected)
@@ -79,7 +79,7 @@ describe('深链', () => {
 
   it('任务 id 做 URL 编码（脏 id 不会把 query 拆坏）', () => {
     expect(deepLink('a b&c=d', base)).toBe(
-      'https://lihuazou1230.github.io/vue3-smart-workspace/todos?focus=a%20b%26c%3Dd',
+      'https://lihuazou1230.github.io/yunhai-workspace/todos?focus=a%20b%26c%3Dd',
     )
   })
 
@@ -112,13 +112,13 @@ describe('深链', () => {
 })
 
 describe('推送文案拼装', () => {
-  const base = 'https://lihuazou1230.github.io/vue3-smart-workspace/'
+  const base = 'https://lihuazou1230.github.io/yunhai-workspace/'
 
   it('标题 + 截止信息 + 回跳链接齐全', () => {
     const message = buildReminderMessage({ id: 't1', title: '写周报', dueDate: '2026-09-10' }, base)
 
     expect(message.title).toBe('写周报')
-    expect(message.url).toBe('https://lihuazou1230.github.io/vue3-smart-workspace/todos?focus=t1')
+    expect(message.url).toBe('https://lihuazou1230.github.io/yunhai-workspace/todos?focus=t1')
     expect(message.content).toContain('写周报')
     expect(message.content).toContain('截止：2026-09-10')
     expect(message.content).toContain(`href="${message.url}"`)

@@ -11,6 +11,7 @@ import {
   elapsedPaidDays,
   elapsedWorkSeconds,
   formatDuration,
+  formatDurationCompact,
   formatFen,
   hourlyEarnedFen,
   isEarningsConfigured,
@@ -80,6 +81,14 @@ describe('金额换算与格式化（整数「分」运算）', () => {
     expect(formatDuration(125)).toBe('2 分 5 秒')
     expect(formatDuration(3600 * 3 + 60 * 24)).toBe('3 小时 24 分')
     expect(formatDuration(-5)).toBe('0 秒')
+  })
+
+  it('紧凑时长格式化（统计条那种窄格子用）', () => {
+    expect(formatDurationCompact(45)).toBe('45s')
+    expect(formatDurationCompact(125)).toBe('2m 5s')
+    expect(formatDurationCompact(3600 * 3 + 60 * 24)).toBe('3h 24m')
+    expect(formatDurationCompact(3600 * 8)).toBe('8h 0m')
+    expect(formatDurationCompact(-5)).toBe('0s')
   })
 })
 

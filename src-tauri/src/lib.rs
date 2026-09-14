@@ -68,7 +68,7 @@ pub fn run() {
                     // 真要走到这，图标会是 1×1 透明 —— 能点但看不见。
                     tauri::image::Image::new_owned(vec![0, 0, 0, 0], 1, 1)
                 }))
-                .tooltip("智能工作台")
+                .tooltip("云海工作台")
                 .menu(&menu)
                 // 左键单击直接开窗口（菜单只走右键），符合 Windows 托盘习惯
                 .show_menu_on_left_click(false)

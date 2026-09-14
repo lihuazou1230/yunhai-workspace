@@ -7,26 +7,24 @@
  * - 导航项：行高 44px、px-4、rounded-xl，默认灰字 / 悬停极浅灰 /
  *   **激活态为「主题色浅底 pill + 深色文字」，不是黑底反白**——底色跟随 themeStore 主题色
  * - 分组：上组=主导航 4 项；细分割线；下组=帮助 / 退出登录
- * - 同步状态：离线/同步中的小提示（登录后才有意义）
+ * - 不放同步状态角标：侧边栏是导航区，同步态属于「设置」页的信息（那里有完整状态 + 上次同步时间 + 手动同步）
  */
 
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import BaseBadge from '@/components/atoms/BaseBadge.vue'
 import BaseButton from '@/components/atoms/BaseButton.vue'
+import UiIcon from '@/components/atoms/UiIcon.vue'
 import AvatarUpload from '@/components/organisms/AvatarUpload.vue'
 import { PRIMARY_NAV_ITEMS } from '@/components/organisms/navItems'
 import type { NavRouteName } from '@/components/organisms/navItems'
 import { useAvatar } from '@/composables/useAvatar'
 import { useAuthStore } from '@/stores/authStore'
-import { useTodoStore } from '@/stores/todoStore'
 
 defineProps<{ collapsed: boolean }>()
 const emit = defineEmits<{ (e: 'toggle-collapse'): void }>()
 
 const authStore = useAuthStore()
-const todoStore = useTodoStore()
 const route = useRoute()
 const router = useRouter()
 
@@ -39,7 +37,7 @@ void loadLocalAvatar()
 
 /** 导航项公共样式：行高 44px、px-4、rounded-xl */
 const NAV_BASE_CLASS =
-  'flex min-h-[44px] items-center gap-3 rounded-xl px-4 text-sm transition-colors'
+  'flex min-h-[44px] items-center gap-3 rounded-xl px-3 text-sm transition-colors'
 /** 默认态 + 悬停态（极浅灰底） */
 const NAV_IDLE_CLASS =
   'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
@@ -59,14 +57,6 @@ function isActive(name: NavRouteName): boolean {
   return route.name === name
 }
 
-/** 同步状态角标（只在登录后展示） */
-const syncBadge = computed<{ tone: 'info' | 'warning' | 'success'; text: string } | null>(() => {
-  if (!todoStore.syncUserId) return null
-  if (todoStore.syncState === 'offline') return { tone: 'warning', text: '离线' }
-  if (todoStore.syncState === 'syncing') return { tone: 'info', text: '同步中' }
-  return { tone: 'success', text: '已同步' }
-})
-
 const identityHint = computed(() => {
   if (authStore.isAuthed) return authStore.email || '已登录'
   return authStore.isLocalMode ? '未配置 Supabase · 本地模式' : '未登录'
@@ -85,24 +75,29 @@ async function handleSignOut() {
     class="sticky top-0 hidden h-screen shrink-0 flex-col border-r border-slate-200 bg-white/80 backdrop-blur-md transition-[width] lg:flex dark:border-slate-800 dark:bg-slate-900/80"
     :class="collapsed ? 'w-16' : 'w-60'"
   >
-    <!-- 品牌（折叠时只留 emoji） -->
-    <div class="flex items-center gap-2 px-4 pt-4">
-      <span class="w-5 shrink-0 text-center text-xl leading-none">🧭</span>
+    <!-- 品牌（折叠时只留图标） -->
+    <div class="flex items-center gap-2.5 px-3 pt-4">
+      <span
+        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--el-color-primary)] text-[15px] leading-none text-white"
+        aria-hidden="true"
+      >
+        🧭
+      </span>
       <span
         v-if="!collapsed"
         class="truncate text-sm font-bold tracking-tight text-slate-800 dark:text-slate-100"
       >
-        Vue 3 智能工作台
+        云海工作台
       </span>
     </div>
 
     <!-- 头像区：64px 圆形头像 + 姓名 + 一行小字 -->
-    <div class="flex items-center gap-3 p-3">
+    <div class="flex items-center gap-3 px-3 py-4">
       <button
         type="button"
         data-testid="sidebar-avatar"
-        class="relative shrink-0 overflow-hidden rounded-full ring-2 ring-[var(--el-color-primary)]/30 transition-transform hover:scale-105"
-        :class="collapsed ? 'h-10 w-10' : 'h-16 w-16'"
+        class="relative shrink-0 overflow-hidden rounded-full ring-2 ring-[var(--el-color-primary)]/30 transition-transform hover:scale-105 focus-visible:ring-[var(--el-color-primary)]"
+        :class="collapsed ? 'h-9 w-9' : 'h-14 w-14'"
         :title="authStore.isAuthed ? '更换头像' : '设置本地头像'"
         aria-label="更换头像"
         @click="avatarOpen = true"
@@ -126,12 +121,14 @@ async function handleSignOut() {
         <p class="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
           {{ authStore.displayName }}
         </p>
-        <p class="truncate text-xs text-slate-400 dark:text-slate-500">{{ identityHint }}</p>
+        <p class="mt-0.5 truncate text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+          {{ identityHint }}
+        </p>
       </div>
     </div>
 
     <!-- 上组：主导航 4 项 -->
-    <nav class="mt-2 flex-1 space-y-1 px-2" aria-label="主导航">
+    <nav class="mt-1 flex-1 space-y-1 px-2" aria-label="主导航">
       <router-link
         v-for="item in PRIMARY_NAV_ITEMS"
         :key="item.name"
@@ -141,65 +138,66 @@ async function handleSignOut() {
         :title="item.label"
         :data-testid="`sidebar-nav-${item.name}`"
       >
-        <span class="w-5 shrink-0 text-center text-xl leading-none">{{ item.icon }}</span>
+        <!-- 图标描边走 currentColor，激活态由行本身的文字色带动（见 NAV_ACTIVE_CLASS） -->
+        <UiIcon :name="item.iconName" class="shrink-0" />
         <span v-if="!collapsed" class="truncate">{{ item.label }}</span>
       </router-link>
     </nav>
 
-    <!-- 下组：帮助 / 账号 / 折叠（与主导航之间用细分割线隔开） -->
+    <!--
+      下组：账号 / 帮助 / 折叠。
+      三行**同一套规格**（40px 高、20px 图标、14px 文字、gap-3）：它们同属「侧边栏级动作」，
+      体量本就该一致——之前把「帮助」压成 12px 小字，反而让这一组看起来是两个不相干的列表。
+      图标全部走 UiIcon 自绘 SVG：🚪 在 Windows 上是一块橙色方块、❓ 是彩色问号、
+      « 是全角标点，三者混在一起和上面 1.6px 描边的导航图标完全不是一套笔触。
+    -->
     <div
       data-testid="sidebar-footer"
-      class="space-y-1 border-t border-slate-200 p-2 dark:border-slate-800"
+      class="space-y-0.5 border-t border-slate-200/80 p-2 dark:border-slate-800"
     >
-      <BaseButton
-        data-testid="sidebar-help"
-        variant="ghost"
-        size="sm"
-        class="min-h-[44px] w-full justify-start rounded-xl px-4"
-        @click="helpOpen = true"
-      >
-        <span class="w-5 shrink-0 text-center text-xl leading-none">❓</span>
-        <span v-if="!collapsed">帮助</span>
-      </BaseButton>
-
-      <!-- 同步状态（折叠时隐藏，避免 icon rail 里塞文字） -->
-      <div v-if="!collapsed && syncBadge" class="px-1 pb-0.5">
-        <BaseBadge :tone="syncBadge.tone" size="sm">云同步 · {{ syncBadge.text }}</BaseBadge>
-      </div>
-
       <BaseButton
         v-if="authStore.isAuthed"
         data-testid="sidebar-sign-out"
         variant="ghost"
         size="sm"
-        class="min-h-[44px] w-full justify-start rounded-xl px-4"
+        class="min-h-[40px] w-full justify-start gap-3 rounded-xl px-3 text-sm"
         @click="handleSignOut"
       >
-        <span class="w-5 shrink-0 text-center text-xl leading-none">🚪</span>
+        <UiIcon name="log-out" class="shrink-0" />
         <span v-if="!collapsed">退出登录</span>
       </BaseButton>
       <router-link
         v-else
         :to="{ name: 'login' }"
         data-testid="sidebar-sign-in"
-        :class="[NAV_BASE_CLASS, NAV_IDLE_CLASS]"
+        :class="[NAV_BASE_CLASS, NAV_IDLE_CLASS, 'min-h-[40px]']"
       >
-        <span class="w-5 shrink-0 text-center text-xl leading-none">🔑</span>
+        <!-- 登录用的是同一枚「门 + 箭头」，方向感一致；语义差别由文案承担 -->
+        <UiIcon name="log-out" class="shrink-0" />
         <span v-if="!collapsed">登录 / 注册</span>
       </router-link>
+
+      <BaseButton
+        data-testid="sidebar-help"
+        variant="ghost"
+        size="sm"
+        class="min-h-[40px] w-full justify-start gap-3 rounded-xl px-3 text-sm"
+        @click="helpOpen = true"
+      >
+        <UiIcon name="help" class="shrink-0" />
+        <span v-if="!collapsed">使用帮助</span>
+      </BaseButton>
 
       <BaseButton
         data-testid="sidebar-collapse"
         variant="ghost"
         size="sm"
-        class="min-h-[44px] w-full justify-start rounded-xl px-4"
+        class="min-h-[40px] w-full justify-start gap-3 rounded-xl px-3 text-sm"
         :aria-label="collapsed ? '展开侧边栏' : '收起侧边栏'"
         @click="emit('toggle-collapse')"
       >
-        <span class="w-5 shrink-0 text-center text-xl leading-none">{{
-          collapsed ? '»' : '«'
-        }}</span>
-        <span v-if="!collapsed">收起</span>
+        <UiIcon :name="collapsed ? 'chevron-right' : 'chevron-left'" class="shrink-0" />
+        <span v-if="!collapsed">收起侧边栏</span>
       </BaseButton>
     </div>
   </aside>

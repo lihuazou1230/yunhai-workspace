@@ -123,7 +123,7 @@ describe('WeatherWidget · 未来 3 日预报条（useWeather 已提供预报）
     weatherStub.forecast = ref<WeatherForecast | null>(FORECAST)
   })
 
-  it('渲染 3 列：周几 + 图标 + 最高/最低气温 + 天气描述', () => {
+  it('渲染 3 列：日期（几号）+ 图标 + 最高/最低气温 + 天气描述', () => {
     const wrapper = mount(WeatherWidget)
     const strip = wrapper.find('[data-testid="weather-forecast"]')
 
@@ -133,20 +133,22 @@ describe('WeatherWidget · 未来 3 日预报条（useWeather 已提供预报）
 
     // 首列对应 casts 首条（当天），其余两列依次顺延
     expect(columns[0].attributes('data-testid')).toBe('forecast-day-2026-09-10')
-    expect(columns[0].text()).toContain('星期四')
+    // 口径是「几号」：接口给的 week 是周几，不再直接展示
+    expect(columns[0].text()).toContain('9月10日')
+    expect(columns[0].text()).not.toContain('星期四')
     expect(columns[0].text()).toContain('30°/21°')
     expect(columns[0].text()).toContain('晴')
 
-    expect(columns[1].text()).toContain('星期五')
+    expect(columns[1].text()).toContain('9月11日')
     expect(columns[1].text()).toContain('28°/19°')
     expect(columns[1].text()).toContain('⛅')
 
-    expect(columns[2].text()).toContain('星期六')
+    expect(columns[2].text()).toContain('9月12日')
     expect(columns[2].text()).toContain('24°/17°')
     expect(columns[2].text()).toContain('小雨')
 
     // 第 4 天不渲染：一行只放 3 列
-    expect(strip.text()).not.toContain('星期日')
+    expect(strip.text()).not.toContain('9月13日')
   })
 
   it('复用 useWeather 的预报，不再自己请求一次', () => {
@@ -176,7 +178,7 @@ describe('WeatherWidget · 未来 3 日预报条（useWeather 已提供预报）
     const wrapper = mount(WeatherWidget)
 
     expect(wrapper.find('[data-testid="weather-forecast"]').exists()).toBe(false)
-    expect(wrapper.text()).toContain('未配置天气 API Key')
+    expect(wrapper.text()).toContain('天气还没接通')
     expect(weatherApi.fetchWeatherForecast).not.toHaveBeenCalled()
   })
 })

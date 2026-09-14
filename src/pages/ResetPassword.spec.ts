@@ -61,8 +61,8 @@ describe('重置密码页', () => {
   it('两次密码不一致：本地校验拦住，不发请求', async () => {
     const { wrapper } = await mountPage({ withSession: true })
 
-    await wrapper.find('[data-testid="reset-password"] input').setValue('newpw123456')
-    await wrapper.find('[data-testid="reset-confirm-password"] input').setValue('newpw654321')
+    await wrapper.find('[data-testid="reset-password"] input').setValue('Newpw123456')
+    await wrapper.find('[data-testid="reset-confirm-password"] input').setValue('Newpw654321')
     await wrapper.find('form').trigger('submit')
 
     expect(wrapper.find('[data-testid="reset-error-confirm-password"]').text()).toBe(
@@ -71,14 +71,16 @@ describe('重置密码页', () => {
     expect(authApiStub.updateUserPassword).not.toHaveBeenCalled()
   })
 
-  it('新密码太短：提示至少 6 位', async () => {
+  it('新密码太短/不合规：强度条列出缺什么，保存按钮置灰', async () => {
     const { wrapper } = await mountPage({ withSession: true })
 
     await wrapper.find('[data-testid="reset-password"] input').setValue('123')
     await wrapper.find('[data-testid="reset-confirm-password"] input').setValue('123')
     await wrapper.find('form').trigger('submit')
 
-    expect(wrapper.find('[data-testid="reset-error-password"]').text()).toContain('6')
+    const hints = wrapper.find('[data-testid="password-strength-hints"]')
+    expect(hints.text()).toContain('至少 8 个字符')
+    expect(wrapper.find('[data-testid="reset-submit"]').attributes('disabled')).toBeDefined()
     expect(authApiStub.updateUserPassword).not.toHaveBeenCalled()
   })
 
@@ -87,12 +89,12 @@ describe('重置密码页', () => {
     try {
       const { wrapper, router } = await mountPage({ withSession: true })
 
-      await wrapper.find('[data-testid="reset-password"] input').setValue('newpw123456')
-      await wrapper.find('[data-testid="reset-confirm-password"] input').setValue('newpw123456')
+      await wrapper.find('[data-testid="reset-password"] input').setValue('Newpw123456')
+      await wrapper.find('[data-testid="reset-confirm-password"] input').setValue('Newpw123456')
       await wrapper.find('form').trigger('submit')
       await flushPromises()
 
-      expect(authApiStub.updateUserPassword).toHaveBeenCalledWith('newpw123456')
+      expect(authApiStub.updateUserPassword).toHaveBeenCalledWith('Newpw123456')
       expect(wrapper.find('[data-testid="reset-feedback"]').text()).toContain('密码已更新')
       expect(
         (wrapper.find('[data-testid="reset-password"] input').element as HTMLInputElement).value,
@@ -113,8 +115,8 @@ describe('重置密码页', () => {
     })
     const { wrapper, router } = await mountPage({ withSession: true })
 
-    await wrapper.find('[data-testid="reset-password"] input').setValue('samepw123')
-    await wrapper.find('[data-testid="reset-confirm-password"] input').setValue('samepw123')
+    await wrapper.find('[data-testid="reset-password"] input').setValue('Newpw123456')
+    await wrapper.find('[data-testid="reset-confirm-password"] input').setValue('Newpw123456')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 

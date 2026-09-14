@@ -1,10 +1,10 @@
 @echo off
-title Vue 3 Smart Workspace - One-click Start
+title Yunhai Workbench - One-click Start
 cd /d "%~dp0"
 
 echo.
 echo   ============================================
-echo     Vue 3 Smart Workspace - One-click Start
+echo     Yunhai Workbench - One-click Start
 echo   ============================================
 echo.
 

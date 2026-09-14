@@ -16,6 +16,8 @@ import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import BaseButton from '@/components/atoms/BaseButton.vue'
+import UiIcon from '@/components/atoms/UiIcon.vue'
+import PageHeader from '@/components/organisms/PageHeader.vue'
 import { useAuthStore } from '@/stores/authStore'
 import { useTagStore } from '@/stores/tagStore'
 import { useThemeStore } from '@/stores/themeStore'
@@ -101,17 +103,12 @@ function switchYear(next: number) {
 </script>
 
 <template>
-  <div class="space-y-5">
-    <header class="flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <h1 class="text-xl font-bold tracking-tight text-slate-800 dark:text-slate-100">
-          🎉 {{ year }} 年度报告
-        </h1>
-        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          全年完成数、最高效月、最长连续与投入总时长——生成一张卡片，存下来或分享
-        </p>
-      </div>
-      <div class="flex items-center gap-2">
+  <div class="space-y-6">
+    <PageHeader
+      :title="`${year} 年度报告`"
+      subtitle="全年完成数、最高效月、最长连续与投入总时长——生成一张卡片，存下来或分享"
+    >
+      <template #actions>
         <div
           v-if="years.length > 1"
           role="group"
@@ -135,10 +132,11 @@ function switchYear(next: number) {
           </button>
         </div>
         <BaseButton variant="secondary" size="sm" @click="router.push({ name: 'stats' })">
-          ← 返回统计
+          <UiIcon name="chevron-left" class="h-4 w-4" />
+          返回统计
         </BaseButton>
-      </div>
-    </header>
+      </template>
+    </PageHeader>
 
     <section v-if="!report.hasData" class="card p-8 text-center">
       <p class="text-3xl">🗓️</p>

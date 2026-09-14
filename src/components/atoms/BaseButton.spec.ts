@@ -28,4 +28,21 @@ describe('BaseButton', () => {
     await wrapper.trigger('click')
     expect(wrapper.emitted('click')).toBeUndefined()
   })
+
+  it('loading：显示转圈动画、自动禁用并拦住 click（防重复提交）', async () => {
+    const wrapper = mount(BaseButton, { props: { loading: true }, slots: { default: '注册中…' } })
+
+    expect(wrapper.text()).toContain('注册中…')
+    expect(wrapper.find('.animate-spin').exists()).toBe(true)
+    expect(wrapper.attributes('disabled')).toBeDefined()
+    expect(wrapper.attributes('aria-busy')).toBe('true')
+
+    await wrapper.trigger('click')
+    expect(wrapper.emitted('click')).toBeUndefined()
+  })
+
+  it('未加载时不渲染转圈', () => {
+    const wrapper = mount(BaseButton, { slots: { default: '保存' } })
+    expect(wrapper.find('.animate-spin').exists()).toBe(false)
+  })
 })

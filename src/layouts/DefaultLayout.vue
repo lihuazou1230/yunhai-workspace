@@ -24,6 +24,7 @@ import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import ThemeToggle from '@/components/molecules/ThemeToggle.vue'
+import UiIcon from '@/components/atoms/UiIcon.vue'
 import AggregateSearch from '@/components/molecules/AggregateSearch.vue'
 import ReminderBell from '@/components/molecules/ReminderBell.vue'
 import MobileBottomNav from '@/components/organisms/MobileBottomNav.vue'
@@ -112,7 +113,7 @@ watch(
   [pendingCount, pageTitle],
   ([count, title]) => {
     if (typeof document === 'undefined') return
-    const base = title ? `${title} · Vue 3 智能工作台` : 'Vue 3 智能工作台'
+    const base = title ? `${title} · 云海工作台` : '云海工作台'
     document.title = count > 0 ? `(${count}) 待办 · ${base}` : base
   },
   { immediate: true },
@@ -126,9 +127,9 @@ watch(
     <div class="flex min-w-0 flex-1 flex-col">
       <!-- 顶栏 -->
       <header
-        class="sticky top-0 z-30 flex items-center gap-3 border-b border-slate-200 bg-white/80 px-4 py-3 backdrop-blur-md sm:px-6 dark:border-slate-800 dark:bg-slate-900/80"
+        class="sticky top-0 z-30 flex items-center gap-3 border-b border-slate-200/80 bg-white/80 px-4 py-2.5 backdrop-blur-md sm:px-6 dark:border-slate-800 dark:bg-slate-900/80"
       >
-        <div class="w-full max-w-sm">
+        <div class="w-full max-w-md">
           <AggregateSearch
             v-model="todoStore.keyword"
             :results="searchResults"
@@ -137,13 +138,15 @@ watch(
             @select-todo="onSelectTodo"
           />
         </div>
-        <h1
-          class="ml-auto hidden text-sm font-semibold text-slate-700 sm:block dark:text-slate-200"
-        >
+        <!--
+          当前页名：侧边栏已经高亮了所在分区，这里只需一行小字做定位，
+          不必再抢视觉重量（页内 h1 才是这一屏的标题）。
+        -->
+        <h1 class="ml-auto hidden text-sm font-medium text-slate-500 sm:block dark:text-slate-400">
           {{ pageTitle }}
         </h1>
         <!-- 顶栏右侧：提醒铃铛 + 主题切换 + 设置入口（视觉规范：搜索居左，右侧为图标区） -->
-        <div class="flex shrink-0 items-center gap-2">
+        <div class="flex shrink-0 items-center gap-1.5">
           <ReminderBell
             :reminders="pendingReminders"
             :missed="missedReminders"
@@ -159,13 +162,14 @@ watch(
             title="设置"
             aria-label="设置"
           >
-            <span class="text-base leading-none">⚙</span>
+            <!-- 自绘齿轮：顶栏三个控件统一 1.6px 描边 / 圆角端点，emoji 在这个尺寸下会显脏 -->
+            <UiIcon name="settings" class="h-[18px] w-[18px]" />
           </router-link>
         </div>
       </header>
 
       <!-- 内容区：keep-alive 保留各页状态（筛选条件、滚动位置） -->
-      <main class="flex-1 px-4 py-6 pb-24 sm:px-6 lg:pb-8">
+      <main class="flex-1 px-4 py-6 pb-28 sm:px-6 sm:py-8 lg:pb-12">
         <router-view v-slot="{ Component }">
           <keep-alive>
             <component :is="Component" />

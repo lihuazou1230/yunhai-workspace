@@ -15,7 +15,13 @@ withDefaults(
     clearable?: boolean
     /** 无边框（内嵌场景） */
     bare?: boolean
-    /** 追加到 input 的 class（如搜索图标留白 pl-9） */
+    /**
+     * 尺寸：默认 md（表单主输入）。
+     * `sm` 给「设置面板 / 侧栏」这类高密度场景用——面板里一行有六七个字段时，
+     * 32px 高的输入框能让整块在一屏内读完，40px 的会把面板撑到需要滚动。
+     */
+    size?: 'sm' | 'md'
+    /** 追加到 input 的 class（如搜索图标留白 pl-9、在深色底上覆写填充与描边） */
     inputClass?: string
   }>(),
   {
@@ -24,6 +30,7 @@ withDefaults(
     disabled: false,
     clearable: false,
     bare: false,
+    size: 'md',
     inputClass: '',
   },
 )
@@ -41,6 +48,11 @@ function onClear() {
   model.value = ''
   emit('clear')
 }
+
+const sizeClass: Record<'sm' | 'md', string> = {
+  sm: 'px-2.5 py-1.5 text-sm',
+  md: 'px-3 py-2 text-sm',
+}
 </script>
 
 <template>
@@ -50,8 +62,12 @@ function onClear() {
       :type="type"
       :placeholder="placeholder"
       :disabled="disabled"
-      class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-[var(--el-color-primary)] focus:ring-2 focus:ring-[var(--el-color-primary-light-7)] disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:ring-[var(--el-color-primary-dark-2)]"
-      :class="[bare ? 'border-transparent bg-transparent focus:ring-0' : '', inputClass]"
+      class="w-full rounded-xl border border-slate-300 bg-white text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-[var(--el-color-primary)] focus:ring-2 focus:ring-[var(--el-color-primary-light-7)] disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:ring-[var(--el-color-primary-dark-2)]"
+      :class="[
+        sizeClass[size],
+        bare ? 'border-transparent bg-transparent focus:ring-0' : '',
+        inputClass,
+      ]"
       @keydown="onKeydown"
     />
     <button

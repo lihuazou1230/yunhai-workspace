@@ -129,6 +129,10 @@ export const EARNINGS_STATUS_TEXT: Record<EarningsStatus, string> = {
 
 /**
  * 免责文案（对标 PayDance 的诚实声明：这是估算器，不是工资条）。
+ *
+ * 放在类型层而不是组件里，是因为它要在**两个位置**一致地出现：
+ * 展开态的声明块，以及迷你折叠条的悬停提示 / 读屏文本。
+ * 折叠条放不下整句，但那正是最容易让人误读的场景——一个看起来像真实收入的数字。
  */
 export const EARNINGS_DISCLAIMER =
   '估算值，不含税费/社保/公积金/奖金/加班——看趋势与节奏，别拿它对账'

@@ -96,7 +96,7 @@ export const router = createRouter({
 // 标题跟随路由，浏览器标签页可读
 router.afterEach((to) => {
   if (typeof document === 'undefined') return
-  document.title = to.meta.title ? `${to.meta.title} · Vue 3 智能工作台` : 'Vue 3 智能工作台'
+  document.title = to.meta.title ? `${to.meta.title} · 云海工作台` : '云海工作台'
 })
 
 installAuthGuard(router)

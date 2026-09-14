@@ -70,7 +70,7 @@ onUnmounted(() => unlisten?.())
       class="flex shrink-0 items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200"
     >
       <span aria-hidden="true">🧭</span>
-      智能工作台
+      云海工作台
     </span>
 
     <!--

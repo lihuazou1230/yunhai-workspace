@@ -9,6 +9,12 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL?: string
   /** Supabase anon（公开）Key —— 权限由数据库 RLS 兜底，泄露也无法越权读写 */
   readonly VITE_SUPABASE_ANON_KEY?: string
+  /**
+   * Cloudflare Turnstile 的**公开** siteKey（注册页人机验证）
+   * 公开无妨：secretKey 只填在 Supabase Dashboard（Auth → Attacks Protection），不进前端。
+   * 留空 = 不启用验证码（注册照常，不拦）。
+   */
+  readonly VITE_TURNSTILE_SITE_KEY?: string
 }
 
 interface ImportMeta {

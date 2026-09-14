@@ -119,6 +119,50 @@ describe('WeatherWidget（天气卡）', () => {
     const wrapper = mountWidget()
 
     expect(wrapper.find('button[aria-label="切换城市"]').exists()).toBe(false)
-    expect(wrapper.text()).toContain('未配置天气 API Key')
+    expect(wrapper.text()).toContain('天气还没接通')
+  })
+
+  it('工具栏只留「城市 / 刷新」：不再显示「缓存」标记与「📍 定位」按钮', () => {
+    weatherStub.fromCache = ref(true)
+    weatherStub.located = ref(true)
+    const wrapper = mountWidget()
+
+    expect(wrapper.text()).not.toContain('缓存')
+    expect(wrapper.find('button[aria-label="重新定位"]').exists()).toBe(false)
+    expect(wrapper.find('button[aria-label="切换城市"]').exists()).toBe(true)
+    expect(wrapper.find('button[aria-label="刷新天气"]').exists()).toBe(true)
+  })
+
+  it('「↻ 刷新」：展示的是定位结果时重新定位（跳过缓存），不再走单独的定位按钮', async () => {
+    weatherStub.located = ref(true)
+    const wrapper = mountWidget()
+
+    await wrapper.find('button[aria-label="刷新天气"]').trigger('click')
+
+    expect(weatherStub.locate).toHaveBeenCalledWith({ force: true })
+    expect(weatherStub.refresh).not.toHaveBeenCalled()
+  })
+
+  it('「↻ 刷新」：手动选过城市时只刷新那座城市，不被定位盖回去', async () => {
+    weatherStub.located = ref(false)
+    const wrapper = mountWidget()
+
+    await wrapper.find('button[aria-label="刷新天气"]').trigger('click')
+
+    expect(weatherStub.refresh).toHaveBeenCalled()
+    expect(weatherStub.locate).not.toHaveBeenCalled()
+  })
+
+  it('城市面板里保留「用当前位置」：手动切城后还能回到自动定位', async () => {
+    const wrapper = mountWidget()
+    await wrapper.find('button[aria-label="切换城市"]').trigger('click')
+
+    const button = wrapper.find('[data-testid="weather-use-current-location"]')
+    expect(button.exists()).toBe(true)
+    await button.trigger('click')
+
+    expect(weatherStub.locate).toHaveBeenCalledWith({ force: true })
+    // 面板收起，回到卡片主体看结果
+    expect(wrapper.find('[data-testid="weather-city-picker"]').exists()).toBe(false)
   })
 })

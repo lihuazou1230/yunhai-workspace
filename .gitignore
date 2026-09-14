@@ -17,6 +17,11 @@ coverage
 .env
 .env.*.local
 
+# 閮ㄧ讲鎵撳寘浜х墿锛堢鍏樁娈碉級鈥斺�攝ip 鏄氦浠樼墿涓嶆槸婧愮爜锛屼腑闂存殏瀛樼洰褰曞彧鐢ㄤ簬鏍稿
+/deploy-package.zip
+/build/
+/deploy/*.msi
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -27,3 +32,7 @@ coverage
 *.njsproj
 *.sln
 *.sw?
+
+# 视觉核查工具（本地 headless 截图脚本，不入库）
+/.visual/
+

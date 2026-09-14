@@ -29,45 +29,57 @@ const progressWidth = computed(() => `${props.info.weekRate}%`)
 
 <template>
   <section class="card flex flex-col p-5" aria-label="连续打卡与周目标">
-    <header class="mb-3 flex items-center justify-between gap-2">
+    <header class="flex items-center justify-between gap-2">
       <h2 class="text-sm font-semibold text-slate-500 dark:text-slate-400">连续打卡</h2>
       <span
         v-if="info.goalReached"
-        class="rounded-full bg-[var(--el-color-primary-light-9)] px-2 py-0.5 text-[10px] font-medium text-[var(--el-color-primary)]"
+        class="rounded-full bg-[var(--el-color-primary-light-9)] px-2 py-0.5 text-[11px] font-medium text-[var(--el-color-primary)]"
         data-testid="streak-goal-reached"
       >
         达标 🎉
       </span>
     </header>
 
-    <!-- 主指标：连续天数（火焰只是点缀，数据本身用 tabular-nums 防抖） -->
-    <div class="flex items-baseline gap-2">
-      <span class="text-2xl leading-none" aria-hidden="true">🔥</span>
+    <!--
+      主指标：连续天数。火焰只是点缀，数据本身用 tabular-nums 防抖。
+      纵向用 `my-auto` 吸收卡片被同排邻居撑高的那部分——否则多余的高度会全堆在底部，
+      卡片看起来像是「内容没写完」。
+    -->
+    <div class="my-auto pt-4">
+      <div class="flex items-baseline gap-2">
+        <span class="text-2xl leading-none" aria-hidden="true">🔥</span>
+        <p
+          class="text-3xl font-bold tabular-nums tracking-tight text-slate-800 dark:text-slate-100"
+          data-testid="streak-current"
+        >
+          连续 {{ info.current }} 天
+        </p>
+      </div>
+
       <p
-        class="text-3xl font-bold tabular-nums tracking-tight text-slate-800 dark:text-slate-100"
-        data-testid="streak-current"
+        class="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400"
+        data-testid="streak-summary"
       >
-        连续 {{ info.current }} 天
+        本周完成
+        <span class="font-medium text-slate-700 dark:text-slate-200">{{ info.weekCompleted }}</span>
+        个
+        <!-- 近 90 天一条记录都没有时不硬凑一个「最佳日」出来 -->
+        <template v-if="info.bestWeekday"> · 最佳日{{ info.bestWeekday }}</template>
+        <template v-else> · 近 90 天暂无记录</template>
+      </p>
+      <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+        近 90 天最长连续 <span class="font-medium tabular-nums">{{ info.best }}</span> 天
       </p>
     </div>
 
-    <p class="mt-1.5 text-xs text-slate-500 dark:text-slate-400" data-testid="streak-summary">
-      本周完成
-      <span class="font-medium text-slate-700 dark:text-slate-200">{{ info.weekCompleted }}</span>
-      个
-      <!-- 近 90 天一条记录都没有时不硬凑一个「最佳日」出来 -->
-      <template v-if="info.bestWeekday"> · 最佳日{{ info.bestWeekday }}</template>
-      <template v-else> · 近 90 天暂无记录</template>
-    </p>
-
-    <p class="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
-      近 90 天最长连续 <span class="tabular-nums">{{ info.best }}</span> 天
-    </p>
-
-    <!-- 周目标：进度 + 卡上直接改目标 -->
+    <!--
+      周目标：进度条 + 目标值就地可改。
+      原来这里同时有「本周进度 5 / 12 个」和右上角的「42%」，加上输入框里的 12，同一个数字出现三次；
+      现在只留一条：左边是「本周完成 N 个」，右边是进度百分比，目标值就是那个输入框本身。
+    -->
     <div class="mt-4">
-      <div class="mb-1 flex items-center justify-between gap-2 text-xs">
-        <label class="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+      <div class="mb-1.5 flex items-center justify-between gap-2 text-xs">
+        <label class="flex items-center gap-1 text-slate-500 dark:text-slate-400">
           本周目标
           <input
             v-model="goalInput"
@@ -77,7 +89,7 @@ const progressWidth = computed(() => `${props.info.weekRate}%`)
             step="1"
             inputmode="numeric"
             aria-label="本周目标（个）"
-            class="w-12 rounded-lg border border-slate-200 bg-white px-1.5 py-0.5 text-center text-xs tabular-nums text-slate-700 outline-none focus:border-[var(--el-color-primary)] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+            class="w-12 rounded-lg border border-slate-200 bg-white px-1.5 py-0.5 text-center text-xs tabular-nums text-slate-700 outline-none transition-colors focus:border-[var(--el-color-primary)] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
           />
           个
         </label>
@@ -100,11 +112,6 @@ const progressWidth = computed(() => `${props.info.weekRate}%`)
           :style="{ width: progressWidth }"
         ></div>
       </div>
-
-      <p class="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-        本周进度 <span class="tabular-nums">{{ info.weekCompleted }}</span> /
-        <span class="tabular-nums">{{ weekGoal }}</span> 个
-      </p>
     </div>
   </section>
 </template>

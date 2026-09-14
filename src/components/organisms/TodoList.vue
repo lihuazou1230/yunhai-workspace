@@ -367,57 +367,66 @@ watch(
 </script>
 
 <template>
-  <section class="space-y-3">
-    <!-- 视图切换：主列表 / 已归档 / 已隐藏（不新开路由，就地过滤切换） -->
-    <div class="flex flex-wrap items-center gap-2">
-      <div class="flex gap-1" role="tablist" aria-label="任务视图">
-        <BaseButton
+  <section class="space-y-4">
+    <!--
+      工具栏分三层，按「用户此刻在回答哪个问题」排：
+      1. 看哪个列表（任务 / 已归档 / 已隐藏）——切换视图，属于导航级
+      2. 看哪些状态的（全部 / 进行中 / 已完成 / 今日 / 本周）——主筛选，最常用
+      3. 更细的收窄（优先级 / 标签）+ 搜索与多选——次要，视觉上压一级
+
+      之前这四行用的是同一个 `BaseButton secondary`，四行长得一模一样，
+      既分不出主次，也看不出点哪行会发生什么（改的是视图、筛选还是搜索）。
+    -->
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <!-- 视图切换：分段控件（等同 tablist），与筛选 chip 在形态上明确区分 -->
+      <div
+        class="flex w-full gap-1 rounded-xl bg-slate-100 p-1 sm:w-auto dark:bg-slate-800/70"
+        role="tablist"
+        aria-label="任务视图"
+      >
+        <button
           v-for="tab in viewTabs"
           :key="tab.key"
-          size="sm"
-          :variant="store.listView === tab.key ? 'primary' : 'secondary'"
+          type="button"
+          role="tab"
+          :aria-selected="store.listView === tab.key"
+          class="min-h-[36px] flex-1 rounded-lg px-3 text-xs font-medium transition-colors sm:flex-none"
+          :class="
+            store.listView === tab.key
+              ? 'bg-white text-slate-800 shadow-sm dark:bg-slate-700 dark:text-slate-100'
+              : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+          "
           :data-testid="`todos-view-${tab.key}`"
           @click="store.setListView(tab.key)"
         >
           {{ tab.label }}
-        </BaseButton>
+        </button>
       </div>
 
-      <BaseButton
-        v-if="store.listView === 'main' && store.completedCount > 0"
-        size="sm"
-        variant="ghost"
-        data-testid="todos-archive-completed"
-        @click="archiveAllCompleted"
-      >
-        归档所有已完成
-      </BaseButton>
-    </div>
-
-    <!-- 工具栏：筛选 + 搜索 -->
-    <div class="flex flex-wrap items-center justify-between gap-2">
-      <!-- 完成状态筛选只在主列表有意义（归档/已隐藏视图看的是生命周期状态） -->
-      <div v-if="store.listView === 'main'" class="flex gap-1" role="tablist" aria-label="任务筛选">
-        <BaseButton
-          v-for="tab in filterTabs"
-          :key="tab.key"
-          size="sm"
-          :variant="store.filter === tab.key ? 'primary' : 'secondary'"
-          @click="store.setFilter(tab.key)"
-        >
-          {{ tab.label }}
-        </BaseButton>
-      </div>
-      <span v-else class="text-sm font-medium text-slate-500 dark:text-slate-400">
-        {{ store.listView === 'archived' ? '📦 已归档任务' : '💤 已隐藏任务（稍后再做）' }}
-      </span>
-      <div class="flex items-center gap-2">
-        <div class="w-56">
+      <!--
+        窄屏把所有工具压在一行会互相挤（搜索框被压到只剩几十像素），
+        所以 <sm 拆两行、sm 起合成一行；顺序上搜索永远紧跟视图切换。
+      -->
+      <div class="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
+        <div class="min-w-[9rem] flex-1 sm:w-56 sm:flex-none">
           <SearchBar v-model="store.keyword" />
         </div>
+
+        <BaseButton
+          v-if="store.listView === 'main' && store.completedCount > 0"
+          size="sm"
+          variant="ghost"
+          class="text-slate-500 dark:text-slate-400"
+          data-testid="todos-archive-completed"
+          @click="archiveAllCompleted"
+        >
+          归档所有已完成
+        </BaseButton>
+
         <BaseButton
           size="sm"
-          :variant="store.selectionMode ? 'primary' : 'secondary'"
+          :variant="store.selectionMode ? 'primary' : 'ghost'"
+          class="text-slate-500 dark:text-slate-400"
           @click="store.toggleSelectionMode()"
         >
           {{ store.selectionMode ? '退出多选' : '多选' }}
@@ -425,54 +434,79 @@ watch(
       </div>
     </div>
 
-    <!-- 优先级筛选（多选：高/中/低可同时选中；三者全选自动回到全部） -->
-    <div class="flex flex-wrap items-center gap-2">
-      <span class="text-xs text-slate-400 dark:text-slate-500">优先级</span>
-      <div class="flex gap-1" role="group" aria-label="优先级筛选">
-        <BaseButton
-          size="sm"
-          :variant="store.priority.length === 0 ? 'primary' : 'secondary'"
-          @click="store.clearPriority()"
-        >
-          全部
-        </BaseButton>
-        <BaseButton
-          v-for="t in PRIORITY_TABS"
-          :key="t.key"
-          size="sm"
-          :variant="store.priority.includes(t.key) ? 'primary' : 'secondary'"
-          @click="store.togglePriority(t.key)"
-        >
-          {{ t.label }}
-        </BaseButton>
-      </div>
-    </div>
-
-    <!-- 标签筛选（多选：命中任一标签即保留） -->
+    <!-- 完成状态筛选只在主列表有意义（归档/已隐藏视图看的是生命周期状态） -->
     <div
-      v-if="tagStore.tagCount > 0"
-      class="flex flex-wrap items-center gap-2"
-      data-testid="todos-tag-filter"
+      v-if="store.listView === 'main'"
+      class="flex flex-wrap items-center gap-1"
+      role="tablist"
+      aria-label="任务筛选"
     >
-      <span class="text-xs text-slate-400 dark:text-slate-500">标签</span>
-      <div class="flex flex-wrap gap-1" role="group" aria-label="标签筛选">
-        <BaseButton
-          size="sm"
-          :variant="store.tagFilter.length === 0 ? 'primary' : 'secondary'"
-          @click="store.clearTagFilter()"
-        >
-          全部
-        </BaseButton>
-        <BaseButton
-          v-for="tag in tagStore.tags"
-          :key="tag.id"
-          size="sm"
-          :variant="store.tagFilter.includes(tag.id) ? 'primary' : 'secondary'"
-          :data-testid="`todos-tag-filter-${tag.id}`"
-          @click="store.toggleTagFilter(tag.id)"
-        >
-          {{ tag.name }}
-        </BaseButton>
+      <BaseButton
+        v-for="tab in filterTabs"
+        :key="tab.key"
+        size="sm"
+        :variant="store.filter === tab.key ? 'primary' : 'secondary'"
+        @click="store.setFilter(tab.key)"
+      >
+        {{ tab.label }}
+      </BaseButton>
+    </div>
+    <p v-else class="text-[13px] font-medium text-slate-600 dark:text-slate-300">
+      {{ store.listView === 'archived' ? '已归档任务' : '已隐藏任务（稍后再做）' }}
+    </p>
+
+    <!--
+      细分筛选：标签文字用 --app-label-w 固定宽度，
+      四行/两行的标签左边缘因此对齐（标签宽度不一致时，chip 会各自起跳，整块看起来是散的）。
+    -->
+    <div class="space-y-2">
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
+        <span class="w-10 shrink-0 text-xs text-slate-500 dark:text-slate-400">优先级</span>
+        <div class="flex flex-wrap gap-1" role="group" aria-label="优先级筛选">
+          <BaseButton
+            size="sm"
+            :variant="store.priority.length === 0 ? 'primary' : 'secondary'"
+            @click="store.clearPriority()"
+          >
+            全部
+          </BaseButton>
+          <BaseButton
+            v-for="t in PRIORITY_TABS"
+            :key="t.key"
+            size="sm"
+            :variant="store.priority.includes(t.key) ? 'primary' : 'secondary'"
+            @click="store.togglePriority(t.key)"
+          >
+            {{ t.label }}
+          </BaseButton>
+        </div>
+      </div>
+
+      <div
+        v-if="tagStore.tagCount > 0"
+        class="flex flex-wrap items-center gap-x-2 gap-y-2"
+        data-testid="todos-tag-filter"
+      >
+        <span class="w-10 shrink-0 text-xs text-slate-500 dark:text-slate-400">标签</span>
+        <div class="flex flex-wrap gap-1" role="group" aria-label="标签筛选">
+          <BaseButton
+            size="sm"
+            :variant="store.tagFilter.length === 0 ? 'primary' : 'secondary'"
+            @click="store.clearTagFilter()"
+          >
+            全部
+          </BaseButton>
+          <BaseButton
+            v-for="tag in tagStore.tags"
+            :key="tag.id"
+            size="sm"
+            :variant="store.tagFilter.includes(tag.id) ? 'primary' : 'secondary'"
+            :data-testid="`todos-tag-filter-${tag.id}`"
+            @click="store.toggleTagFilter(tag.id)"
+          >
+            {{ tag.name }}
+          </BaseButton>
+        </div>
       </div>
     </div>
 
@@ -533,9 +567,9 @@ watch(
       <BaseButton size="sm" variant="secondary" @click="undo">撤销</BaseButton>
     </div>
 
-    <!-- 计数 -->
-    <p class="text-xs text-slate-400 dark:text-slate-500">
-      {{ filterLabel }} · {{ store.filteredTodos.length }} 项
+    <!-- 计数：一行小字，和列表同属「当前筛选的结果」 -->
+    <p class="pt-1 text-xs text-slate-500 dark:text-slate-400">
+      {{ filterLabel }} · <span class="tabular-nums">{{ store.filteredTodos.length }} 项</span>
     </p>
 
     <!-- 列表（SortableJS 接管拖拽排序，ref 挂载容器） -->

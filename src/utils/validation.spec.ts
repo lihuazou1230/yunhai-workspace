@@ -2,12 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import {
   DISPLAY_NAME_MAX_LENGTH,
-  PASSWORD_MIN_LENGTH,
   TITLE_MAX_LENGTH,
   isValidDateKey,
   validateDisplayName,
   validateEmail,
-  validatePassword,
   validatePasswordConfirm,
   validateTodoTitle,
 } from './validation'
@@ -59,12 +57,6 @@ describe('登录 / 注册表单校验', () => {
     expect(validateEmail('  zhang+work@mail.example.co.uk  ').valid).toBe(true)
   })
 
-  it('validatePassword：至少 6 位', () => {
-    expect(validatePassword('').message).toBe('请输入密码')
-    expect(validatePassword('12345').message).toContain(String(PASSWORD_MIN_LENGTH))
-    expect(validatePassword('123456').valid).toBe(true)
-  })
-
   it('validatePasswordConfirm：必须一致', () => {
     expect(validatePasswordConfirm('123456', '').message).toBe('请再次输入密码')
     expect(validatePasswordConfirm('123456', '654321').message).toBe('两次输入的密码不一致')
@@ -78,3 +70,5 @@ describe('登录 / 注册表单校验', () => {
     expect(validateDisplayName('张'.repeat(DISPLAY_NAME_MAX_LENGTH + 1)).valid).toBe(false)
   })
 })
+
+// 密码**强度**规则（长度下限/字符类别/弱密码黑名单）另有专门用例：见 utils/auth.spec.ts

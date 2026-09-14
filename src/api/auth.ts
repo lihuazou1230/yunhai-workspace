@@ -8,6 +8,7 @@
 
 import type { AuthResult, AuthUser, SignUpPayload } from '@/types/auth'
 import { appUrl } from '@/utils/appUrl'
+import { describeAuthLinkError, parseAuthRedirect, stripAuthParams } from '@/utils/authRedirect'
 import {
   SupabaseUnavailableError,
   getSupabaseClient,
@@ -71,12 +72,45 @@ export function describeAuthError(error: unknown): string {
 
   const raw = typeof error === 'string' ? error : ((error as Error).message ?? '')
   const text = raw.toLowerCase()
+  /**
+   * supabase-js 的 `AuthApiError` 还带一个服务端错误码（`error.code`）。
+   * 有些错误只有码、没有可读的 message，光看 message 会漏掉——所以两个都读。
+   */
+  const code =
+    typeof error === 'object' && error !== null
+      ? String((error as { code?: unknown }).code ?? '').toLowerCase()
+      : ''
 
   if (text.includes('invalid login credentials')) return '邮箱或密码不正确'
   if (text.includes('email not confirmed')) return '邮箱尚未验证，请先查收验证邮件'
   if (text.includes('already registered') || text.includes('already been registered'))
     return '该邮箱已注册，请直接登录'
-  if (text.includes('password should be at least')) return '密码至少 6 位'
+  /**
+   * Turnstile 人机验证失败：GoTrue 会把 Cloudflare 的错误码原样带出来，
+   * 例如 `captcha protection: request disallowed (timeout-or-duplicate)`。
+   * 其中 `timeout-or-duplicate` 几乎总是「token 用了第二次」（一次性），
+   * 提示必须指向「重新验证」，否则用户只会反复点注册。
+   */
+  if (text.includes('timeout-or-duplicate'))
+    return '人机验证已过期或已被使用，请重新完成验证后再提交'
+  if (text.includes('captcha') || text.includes('invalid-input-response'))
+    return '人机验证未通过，请重新完成验证后再试'
+  // Supabase 的最小密码长度是可配的（本项目调到 8，对齐 utils/auth 的规则），
+  // 所以把数字从报错里读出来，而不是写死 6 —— 否则服务端改了长度，提示反而骗人
+  const minLength = raw.match(/password should be at least\s+(\d+)/i)
+  if (minLength) return `密码至少 ${minLength[1]} 位`
+  /**
+   * 密码强度不达标。**调高最小长度/复杂度之后老账号会在登录时撞上这条**：
+   * Supabase 的规则「老用户仍可用旧密码登录，但若旧密码达不到新标准，
+   * signInWithPassword 会返回 WeakPasswordError」——不翻译的话用户只会看到英文，
+   * 还以为是自己密码打错了。
+   */
+  if (
+    code.includes('weak_password') ||
+    text.includes('weak password') ||
+    text.includes('password is too weak')
+  )
+    return '这个密码达不到当前强度要求（服务端已提高最小长度/复杂度）：请用「忘记密码」重设一个更强的密码'
   if (text.includes('should be different from the old password')) return '新密码不能与当前密码相同'
   if (text.includes('unable to validate email') || text.includes('invalid email'))
     return '邮箱格式不正确'
@@ -119,6 +153,13 @@ export async function signUpWithPassword(payload: SignUpPayload): Promise<AuthRe
         // 用 appUrl() 而不是 location.origin：GitHub Pages 部署在 /<repo>/ 子路径下，
         // 只拼 origin 会得到不是本应用的地址，且匹配不上 Supabase 的 Redirect URLs 白名单
         emailRedirectTo: appUrl(),
+        /**
+         * Turnstile 的一次性 token（第五阶段：注册安全增强）。
+         * 服务端在**发出确认邮件之前**拿 secretKey 向 Cloudflare 核验：
+         * 不通过就不建号、不发信——所以它挡的是批量注册脚本，而不是"前端有没有画验证码"。
+         * 未启用验证码时这里是 undefined，supabase-js 会忽略该字段。
+         */
+        captchaToken: payload.captchaToken || undefined,
       },
     })
     if (error) return failure(error)
@@ -134,11 +175,25 @@ export async function signUpWithPassword(payload: SignUpPayload): Promise<AuthRe
   }
 }
 
-/** 邮箱密码登录 */
-export async function signInWithPassword(email: string, password: string): Promise<AuthResult> {
+/**
+ * 邮箱密码登录。
+ *
+ * ⚠️ Supabase 的 Captcha 保护是**全局开关**：一旦在 Attack Protection 里打开，
+ * 登录（/token?grant_type=password）也会要求 token。所以这里必须能带 captchaToken，
+ * 否则"开了验证码就登不进去"。未启用验证码时是 undefined，请求里不会出现该字段。
+ */
+export async function signInWithPassword(
+  email: string,
+  password: string,
+  captchaToken?: string,
+): Promise<AuthResult> {
   try {
     const client = requireSupabaseClient()
-    const { error } = await client.auth.signInWithPassword({ email, password })
+    const { error } = await client.auth.signInWithPassword({
+      email,
+      password,
+      options: captchaToken ? { captchaToken } : undefined,
+    })
     if (error) return failure(error)
     return { ok: true, message: '登录成功' }
   } catch (error) {
@@ -172,7 +227,11 @@ export async function signInWithPassword(email: string, password: string): Promi
  * 反而更懵。这里的错误也要翻译好：Supabase 对发信有频率限制，
  * 连续点会返回 rate limit，得明确告诉用户「过一会儿再试」。
  */
-export async function resendConfirmEmail(email: string, redirectTo?: string): Promise<AuthResult> {
+export async function resendConfirmEmail(
+  email: string,
+  redirectTo?: string,
+  captchaToken?: string,
+): Promise<AuthResult> {
   try {
     const client = requireSupabaseClient()
     const { error } = await client.auth.resend({
@@ -181,6 +240,8 @@ export async function resendConfirmEmail(email: string, redirectTo?: string): Pr
       options: {
         // 同上：子路径部署下必须带上 base，否则白名单匹配失败
         emailRedirectTo: redirectTo ?? appUrl(),
+        // 开了 Captcha 保护时 /resend 也要求 token（未启用时不带该字段）
+        ...(captchaToken ? { captchaToken } : {}),
       },
     })
     if (error) return failure(error)
@@ -199,12 +260,18 @@ export async function resendConfirmEmail(email: string, redirectTo?: string): Pr
  *
  * ⚠️ `redirectTo` 必须出现在 Supabase 的 Redirect URLs 白名单里，否则链接会被拒。
  */
-export async function sendPasswordReset(email: string, redirectTo?: string): Promise<AuthResult> {
+export async function sendPasswordReset(
+  email: string,
+  redirectTo?: string,
+  captchaToken?: string,
+): Promise<AuthResult> {
   try {
     const client = requireSupabaseClient()
     const { error } = await client.auth.resetPasswordForEmail(email, {
       // 必须带上部署 base（GitHub Pages 是 /<repo>/），否则重置链接会跳到应用之外
       redirectTo: redirectTo ?? appUrl('reset-password'),
+      // 开了 Captcha 保护时 /recover 也要求 token（未启用时不带该字段）
+      ...(captchaToken ? { captchaToken } : {}),
     })
     if (error) return failure(error)
     return { ok: true, message: '重置链接已发送，请到邮箱查收（没收到先看垃圾箱）' }
@@ -214,7 +281,48 @@ export async function sendPasswordReset(email: string, redirectTo?: string): Pro
 }
 
 /**
- * 修改当前用户密码（登录状态下改密 / 重置链接换来的 recovery 会话都用它）。
+ * 处理「邮件链接落地」时地址栏带回来的凭据，并把它从地址栏清掉。
+ *
+ * 覆盖四种形态（详见 `utils/authRedirect.ts` 的说明）：
+ * - `#access_token=…`（默认模板，implicit）→ 交给 supabase-js 自己换，这里返回 null
+ * - `?code=…`（PKCE）→ `exchangeCodeForSession`
+ * - `?token_hash=…&type=…`（新版模板 / SSR 推荐写法）→ `verifyOtp` ← **库不会自动处理这一种**
+ * - `#error=…&error_code=otp_expired`（链接过期/被邮件扫描器先点过）→ 翻成中文提示
+ *
+ * 没带凭据时返回 null（调用方不用区分"成功"与"本来就没这回事"）。
+ */
+export async function consumeAuthRedirect(
+  url: string = typeof window !== 'undefined' ? window.location.href : '',
+): Promise<AuthResult | null> {
+  if (!url) return null
+  const plan = parseAuthRedirect(url)
+  if (plan.kind === 'none') return null
+
+  cleanupUrl()
+  if (plan.kind === 'error') return { ok: false, message: describeAuthLinkError(plan) }
+
+  try {
+    const client = requireSupabaseClient()
+    const { error } =
+      plan.kind === 'code'
+        ? await client.auth.exchangeCodeForSession(plan.code!)
+        : await client.auth.verifyOtp({ token_hash: plan.tokenHash!, type: plan.type! })
+    if (error) return failure(error)
+    return { ok: true, message: '邮箱验证成功，已自动登录' }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+/** 把认证参数从地址栏抹掉（保留其它查询与 hash），避免刷新时拿一次性凭据再换一次 */
+function cleanupUrl(): void {
+  if (typeof window === 'undefined' || !window.history?.replaceState) return
+  const next = stripAuthParams(window.location.href)
+  if (!next) return
+  window.history.replaceState(window.history.state, '', next)
+}
+
+/** 改密（登录状态下改密 / 重置链接换来的 recovery 会话都用它）。
  * 前端只做长度与一致性校验，强度规则最终由 Supabase 判定。
  */
 export async function updateUserPassword(password: string): Promise<AuthResult> {

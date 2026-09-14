@@ -3,7 +3,7 @@
  *
  * 为什么需要它：应用不一定挂在域名根目录下。
  * - 本地 / Vercel / Netlify / Cloudflare Pages：`/`
- * - **GitHub Pages 项目站点**：`/vue3-smart-workspace/`
+ * - **GitHub Pages 项目站点**：`/yunhai-workspace/`
  *
  * 之前认证相关代码直接拼 `location.origin`，在子路径部署下会得到
  * `https://<user>.github.io/reset-password`——既丢掉了仓库前缀（不是本应用的真实地址），

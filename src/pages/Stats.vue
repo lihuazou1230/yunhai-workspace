@@ -18,6 +18,8 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import BaseButton from '@/components/atoms/BaseButton.vue'
+import UiIcon from '@/components/atoms/UiIcon.vue'
+import PageHeader from '@/components/organisms/PageHeader.vue'
 import StatsRangeTabs from '@/components/molecules/StatsRangeTabs.vue'
 import ProductivityHeatmap from '@/components/organisms/ProductivityHeatmap.vue'
 import StatisticsCard from '@/components/organisms/StatisticsCard.vue'
@@ -81,21 +83,19 @@ const correlation = computed(() => pearsonCorrelation(scatter.value))
 </script>
 
 <template>
-  <div class="space-y-5">
-    <header class="flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <h1 class="text-xl font-bold tracking-tight text-slate-800 dark:text-slate-100">📊 统计</h1>
-        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          {{ rangeLabel }}完成 {{ completedInRange }} 项 · 趋势、时段、标签、投入产出四维分析
-        </p>
-      </div>
-      <div class="flex items-center gap-2">
+  <div class="space-y-6">
+    <PageHeader
+      title="统计"
+      :subtitle="`${rangeLabel}完成 ${completedInRange} 项 · 趋势、时段、标签、投入产出四维分析`"
+    >
+      <template #actions>
         <StatsRangeTabs v-model="range" />
         <BaseButton variant="secondary" size="sm" @click="router.push({ name: 'annual' })">
-          🎉 年度报告
+          <UiIcon name="chart" class="h-4 w-4" />
+          年度报告
         </BaseButton>
-      </div>
-    </header>
+      </template>
+    </PageHeader>
 
     <StatsTrendChart :points="trend" :window-label="windowLabel" />
 

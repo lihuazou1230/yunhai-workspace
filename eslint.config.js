@@ -20,6 +20,10 @@ export default tseslint.config(
       // 否则 `pnpm lint` 会对压缩 JS 报出几千条 no-unused-expressions，
       // 把真正的代码问题淹掉（实测：漏了这一行会红 5821 条）。
       'build/**',
+      // 视觉核查工具（本地 headless 截图脚本，已在 .gitignore 里忽略）：
+      // 它们跑在 Node 里、且会把「浏览器脚本源码」当字符串注入页面，
+      // 用前端的浏览器全局规则去扫必然满屏 no-undef
+      '.visual/**',
     ],
   },
   js.configs.recommended,

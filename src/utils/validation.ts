@@ -26,9 +26,9 @@ export function isValidDateKey(dateKey: string): boolean {
 }
 
 // ---- 登录 / 注册表单校验（第五阶段） ----
-
-/** 密码最短长度（与 Supabase Auth 的默认要求一致） */
-export const PASSWORD_MIN_LENGTH = 6
+//
+// 密码**强度**规则（长度下限、字符类别、弱密码黑名单）在 `utils/auth.ts`：
+// 那是安全策略，注册与改密共用，和这里的"表单形状"（邮箱格式、两次是否一致）变更理由不同。
 
 /** 展示名长度上限 */
 export const DISPLAY_NAME_MAX_LENGTH = 20
@@ -43,15 +43,6 @@ export function validateEmail(email: string): ValidationResult {
   if (!value) return { valid: false, message: '请输入邮箱' }
   if (/\s/.test(value)) return { valid: false, message: '邮箱不能包含空格' }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return { valid: false, message: '邮箱格式不正确' }
-  return { valid: true }
-}
-
-/** 密码校验：至少 6 位 */
-export function validatePassword(password: string): ValidationResult {
-  if (!password) return { valid: false, message: '请输入密码' }
-  if (password.length < PASSWORD_MIN_LENGTH) {
-    return { valid: false, message: `密码至少 ${PASSWORD_MIN_LENGTH} 位` }
-  }
   return { valid: true }
 }
 

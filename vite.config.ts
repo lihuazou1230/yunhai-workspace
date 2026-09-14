@@ -60,6 +60,19 @@ export default defineConfig({
   },
   test: {
     environment: 'happy-dom',
+    /**
+     * 测试环境不该有网络行为：happy-dom 默认会为插进文档的 `<script src>` 真的发请求，
+     * 于是「Turnstile 脚本加载器」这类用例在 CI 上必然失败、在本机变成碰运气。
+     * 这里把文件加载关掉（脚本加载器自身的三条分支由用例注入 appender 后自己驱动，
+     * 见 src/composables/useTurnstile.spec.ts）。
+     */
+    environmentOptions: {
+      happyDOM: {
+        settings: {
+          disableJavaScriptFileLoading: true,
+        },
+      },
+    },
     include: ['src/**/*.{test,spec}.ts'],
     setupFiles: ['src/test/setup.ts'],
     css: true,

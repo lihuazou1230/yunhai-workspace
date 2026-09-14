@@ -23,6 +23,14 @@ jobs:
       - uses: actions/checkout@v5
 
       - uses: pnpm/action-setup@v4
+        with:
+          # 必须显式给 version：action-setup 的 version 只在 package.json 有
+          # `packageManager` 字段时才是可选的，否则**必填**（官方 README 原文：
+          # "Optional when there is a packageManager field ... otherwise, this field is required"）。
+          # 本项目刻意不用 packageManager 字段（见 README），漏了这行会让整个
+          # 「打 tag 出安装包」的流水线在安装 pnpm 这一步就红掉。
+          # 与 deploy-pages.yml 保持一致，也对齐本机 pnpm 11.21.0。
+          version: 11
 
       - uses: actions/setup-node@v4
         with:
@@ -57,7 +65,7 @@ jobs:
         with:
           # tag 触发时自动建 Release 并挂上安装包；手动触发则只构建
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-          releaseName: '智能工作台 v__VERSION__'
+          releaseName: '云海工作台 v__VERSION__'
           releaseBody: '桌面版安装包（Windows x64）。绿色版为单文件 exe，安装版为 -setup.exe。'
           releaseDraft: true
           prerelease: false

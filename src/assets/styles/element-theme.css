@@ -5,8 +5,42 @@
   --el-color-primary: #10b981;
   /* 圆角调大，与 20~24px 的卡片圆角协调 */
   --el-border-radius-base: 12px;
+
+  /*
+    卡片投影：1px 偏移 + 24px 大模糊，透明度低到「不上眼但能把边缘立住」。
+    零偏移的彩色光晕是装饰不是深度，所以保留正向偏移。
+  */
+  --app-card-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 8px 24px -12px rgb(15 23 42 / 0.08);
 }
 
 html.dark {
   color-scheme: dark;
+  /* 深色底上白卡阴影不可见，改用纯黑 + 更高模糊，卡片才不会「浮不起来」 */
+  --app-card-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 28px -16px rgb(0 0 0 / 0.6);
+}
+
+/*
+  浏览器自带的界面细节也是设计的一部分（选中色 / 光标 / 滚动条 / 焦点环）。
+  它们不属于任何设计系统，默认值（系统蓝高亮、粗滚动条、黑描边焦点环）是最廉价的
+  「这页是拼出来的」信号——这里统一从主题色推导。
+*/
+::selection {
+  background-color: color-mix(in srgb, var(--el-color-primary) 22%, transparent);
+  color: inherit;
+}
+
+html {
+  caret-color: var(--el-color-primary);
+}
+
+/* 键盘焦点环：鼠标点击不显示，Tab 导航时给出清晰的 2px 主题色描边 */
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--el-color-primary) 70%, transparent);
+  outline-offset: 2px;
+}
+
+/* 滚动条：Firefox 走标准属性，Chromium 走 ::-webkit-*（见 custom.css） */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, currentColor 26%, transparent) transparent;
 }

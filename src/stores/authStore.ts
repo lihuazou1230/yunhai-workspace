@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
 import {
+  consumeAuthRedirect,
   describeAuthError,
   getCurrentSessionUser,
   resendConfirmEmail,
@@ -37,6 +38,12 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref<AuthUser | null>(null)
   /** 最近一次认证失败的原因（可展示） */
   const lastError = ref('')
+  /**
+   * 邮件链接落地的处理结果（成功/失败各一条），登录页展示一次后清掉。
+   * 用它的原因：链接过期、被邮件扫描器先点过一次，用户需要一句明确的解释，
+   * 而不是"页面停在登录页、不知道为什么"。
+   */
+  const redirectNotice = ref<AuthResult | null>(null)
 
   /** 运行模式：cloud = 已配置 Supabase；local = 纯本地模式 */
   const mode = computed<AuthMode>(() => (isSupabaseConfigured() ? 'cloud' : 'local'))
@@ -71,11 +78,31 @@ export const useAuthStore = defineStore('auth', () => {
         return
       }
 
+      /**
+       * **先认领邮件链接带回来的凭据，再恢复会话**——顺序不能反：
+       * `verifyOtp` / `exchangeCodeForSession` 执行完会话才落到本地存储，
+       * 反过来的话 `getSession()` 拿到的是空的，用户点完验证邮件会被判成"未登录"，
+       * 于是停在登录页、还得手动登一次（正是这个顺序问题造成的体验坑）。
+       */
+      let redirectFailure = ''
+      try {
+        const redirectResult = await consumeAuthRedirect()
+        if (redirectResult) {
+          redirectNotice.value = redirectResult
+          if (!redirectResult.ok) redirectFailure = redirectResult.message
+        }
+      } catch (error) {
+        redirectFailure = describeAuthError(error)
+      }
+
       try {
         applyUser(await getCurrentSessionUser())
       } catch (error) {
         applyUser(null, describeAuthError(error))
       }
+
+      // 邮件链接失败的原因要"活过"会话恢复——applyUser 会用空串覆盖 lastError
+      if (redirectFailure) lastError.value = redirectFailure
 
       // 订阅放在恢复之后：token 刷新、登出、OAuth 回跳都会走到这里
       unsubscribe?.()
@@ -85,14 +112,25 @@ export const useAuthStore = defineStore('auth', () => {
     return readyPromise
   }
 
+  /** 登录页取走邮件链接的处理结果（取一次就清，避免重复弹） */
+  function takeRedirectNotice(): AuthResult | null {
+    const notice = redirectNotice.value
+    redirectNotice.value = null
+    return notice
+  }
+
   /** 路由守卫用：会话恢复完成前挂起，避免误跳登录页 */
   async function ensureReady(): Promise<void> {
     if (status.value === 'loading') await init()
   }
 
-  /** 邮箱密码登录 */
-  async function signIn(email: string, password: string): Promise<AuthResult> {
-    const result = await signInWithPassword(email.trim(), password)
+  /** 邮箱密码登录（captchaToken：开了 Attack Protection 时服务端会要求） */
+  async function signIn(
+    email: string,
+    password: string,
+    captchaToken?: string,
+  ): Promise<AuthResult> {
+    const result = await signInWithPassword(email.trim(), password, captchaToken)
     if (result.ok) {
       lastError.value = ''
       // 立即拉一次用户，避免等 onAuthStateChange 才更新界面
@@ -109,6 +147,8 @@ export const useAuthStore = defineStore('auth', () => {
       email: payload.email.trim(),
       password: payload.password,
       displayName: payload.displayName.trim(),
+      // Turnstile 一次性 token 原样透传（未启用验证码时是空串/undefined）
+      captchaToken: payload.captchaToken,
     })
     if (result.ok && !result.needsEmailConfirm) await refreshUser()
     if (!result.ok) lastError.value = result.message
@@ -122,16 +162,16 @@ export const useAuthStore = defineStore('auth', () => {
     return result
   }
 
-  /** 重新发送注册验证邮件（开启邮箱验证时用） */
-  async function resendConfirm(email: string): Promise<AuthResult> {
-    const result = await resendConfirmEmail(email.trim())
+  /** 重新发送注册验证邮件（开启邮箱验证时用；开了 Captcha 时也要带 token） */
+  async function resendConfirm(email: string, captchaToken?: string): Promise<AuthResult> {
+    const result = await resendConfirmEmail(email.trim(), undefined, captchaToken)
     if (!result.ok) lastError.value = result.message
     return result
   }
 
-  /** 发送重置密码邮件（忘记密码） */
-  async function sendResetEmail(email: string): Promise<AuthResult> {
-    const result = await sendPasswordReset(email.trim())
+  /** 发送重置密码邮件（忘记密码；开了 Captcha 时也要带 token） */
+  async function sendResetEmail(email: string, captchaToken?: string): Promise<AuthResult> {
+    const result = await sendPasswordReset(email.trim(), undefined, captchaToken)
     if (!result.ok) lastError.value = result.message
     return result
   }
@@ -185,6 +225,7 @@ export const useAuthStore = defineStore('auth', () => {
     status.value = 'loading'
     user.value = null
     lastError.value = ''
+    redirectNotice.value = null
   }
 
   return {
@@ -192,6 +233,7 @@ export const useAuthStore = defineStore('auth', () => {
     status,
     user,
     lastError,
+    redirectNotice,
     // getters
     mode,
     isLocalMode,
@@ -204,6 +246,7 @@ export const useAuthStore = defineStore('auth', () => {
     // actions
     init,
     ensureReady,
+    takeRedirectNotice,
     signIn,
     signUp,
     signInWithGithub,

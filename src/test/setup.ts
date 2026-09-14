@@ -18,8 +18,11 @@ config.global.stubs = {
  * （而且 CI 上没有 .env.local 又是另一种结果）。
  *
  * 所以统一先清空 Supabase 变量（= 本地模式）；需要云端模式的用例自己 stub 非空值。
+ * Turnstile 的 siteKey 同理：默认清空（= 不启用验证码），
+ * 需要验证「注册必须过验证码」的用例自己 stub 一个非空 siteKey。
  */
 beforeEach(() => {
   vi.stubEnv('VITE_SUPABASE_URL', '')
   vi.stubEnv('VITE_SUPABASE_ANON_KEY', '')
+  vi.stubEnv('VITE_TURNSTILE_SITE_KEY', '')
 })

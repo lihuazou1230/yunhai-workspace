@@ -103,7 +103,8 @@ describe('useWeather（只展示当前位置）', () => {
     expect(urls.some((u) => u.includes('weatherInfo'))).toBe(true)
     expect(w.state.value).toBe('success')
     expect(w.located.value).toBe(true)
-    expect(w.locateHint.value).toContain('已定位')
+    // 成功不写提示：卡片上「已定位到当前位置」这类话已经去掉了（标题旁的「📍 当前位置」小标足够）
+    expect(w.locateHint.value).toBe('')
     // 位置文案取自逆地理编码（天气接口的 city 字段其实是区名）
     expect(w.placeLabel.value).toBe('青山湖区 · 南昌市 · 江西省')
   })
@@ -200,7 +201,7 @@ describe('useWeather（只展示当前位置）', () => {
     expect(w.locateHint.value).toContain('不支持定位')
   })
 
-  it('「📍 定位」可重新定位，覆盖先前的回落结果', async () => {
+  it('locate() 可重新定位，覆盖先前的回落结果', async () => {
     localStorage.setItem(DENIED_KEY, '1')
     stubGeo('ok')
     const urls: string[] = []
@@ -212,7 +213,26 @@ describe('useWeather（只展示当前位置）', () => {
 
     await w.locate()
     expect(w.located.value).toBe(true)
-    expect(w.locateHint.value).toContain('已定位')
+    expect(w.locateHint.value).toBe('')
+  })
+
+  it('locate({ force: true }) 跳过缓存：卡片上的「刷新」要的是最新数据', async () => {
+    stubGeo('ok')
+    const urls: string[] = []
+    stubFetch(urls)
+
+    const w = useWeather()
+    await w.init()
+    const afterInit = urls.filter((u) => u.includes('weatherInfo')).length
+
+    // 不带 force：30 分钟缓存内直接命中，不再发请求
+    await w.locate()
+    expect(urls.filter((u) => u.includes('weatherInfo')).length).toBe(afterInit)
+
+    // 带 force：重新请求一次，且明确不是缓存
+    await w.locate({ force: true })
+    expect(urls.filter((u) => u.includes('weatherInfo')).length).toBe(afterInit + 1)
+    expect(w.fromCache.value).toBe(false)
   })
 
   it('「↻ 刷新」跳过缓存，重新请求一次', async () => {

@@ -1,6 +1,6 @@
-# Vue 3 智能工作台
+# 云海工作台
 
-[![Deploy to GitHub Pages](https://github.com/lihuazou1230/vue3-smart-workspace/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/lihuazou1230/vue3-smart-workspace/actions/workflows/deploy-pages.yml)
+[![Deploy to GitHub Pages](https://github.com/lihuazou1230/yunhai-workspace/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/lihuazou1230/yunhai-workspace/actions/workflows/deploy-pages.yml)
 ![Vue 3](https://img.shields.io/badge/Vue-3-42b883?logo=vuedotjs&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-38bdf8?logo=tailwindcss&logoColor=white)
@@ -14,8 +14,8 @@
 ## 在线演示
 
 - **自建服务器**：<http://124.220.159.58/workspace/>（Windows Server 2012 R2 + IIS 8.5 子应用，与主站二维码工具共用 80 端口；部署方式见下方「自有服务器 IIS」）
-- **线上地址**：<https://lihuazou1230.github.io/vue3-smart-workspace/>（GitHub Pages，由 `.github/workflows/deploy-pages.yml` 自动部署）
-- **源码仓库**：<https://github.com/lihuazou1230/vue3-smart-workspace>
+- **线上地址**：<https://lihuazou1230.github.io/yunhai-workspace/>（GitHub Pages，由 `.github/workflows/deploy-pages.yml` 自动部署）
+- **源码仓库**：<https://github.com/lihuazou1230/yunhai-workspace>
 - **桌面版**：`src-tauri/target/release/` 下的绿色版 exe 与 NSIS 安装包（见「桌面版（Tauri 2）」）
 
 打开即用：任务管理、今日聚焦、子任务、批量操作、统计图表、热力图、赚钱秒表、每日格言、天气定位全部可用；
@@ -23,7 +23,8 @@
 
 ## 核心功能
 
-- 👤 **用户系统**：邮箱密码注册/登录（含忘记密码邮件重置），刷新页面会话自动恢复（不闪跳登录页），未登录访问受保护页自动重定向并带原目标回跳
+- 👤 **用户系统**：邮箱密码注册/登录（含忘记密码邮件重置）+ **GitHub OAuth**（按钮按服务端实际开启的 Provider 渲染），刷新页面会话自动恢复（不闪跳登录页），未登录访问受保护页自动重定向并带原目标回跳
+- 🛡️ **注册安全（两道闸，都卡在"发确认邮件之前"）**：**密码复杂度**（≥8 位 + 大小写 + 数字 + 弱密码黑名单，实时强度条列出"缺什么"，未达标按钮置灰）+ **Cloudflare Turnstile** 人机验证（token 由 Cloudflare 签发、**Supabase 服务端核验**，前端伪造无效；managed 模式正常用户无感通过；**登录 / 注册 / 忘记密码 / 重发验证邮件四条链路都带 token**——Supabase 的 Captcha 是全局开关）
 - ☁️ **多设备同步**：任务写进云端 Postgres（行级安全 RLS），离线改动进队列、联网自动补发，旧 localStorage 数据登录后**一次性迁移**
 - 🔄 **账号级数据一致性（第九阶段）**：不只任务——**主题外观、壁纸、标签、快捷导航、倒计时、仪表板布局与周目标、赚钱秒表配置、投入时长日志、提醒设置、默认搜索引擎**统统跟账号走，任一设备登录即是同一套；换账号登录会先清本地再拉新账号的（同一台电脑换人用不串数据）；凭证（AI Key / 微信 UID）与设备相关项（天气缓存 / 定位记忆 / 已通知标记）**刻意留在本机**，设置页可展开查看完整清单与理由
 - 🖼️ **头像上传**：本地选图 → 圆形裁剪（cropperjs）→ 压成 256×256 WebP → 已登录传云端 Storage，未登录存 IndexedDB
@@ -85,21 +86,23 @@ src/
 │                     # todoRemote 任务云端读写 / userSettingsRemote 偏好云端读写 / weather 天气 / notify 微信代理
 ├── assets/styles/    # Tailwind 入口、Element Plus 主题变量、卡片/数字滚动等纯 CSS
 ├── components/
-│   ├── atoms/        # BaseButton / BaseInput / BaseBadge / BaseCheckbox / DigitRoll / TrendBadge
+│   ├── atoms/        # BaseButton / BaseInput / BaseBadge / BaseCheckbox / DigitRoll / TrendBadge /
+│   │                 # PasswordStrengthMeter 密码强度条 / TurnstileCaptcha 人机验证（第五阶段）
 │   ├── molecules/    # TodoItem / SearchBar / ThemeToggle / RollingAmount / ChartEmpty / StatsRangeTabs
 │   └── organisms/    # TodoList / TodoForm / MyDay / DailyGreeting / EarningsClock / TodayProgressCard /
 │                     # WeatherWidget / SettingsPanel / SidebarNav / AvatarUpload / MobileBottomNav /
 │                     # StatsTrendChart / StatsHourHeatmap / StatsTagDonut / StatsScatterChart（第八阶段）
 ├── composables/      # useTheme / useWeather / useEarnings / useECharts / useChartTheme / useStatistics /
-│                     # useWorkLog / useSyncedStorage（账号级设置同步）/ useAvatar / useIndexedDb
+│                     # useWorkLog / useSyncedStorage（账号级设置同步）/ useTurnstile（人机验证状态机）/
+│                     # useAvatar / useIndexedDb
 ├── data/             # quotes.json（每日格言，本地 JSON 轮换）
 ├── layouts/          # DefaultLayout（侧边栏 + 顶栏 + 内容区 + 移动端底部导航）
-├── pages/            # Dashboard / Todos / Stats / AnnualReport / Settings / Login
+├── pages/            # Dashboard / Todos / Stats / AnnualReport / Settings / Login / ResetPassword
 ├── router/           # 路由表 + authGuard（登录守卫与回跳校验）
 ├── stores/           # todoStore（含云同步）/ themeStore / authStore / tagStore / linkStore / wallpaperStore
 ├── types/            # todo / weather / statistics / earnings / auth / settings（同步清单）类型定义
-└── utils/            # 日期、优先级、校验、主题色、统计聚合（stats/workLog/annualCard）、赚钱换算、
-                      # 每日格言、金额拆位、头像工具、同步差异
+└── utils/            # 日期、优先级、表单校验、密码强度（auth）、主题色、统计聚合（stats/workLog/annualCard）、
+                      # 赚钱换算、每日格言、金额拆位、头像工具、同步差异
 supabase/schema.sql   # todos + user_settings 两张表、RLS 策略、avatars / user-assets 两个 bucket（可重复执行）
 deploy/               # 第八阶段：IIS 子路径部署（web.config + install.ps1 + 部署说明.txt）
 scripts/              # 构建辅助：desktop-build.mjs（桌面打包）/ build-deploy-package.ps1（部署包）
@@ -110,17 +113,17 @@ src-tauri/            # 第七阶段：Tauri 2 壳工程（Rust + tauri.conf.jso
 
 设计语言：**浅灰底 + 白底大圆角卡片 + 单一绿色强调 + 大数字排版**，几乎不用阴影，靠底色差分层。
 
-| 元素         | 落地方式                                                                                                                                                                           |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 页面底色     | `body` 已是 `bg-slate-100` / `dark:bg-slate-950`（`main.css`）                                                                                                                     |
-| 卡片         | `.card`（`custom.css`）：白底 / 暗色 `slate-900` + `border-radius: calc(var(--app-radius) + 8px)`，即**圆角设置 小/中/大 = 16/20/24px**                                            |
-| C 位强调卡   | `.card-accent`：深绿渐变底 + 白色大数字（赚钱秒表卡，暗色模式下保持不变）                                                                                                          |
-| 强调色       | **默认 emerald**，`themeStore` 预设新增 `lavender`；`element-theme.css` 给静态基准值，运行时由 `useTheme` 把用户选择写进 `--el-color-primary` 系列变量                             |
-| 组件跟随主题 | `BaseButton`(primary) / `BaseInput`(focus) / `BaseBadge`(primary) / `BaseCheckbox` / 设置页选中态 / ECharts 柱子颜色**全部读 CSS 变量**，换主题色即刻全站生效（不再硬编码 indigo） |
-| 大数字       | `font-bold tabular-nums tracking-tight`：PayDance 主体 `text-5xl sm:text-6xl`（C 位要压得住），今日完成度 `text-4xl`                                                                 |
-| 涨跌徽章     | `TrendBadge` 原子组件：↑ 绿 / ↓ 红 / — 持平，支持自定义后缀与无障碍描述                                                                                                            |
+| 元素         | 落地方式                                                                                                                                                                                                                                                                                                                                                               |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 页面底色     | `body` 已是 `bg-slate-100` / `dark:bg-slate-950`（`main.css`）                                                                                                                                                                                                                                                                                                         |
+| 卡片         | `.card`（`custom.css`）：白底 / 暗色 `slate-900` + `border-radius: calc(var(--app-radius) + 8px)`，即**圆角设置 小/中/大 = 16/20/24px**                                                                                                                                                                                                                                |
+| C 位强调卡   | `.card-accent`：深绿渐变底 + 白色大数字（赚钱秒表卡，暗色模式下保持不变）                                                                                                                                                                                                                                                                                              |
+| 强调色       | **默认 emerald**，`themeStore` 预设新增 `lavender`；`element-theme.css` 给静态基准值，运行时由 `useTheme` 把用户选择写进 `--el-color-primary` 系列变量                                                                                                                                                                                                                 |
+| 组件跟随主题 | `BaseButton`(primary) / `BaseInput`(focus) / `BaseBadge`(primary) / `BaseCheckbox` / 设置页选中态 / ECharts 柱子颜色**全部读 CSS 变量**，换主题色即刻全站生效（不再硬编码 indigo）                                                                                                                                                                                     |
+| 大数字       | `font-bold tabular-nums tracking-tight`：PayDance 主体 `text-5xl sm:text-6xl`（C 位要压得住），今日完成度 `text-4xl`                                                                                                                                                                                                                                                   |
+| 涨跌徽章     | `TrendBadge` 原子组件：↑ 绿 / ↓ 红 / — 持平，支持自定义后缀与无障碍描述                                                                                                                                                                                                                                                                                                |
 | 仪表板布局   | 三列 bento grid（`lg:grid-cols-3`）：第一行赚钱秒表深绿卡 + 今日完成度环形卡 + 天气卡，第二行迷你月历 + Streak/周目标 + 倒计时，第三行今日聚焦（通栏），最后是通栏快捷导航。秒表卡**不跨行**——跨行会让它的格高被邻居撑到 ≈ 580px，而内容只有 250px，收起设置后就是一大片空绿；「任务概览」卡已撤掉（信息与今日聚焦、任务页重复），今日聚焦顺势吃满整行，避免留下空格子 |
-| Element Plus | `--el-border-radius-base: 12px` 与卡片圆角协调                                                                                                                                     |
+| Element Plus | `--el-border-radius-base: 12px` 与卡片圆角协调                                                                                                                                                                                                                                                                                                                         |
 
 > 侧边栏 240px（可折叠 icon rail）+ 顶栏全局搜索 + 4 页面路由拆分已在第五阶段落地：
 > 桌面端 `layouts/DefaultLayout.vue` 承载骨架，移动端走 `MobileBottomNav`，页面组件一律懒加载。
@@ -178,20 +181,20 @@ src-tauri/            # 第七阶段：Tauri 2 壳工程（Rust + tauri.conf.jso
 「拿 store 数据 → 传 props」。这一层是刻意的：统计页与年度报告必须给出**同一个数字**，
 口径散在两处迟早对不上账。三条统一约定：
 
-| 约定 | 取值 | 为什么 |
-| --- | --- | --- |
-| 统计范围 | 只统计 `visibleTodos`（已归档任务不参与） | 归档是"软删除"，若仍进统计，用户会发现"归档了但热力图没变" |
-| 完成归日 | 按 `completedAt` 落到**本地**日期键 | 用户看的是自己的作息，不是 UTC 作息 |
-| 标签归类 | 按任务的**第一个标签**归类，无标签进「无标签」切片 | 多标签各计一次会让各切片占比之和 > 100%，环形图会撒谎 |
+| 约定     | 取值                                               | 为什么                                                     |
+| -------- | -------------------------------------------------- | ---------------------------------------------------------- |
+| 统计范围 | 只统计 `visibleTodos`（已归档任务不参与）          | 归档是"软删除"，若仍进统计，用户会发现"归档了但热力图没变" |
+| 完成归日 | 按 `completedAt` 落到**本地**日期键                | 用户看的是自己的作息，不是 UTC 作息                        |
+| 标签归类 | 按任务的**第一个标签**归类，无标签进「无标签」切片 | 多标签各计一次会让各切片占比之和 > 100%，环形图会撒谎      |
 
 ### 四张图各自解决什么
 
-| 图 | 数据 | 关键实现 |
-| --- | --- | --- |
-| 📈 **完成趋势**（柱线混合） | 每日完成数（柱）+ 7 日移动平均（线） | 移动平均在**起点用已有项**（而不是留空），曲线不会断头；「全部」口径把窗口收敛到近 6 周，否则 X 轴会挤成毛刺 |
-| 🕒 **完成时段分布**（heatmap） | `completedAt` 按「星期 × 小时」落格 | 用本地 `getHours()`；标题直接写出**峰值时段**（「周二 09:00（2 项）」），省得用户在 168 个格子里找 |
-| 🏷️ **标签占比**（环形图） | 各标签完成数占比 + 平均「创建→完成」耗时 | 归类口径见上表；平均耗时把"占比高但很快做完"和"占比高且拖着做"区分开 |
-| ⚖️ **投入产出**（散点） | X = 当日计薪时长（小时），Y = 当日完成数 | 全项目独一份的**跨模块联动**（赚钱秒表 × 任务）；另给皮尔逊相关系数，样本 < 2 或某一维无波动时**不下结论**（那种 r 是假的） |
+| 图                             | 数据                                     | 关键实现                                                                                                                    |
+| ------------------------------ | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| 📈 **完成趋势**（柱线混合）    | 每日完成数（柱）+ 7 日移动平均（线）     | 移动平均在**起点用已有项**（而不是留空），曲线不会断头；「全部」口径把窗口收敛到近 6 周，否则 X 轴会挤成毛刺                |
+| 🕒 **完成时段分布**（heatmap） | `completedAt` 按「星期 × 小时」落格      | 用本地 `getHours()`；标题直接写出**峰值时段**（「周二 09:00（2 项）」），省得用户在 168 个格子里找                          |
+| 🏷️ **标签占比**（环形图）      | 各标签完成数占比 + 平均「创建→完成」耗时 | 归类口径见上表；平均耗时把"占比高但很快做完"和"占比高且拖着做"区分开                                                        |
+| ⚖️ **投入产出**（散点）        | X = 当日计薪时长（小时），Y = 当日完成数 | 全项目独一份的**跨模块联动**（赚钱秒表 × 任务）；另给皮尔逊相关系数，样本 < 2 或某一维无波动时**不下结论**（那种 r 是假的） |
 
 ### 投入时长从哪来（一个必须交代的设计决定）
 
@@ -270,7 +273,7 @@ pnpm lint
 
 ## 一键启动（Windows）
 
-双击项目根目录的 **`启动.bat`**（或桌面快捷方式「启动智能工作台」）即可：
+双击项目根目录的 **`启动.bat`**（或桌面快捷方式「启动云海工作台」）即可：
 
 1. 自动切换到项目目录，检查 Node.js 与依赖
 2. 启动开发服务器（`vite --open`）
@@ -300,33 +303,40 @@ pnpm test:coverage   # 带覆盖率（@vitest/coverage-v8），text 打到终端
 
 | 指标       | 全局阈值 | `src/utils` 阈值 | 实测       |
 | ---------- | -------- | ---------------- | ---------- |
-| lines      | 80%      | 95%              | **99.40%** |
-| statements | 80%      | 95%              | **98.63%** |
-| functions  | 80%      | 95%              | **99.43%** |
-| branches   | 70%      | 90%              | **97.02%** |
+| lines      | 80%      | 95%              | **99.38%** |
+| statements | 80%      | 95%              | **98.57%** |
+| functions  | 80%      | 95%              | **99.35%** |
+| branches   | 70%      | 90%              | **96.61%** |
 
-分层实测（`pnpm test:coverage`，126 个 spec 文件 / 1743 条用例）：
+分层实测（`pnpm test:coverage`，131 个 spec 文件 / 1854 条用例）：
 
-| 层级                  | 语句   | 分支   | 函数  | 行     |
-| --------------------- | ------ | ------ | ----- | ------ |
-| `src/utils`（纯函数） | 99.15% | 97.58% | 100%  | 99.75% |
-| `src/composables`     | 96.34% | 93.01% | 99.07% | 98.22% |
-| `src/stores`          | 99.47% | 98.57% | 98.79% | 99.67% |
-| `src/api`（请求层）   | 99.84% | 99.05% | 100%  | 100%   |
+| 层级                  | 语句   | 分支   | 函数   | 行     |
+| --------------------- | ------ | ------ | ------ | ------ |
+| `src/utils`（纯函数） | 99.19% | 97.62% | 100%   | 99.77% |
+| `src/composables`     | 96.46% | 91.93% | 98.75% | 98.31% |
+| `src/stores`          | 99.48% | 98.61% | 98.80% | 99.68% |
+| `src/api`（请求层）   | 99.42% | 98.29% | 100%   | 99.82% |
 
 覆盖口径的**诚实说明**：
 
 - **单测覆盖**：纯函数（薪资三模式换算、跨零点夜班时间差、金额整数「分」运算、日期归一化、odometer
-  拆位、节假日查询、壁纸样式、标签与排序索引、搜索 URL/深链、**第八阶段的统计聚合**——标签占比与多标签
+  拆位、节假日查询、壁纸样式、标签与排序索引、搜索 URL/深链、**密码强度分级与弱密码黑名单**
+  （恰 8 位 / 缺某一类字符 / 纯数字纯字母 / 黑名单命中与"包含不命中"的边界）、**第八阶段的统计聚合**——标签占比与多标签
   归类、7×24 时段落格、移动平均、投入产出散点与皮尔逊相关系数、年度报告各项与闰年连续天数、
   投入日志的取大值/裁剪/跨设备合并、canvas 分享卡绘制）、composables 的核心分支（提醒扫描与
   防重复标记、`useLocalStorage` 序列化容错、天气「定位 → 记忆位置 → 默认城市」降级链、主题模式与系统
   偏好联动、ECharts 实例的 dispose、投入日志的分钟级节流与未配置不记、
+  **Turnstile token 状态机**——脚本加载成功/失败/超时、通过/过期/报错、一次性 token 的重置与重挂载、
+  未配置 siteKey 的降级、
   **账号级设置同步引擎**——首次登录迁移、逐键 LWW 与合并型键、离线队列与重试、跨账号隔离、
   云端值写回全部订阅者）、stores 的状态流转（标签增删不影响任务本身、归档/恢复改变统计
   口径、snooze 到期自动回归、撤销删除窗口用 fake timers 推进、壁纸本机与云端双来源）、
-  请求层的异常分类（AbortController 超时、非 2xx、JSON 解析失败、网络异常、Storage 上传失败降级）。
+  请求层的异常分类（AbortController 超时、非 2xx、JSON 解析失败、网络异常、Storage 上传失败降级、
+  **人机验证失败时的 Cloudflare 错误码翻译**）。
 - **集成 / 组件测试覆盖**（**不计入**上面的覆盖率分母）：整站挂载与路由守卫、登录/会话恢复流程、
+  **注册安全两道闸**（强度条实时分级与"缺什么"清单、未达强或验证码未过时按钮置灰、
+  回车绕过置灰仍被拦下、mock Turnstile widget 的「通过 → 提交带 token → 失败后重置」、
+  脚本加载失败时置灰并提示、切 Tab 丢弃旧 token）、
   云同步多端合并与离线队列、仪表板拖拽排序、AI 添加任务与拆解（含降级）、头像上传链路、
   秒表三种模式的界面状态、**统计页范围切换与四张图的空状态、四张图的 option 经 ECharts SSR 真渲染、
   图表配色跟随主题、年度报告的年份切换与分享卡降级提示、账号级设置同步的全部分支
@@ -363,16 +373,16 @@ VITE_AMAP_KEY=你的Key
 
 ### 接口要点（实现细节）
 
-| 项目     | 说明                                                                                                                                                                           |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 天气接口 | `https://restapi.amap.com/v3/weather/weatherInfo?city=<adcode>&extensions=base`                                                                                                |
-| 城市参数 | 要求 **adcode**；API 层兼容 6 位 adcode 与中文城市名（后者自动走地理编码换算），当前 UI 只用「定位得到的 adcode」与「回落的默认城市名」                                        |
-| 本地快查 | 内置 6 个常见城市（北京/上海/广州/深圳/杭州/成都）的 adcode 快查表，命中时省掉地理编码请求，只发 1 次请求                                                                      |
-| 错误处理 | 高德**失败时仍返回 HTTP 200**，错误在响应体 `status/info/infocode` 中，代码已显式判断并转成中文提示                                                                            |
-| 限流重试 | 免费 Key 实测约 **≥1 秒 1 次**才不被限流；命中 `10004/10014/10019/10021` 会自动退避重试（1s、2s）                                                                              |
+| 项目     | 说明                                                                                                                                                                                                                       |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 天气接口 | `https://restapi.amap.com/v3/weather/weatherInfo?city=<adcode>&extensions=base`                                                                                                                                            |
+| 城市参数 | 要求 **adcode**；API 层兼容 6 位 adcode 与中文城市名（后者自动走地理编码换算），当前 UI 只用「定位得到的 adcode」与「回落的默认城市名」                                                                                    |
+| 本地快查 | 内置 6 个常见城市（北京/上海/广州/深圳/杭州/成都）的 adcode 快查表，命中时省掉地理编码请求，只发 1 次请求                                                                                                                  |
+| 错误处理 | 高德**失败时仍返回 HTTP 200**，错误在响应体 `status/info/infocode` 中，代码已显式判断并转成中文提示                                                                                                                        |
+| 限流重试 | 免费 Key 实测约 **≥1 秒 1 次**才不被限流；命中 `10004/10014/10019/10021` 会自动退避重试（1s、2s）                                                                                                                          |
 | 本地缓存 | `api/weatherCache.ts`：adcode 与天气数据各缓存一份，默认 **30 分钟** 有效，写入 localStorage（刷新页面仍有效）；命中缓存不发请求（**界面上不再标「缓存」**——省额度是内部实现，不是用户要看的信息），要最新数据点「↻ 刷新」 |
-| 字段差异 | 高德无「体感温度/风速」，提供的是 `winddirection`（风向）与 `windpower`（风力级别），故 `WeatherData` 中相关字段为可选                                                         |
-| 天气图标 | 高德不提供图标，改用中文天气现象 → emoji 的纯函数映射（`weatherIcon`），不依赖外部图片                                                                                         |
+| 字段差异 | 高德无「体感温度/风速」，提供的是 `winddirection`（风向）与 `windpower`（风力级别），故 `WeatherData` 中相关字段为可选                                                                                                     |
+| 天气图标 | 高德不提供图标，改用中文天气现象 → emoji 的纯函数映射（`weatherIcon`），不依赖外部图片                                                                                                                                     |
 
 常见错误码：`10001` Key 无效 · `10009` Key 平台类型不对 · `10003` 超出日调用量 · `10004`/`10021` 请求过于频繁（会自动重试）。
 
@@ -380,16 +390,16 @@ VITE_AMAP_KEY=你的Key
 
 进站降级链路：**自动定位 → 上次定位到的位置（localStorage 记忆）→ 默认城市**，任何一步失败都不影响使用，且卡片内会说明当前展示的是哪一级结果。
 
-| 项目       | 说明                                                                                                                                                                                                                                                  |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 定位来源   | 浏览器 `navigator.geolocation`（`useGeolocation`，Promise 化 + 8s 超时 + 兜底定时器，避免永远卡在「定位中」）                                                                                                                                         |
-| 坐标转城市 | 高德**逆地理编码** `/v3/geocode/regeo`，返回**区级** adcode（如 360111 青山湖区），实测可直接用于天气查询                                                                                                                                             |
-| 位置文案   | 行政区名只能取自逆地理编码（天气接口按区级 adcode 查询时 `city` 其实是**区名**）：普通城市 = **区 · 城市 · 省份**（「青山湖区 · 南昌市 · 江西省」）；直辖市 = **区 · 城市**（「黄浦区 · 上海市」，此时城市即 province）。见 `utils/placeFormatter.ts` |
-| 参数顺序   | `location=经度,纬度`（经度在前！写反会定位到完全不同的地方）                                                                                                                                                                                          |
-| 位置记忆   | 定位成功即把 `{ adcode, label }` 写入 `smart-workspace:last-place`；**定位被拒/失败时优先回退到它**（比默认城市更贴近用户），请求直接走 adcode，不再消耗一次逆地理编码                                                                                |
+| 项目       | 说明                                                                                                                                                                                                                                                                                                                  |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 定位来源   | 浏览器 `navigator.geolocation`（`useGeolocation`，Promise 化 + 8s 超时 + 兜底定时器，避免永远卡在「定位中」）                                                                                                                                                                                                         |
+| 坐标转城市 | 高德**逆地理编码** `/v3/geocode/regeo`，返回**区级** adcode（如 360111 青山湖区），实测可直接用于天气查询                                                                                                                                                                                                             |
+| 位置文案   | 行政区名只能取自逆地理编码（天气接口按区级 adcode 查询时 `city` 其实是**区名**）：普通城市 = **区 · 城市 · 省份**（「青山湖区 · 南昌市 · 江西省」）；直辖市 = **区 · 城市**（「黄浦区 · 上海市」，此时城市即 province）。见 `utils/placeFormatter.ts`                                                                 |
+| 参数顺序   | `location=经度,纬度`（经度在前！写反会定位到完全不同的地方）                                                                                                                                                                                                                                                          |
+| 位置记忆   | 定位成功即把 `{ adcode, label }` 写入 `smart-workspace:last-place`；**定位被拒/失败时优先回退到它**（比默认城市更贴近用户），请求直接走 adcode，不再消耗一次逆地理编码                                                                                                                                                |
 | 交互       | 卡片默认展示当前位置天气，另有「🏙 城市」手动切换（输入城市名、点常用城市快捷键，或点面板里的「📍 用当前位置」回到自动定位）；**「↻ 刷新」= 重新定位 + 跳过缓存取最新**，所以工具栏不再单独放「📍 定位」按钮——展示的是定位结果就重新定位，手动选过城市则只刷新那座城市、不把定位盖回去；手动切换的城市也会写入位置记忆 |
-| 权限被拒   | 记录标记，之后进站直接用记忆位置（无记忆则默认城市），并在卡片内说明「定位权限已被拒绝」                                                                                                                                                              |
-| 坐标纠偏   | 浏览器给的是 WGS84、高德用 GCJ-02，差异仅几百米，对「查哪个城市」无影响，故不做纠偏以省一次请求                                                                                                                                                       |
+| 权限被拒   | 记录标记，之后进站直接用记忆位置（无记忆则默认城市），并在卡片内说明「定位权限已被拒绝」                                                                                                                                                                                                                              |
+| 坐标纠偏   | 浏览器给的是 WGS84、高德用 GCJ-02，差异仅几百米，对「查哪个城市」无影响，故不做纠偏以省一次请求                                                                                                                                                                                                                       |
 
 > ⚠️ **必须用 `localhost` 或 `https` 打开**：浏览器只在安全上下文提供定位。用局域网 IP（`http://192.168.x.x`）访问会被直接拒绝定位（会提示「定位权限被拒绝」并回落到默认城市）。部署到 Vercel 后是 https，可正常定位。
 
@@ -399,11 +409,11 @@ VITE_AMAP_KEY=你的Key
 
 ### 为什么选 Supabase
 
-| 方案                     | 成本   | 结论                                                             |
-| ------------------------ | ------ | ---------------------------------------------------------------- |
-| 本地多用户档案（假登录） | 半天   | ❌ 换设备数据不通，价值有限                                      |
-| **Supabase Auth**        | 1~2 天 | ✅ **已选**：真注册/登录 + 云同步，一次解决两件事                 |
-| 自建 JWT 后端            | 3~5 天 | ❌ 偏离前端项目重心，性价比低                                    |
+| 方案                     | 成本   | 结论                                              |
+| ------------------------ | ------ | ------------------------------------------------- |
+| 本地多用户档案（假登录） | 半天   | ❌ 换设备数据不通，价值有限                       |
+| **Supabase Auth**        | 1~2 天 | ✅ **已选**：真注册/登录 + 云同步，一次解决两件事 |
+| 自建 JWT 后端            | 3~5 天 | ❌ 偏离前端项目重心，性价比低                     |
 
 权限下沉到数据库层：前端只带 anon（公开）key，越权读写由 **RLS 策略**拦住，所以 key 泄露 ≠ 数据泄露。
 
@@ -411,12 +421,14 @@ VITE_AMAP_KEY=你的Key
 
 1. <https://supabase.com> 新建项目 → Project Settings → API 复制 **Project URL** 与 **anon public key**
 2. 控制台 → SQL Editor → 粘贴执行 `supabase/schema.sql`（脚本幂等，可重复执行）
-3. Authentication → Providers：打开 **Email**（本项目只用邮箱密码登录）
-4. 项目根 `.env.local` 写入：
+3. Authentication → Providers：打开 **Email**；想要 GitHub 登录再打开 **GitHub**（需先建 GitHub OAuth App，回调地址填 Supabase 给的 Callback URL）——登录页会按服务端实际开启的 Provider 决定是否渲染 GitHub 按钮
+4. Authentication → Settings：把 **最小密码长度调到 8**（与前端 `utils/auth.ts` 的规则对齐；这是绕过前端直接调 API 时的服务端兜底）
+5. 项目根 `.env.local` 写入：
 
 ```
 VITE_SUPABASE_URL=https://xxxx.supabase.co
 VITE_SUPABASE_ANON_KEY=eyJhbGciOi...
+VITE_TURNSTILE_SITE_KEY=1x00000000000000000000AA   # 人机验证，见下节；留空 = 不启用
 ```
 
 > 留空时应用自动进入**本地模式**：功能全部可用、不强制登录、不做云同步，登录页只展示配置引导，
@@ -440,6 +452,48 @@ Supabase 内置的发信服务**只给项目团队成员邮箱发信，且限速
 > 到 `DATA` 阶段才校验并拒收（`550 The recipient may contain a non-existent account`），
 > GoTrue 于是统一报这个英文错误。本项目已把它翻译成可操作的中文提示（见 `describeAuthError`）。
 > 想绕过邮件通道：把「Confirm email」关掉即可注册即登录。
+
+### 注册安全：密码强度 + Cloudflare Turnstile
+
+注册页是入口也是攻击面，所以卡两道闸——**都在服务端发确认邮件之前**：
+
+**① 密码复杂度（`utils/auth.ts` 纯函数 + `PasswordStrengthMeter.vue` 强度条）**
+
+| 规则                          | 说明                                                            |
+| ----------------------------- | --------------------------------------------------------------- |
+| 长度 ≥ 8                      | 与 Supabase Dashboard 的最小长度对齐（改一处要同步改另一处）    |
+| 同时含大写 + 小写 + 数字      | 「禁纯数字/纯字母」由这条覆盖，不再单列规则                     |
+| 不在 50+ 条常见弱密码黑名单里 | 比对忽略大小写与首尾空格（`PassWord ` 同样命中 `password`）     |
+| 弱 / 中 / 强分级              | 按满足的规则数：≤2 条「弱」、3 条「中」、4 条且不在黑名单「强」 |
+
+- **未达「强」之前注册/改密按钮置灰**，强度条逐条列出"缺什么"；但**置灰挡不住回车**，
+  所以 `validateForm` 里还会再拦一次（这条是被用例当场抓出来的）
+- **登录页只查非空**：复杂度规则是后加的，老账号未必合规，服务端才是权威——前端按新规则拦下来，
+  用户连登录都做不到，看到的还不是真实原因
+- **服务端兜底**：前端校验是体验、不是防线，绕过前端直接调 API 时由 Dashboard 的最小密码长度守住
+
+**② Cloudflare Turnstile（服务端核验，真防机器）**
+
+canvas 自绘验证码的答案就在前端代码里（生成与校验用的是同一个随机串），只能防君子不防脚本；Turnstile 走四步闭环：
+
+1. [Cloudflare 控制台](https://dash.cloudflare.com) → Turnstile → Add site，拿到 **siteKey**（公开）与 **secretKey**（私密）
+2. secretKey 填进 **Supabase Dashboard → Authentication → Attack Protection → Bot and Abuse Protection**（启用 Captcha 校验）——**不进代码、不需要 Serverless**
+3. 登录页渲染 widget（managed 模式：正常用户**无感通过**，可疑流量才弹交互挑战）→ 回调拿到**一次性** token
+4. 请求带上 `captchaToken` → Supabase 服务端拿 secretKey 向 Cloudflare 核验通过，才放行
+
+> ⚠️ **Supabase 的 Captcha 是全局开关，不止注册**：打开后 `/signup`、`/token`（登录）、`/recover`（忘记密码）、`/resend`（重发验证邮件）**都要求 token**。只在注册页放验证码，一开开关就会登不进去。
+> 所以本项目把 widget 放在**三个 Tab 共用**的位置（切 Tab 不重挂载、已拿到的 token 继续有效），四条链路都带 token，并在每次提交后无条件 `reset()` 重取。
+
+- **登录页渲染时机**：`tab` 切换不会重建 widget（`v-if` 之外），token 对登录/注册/忘记密码都通用；只有"被服务端消费掉"或过期才需要重新验证
+- **token 一次性**：注册失败（邮箱已存在、发信失败……）、登录失败后都必须 `reset()` 重取，否则第二次提交必被服务端拒。
+  这是这条链路里最容易漏的坑，`Login.vue` 在 `submit()` / `sendReset()` / `resendConfirm()` 的 finally 里都无条件重置
+- **本地开发**不必申请真钥匙，用官方测试 siteKey 即可：`1x00000000000000000000AA` 总是通过（无感）、
+  `2x00000000000000000000AB` 总是拦截（用来验证失败分支）
+- **三条降级路径**（与"未配 Supabase 就进本地模式"同一套思路）：
+  ① 未配 siteKey → 不渲染 widget、不拦任何操作（⚠️ 但**服务端若已开启 Captcha，请求仍会被服务端拒**——两处必须同时配好：Dashboard 开关 + 前端 siteKey）；② 脚本加载失败/超时 → 明确提示 + 「重试」（会清掉脚本缓存**真的重新请求**）+ 提交按钮置灰（不放行 = 不绕过服务端核验）；③ token 过期 → 「重新验证」
+- **桌面版（Tauri）需要在 CSP 里放行** `https://challenges.cloudflare.com`（`script-src` + `frame-src`）——
+  壳里原来的 `script-src 'self'` 会把 Turnstile 脚本直接拦掉，注册会永远停在「验证加载失败」。
+  `pnpm desktop:build` 已于 2026-09-13 重新出包（绿色版 + 安装包），壳内注册可用
 
 ### 数据模型（`supabase/schema.sql`）
 
@@ -513,11 +567,11 @@ create policy "user_settings: own rows only" on public.user_settings
 
 ### 同步状态怎么告诉用户（`composables/useSyncNotifications.ts` + `utils/syncNotice.ts`）
 
-| 时机           | 反馈                                                                                                                  |
-| -------------- | --------------------------------------------------------------------------------------------------------------------- |
+| 时机           | 反馈                                                                                                                                       |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | 跨入离线       | **Toast 警告**「当前处于离线模式：改动已保存在本地，恢复网络后自动同步」+ 设置页文案（侧边栏不再挂常驻徽章：导航区不放状态，状态归设置页） |
-| 网络恢复       | **Toast 成功**「网络已恢复，改动已同步到云端」（只有真离线过才提示，正常同步不打扰）                                  |
-| 旧数据迁移完成 | **Toast 成功**「已把本地 N 条任务迁移到云端」（同一条只提示一次）                                                     |
+| 网络恢复       | **Toast 成功**「网络已恢复，改动已同步到云端」（只有真离线过才提示，正常同步不打扰）                                                       |
+| 旧数据迁移完成 | **Toast 成功**「已把本地 N 条任务迁移到云端」（同一条只提示一次）                                                                          |
 
 三个实现细节：
 
@@ -543,6 +597,26 @@ create policy "user_settings: own rows only" on public.user_settings
 - **顶栏搜索是全局入口**：列表只在 `/todos` 渲染，所以在其他页面一输入就把用户带到任务页
   （否则是"输入了却什么都看不到"）；已在任务页时不跳转、清空关键字也不跳转
 
+### 邮件链接落地：验证完就直接进去（`utils/authRedirect.ts` + `api/auth.ts`）
+
+点完确认邮件"没自动登录、还得手动登一次"是这类项目最常见的坑，根因通常在**落地页没认领邮件带回来的凭据**。四种形态都要认：
+
+| 邮件里的链接                                                                    | 地址栏出现什么                                | 谁处理                                                 |
+| ------------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------ |
+| 默认模板 `{{ .ConfirmationURL }}`（GoTrue 服务端验证后 302 回站点）             | `#access_token=…&refresh_token=…`             | supabase-js 的 `detectSessionInUrl` 自己换             |
+| 客户端开了 PKCE                                                                 | `?code=…`                                     | `exchangeCodeForSession`（本地要还留着 code_verifier） |
+| 模板改成 `{{ .SiteURL }}/auth/confirm?token_hash=…&type=signup`（SSR 推荐写法） | `?token_hash=…&type=…`                        | **`verifyOtp`——库不会自动处理这一种**                  |
+| 链接过期 / 被邮箱安全扫描器先点过一次                                           | `#error=access_denied&error_code=otp_expired` | 翻成「请回登录页重新发送一封」                         |
+
+三个实现要点：
+
+1. **顺序：先认领凭据，再恢复会话**（`authStore.init()` 里 `consumeAuthRedirect()` 在 `getSession()` 之前）——
+   反过来的话凭据还没换成会话，`getSession()` 拿到空的，用户点完邮件就会被判成"未登录"而停在登录页
+2. **用完即清地址栏**：一次性凭据留在 URL 里，用户一刷新就会拿同一个凭据再换一次 → 报「已过期或已被使用」，
+   看起来像"刚验证完就失效"。`stripAuthParams` 只删认证参数，保留业务 query 与 hash
+3. **已登录落在登录页要自动送进去**：`Login.vue` 监听 `isAuthed`，一旦为真立刻 `router.replace(目标页)`
+   （覆盖"会话比守卫判定晚一步建立"和"在别的标签页已登录又手动打开 /login"两种情况）
+
 ### 头像链路（`AvatarUpload.vue` + `composables/useAvatar.ts`）
 
 1. **前置校验**：类型白名单（jpg/png/webp）+ 原图 ≤ 5MB 在浏览器端先拦（不白白上传一张 20MB 相机原图）
@@ -563,12 +637,12 @@ create policy "user_settings: own rows only" on public.user_settings
 
 ### 谁跟账号走、谁留在本机
 
-| 跟账号走（`user_settings`，16 项） | 留在本机（刻意，不是漏了） |
-| --- | --- |
-| 主题与外观、壁纸、标签、快捷导航、纪念日倒计时、发薪日 | **AI Key（BYOK）/ 微信推送 UID**——用户级凭证，进数据库等于多一份泄露面，换设备重填一次即可 |
-| 仪表板卡片顺序/显隐/大小/自定义标记、周目标 | **已通知标记**——同步过去会让另一台设备该提醒时被标成"已提醒"而静默不响 |
-| 赚钱秒表配置与迷你模式、投入时长日志、提醒设置、默认搜索引擎 | **天气缓存 / 上次定位城市 / 定位被拒标记**——设备相关，手机与桌面本来就不在同一座城市 |
-| 任务（走自己的增量同步通道，见第五阶段） | **侧边栏折叠状态**——跟着屏幕尺寸走的界面细节 |
+| 跟账号走（`user_settings`，16 项）                           | 留在本机（刻意，不是漏了）                                                                 |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| 主题与外观、壁纸、标签、快捷导航、纪念日倒计时、发薪日       | **AI Key（BYOK）/ 微信推送 UID**——用户级凭证，进数据库等于多一份泄露面，换设备重填一次即可 |
+| 仪表板卡片顺序/显隐/大小/自定义标记、周目标                  | **已通知标记**——同步过去会让另一台设备该提醒时被标成"已提醒"而静默不响                     |
+| 赚钱秒表配置与迷你模式、投入时长日志、提醒设置、默认搜索引擎 | **天气缓存 / 上次定位城市 / 定位被拒标记**——设备相关，手机与桌面本来就不在同一座城市       |
+| 任务（走自己的增量同步通道，见第五阶段）                     | **侧边栏折叠状态**——跟着屏幕尺寸走的界面细节                                               |
 
 > 设置页「数据同步 → 偏好设置」里有可展开的清单与逐条理由：用户不必读源码就知道**什么被传上去了**。
 
@@ -625,11 +699,12 @@ create policy "user_settings: own rows only" on public.user_settings
 
 Vite 的 `VITE_*` 是**构建时内联**的，所以变量要在平台里配好再构建（改完要重新 Deploy 才生效）：
 
-| 变量                     | 用途                     | 不配的后果                                           |
-| ------------------------ | ------------------------ | ---------------------------------------------------- |
-| `VITE_AMAP_KEY`          | 高德「Web 服务」Key      | 天气卡显示"未配置 Key"的引导                         |
-| `VITE_SUPABASE_URL`      | Supabase Project URL     | 应用进入**本地模式**（不登录、不同步，其余功能照常） |
-| `VITE_SUPABASE_ANON_KEY` | Supabase anon public key | 同上（anon key 是公开的，真正的权限在数据库 RLS）    |
+| 变量                      | 用途                              | 不配的后果                                                                                        |
+| ------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `VITE_AMAP_KEY`           | 高德「Web 服务」Key               | 天气卡显示"未配置 Key"的引导                                                                      |
+| `VITE_SUPABASE_URL`       | Supabase Project URL              | 应用进入**本地模式**（不登录、不同步，其余功能照常）                                              |
+| `VITE_SUPABASE_ANON_KEY`  | Supabase anon public key          | 同上（anon key 是公开的，真正的权限在数据库 RLS）                                                 |
+| `VITE_TURNSTILE_SITE_KEY` | Cloudflare Turnstile 公开 siteKey | 注册页不渲染人机验证、也不拦注册（**关闭**这道闸，不是报错）；secretKey 只填在 Supabase Dashboard |
 
 ### 步骤（Vercel）
 
@@ -647,7 +722,7 @@ Vite 的 `VITE_*` 是**构建时内联**的，所以变量要在平台里配好�
 Node 版本由 `package.json` 的 `engines.node`（`>=22.12.0`）声明——Vite 8 要求 `^20.19.0 || >=22.12.0`，
 Vercel 会自动挑满足条件的版本；不使用 `packageManager` 字段，Vercel 依据 `pnpm-lock.yaml`（lockfileVersion 9.0）自动选 pnpm。
 
-1. 把仓库推到 GitHub（本仓库根即 `vue3-smart-workspace/`），Vercel → **Add New → Project → Import** 该仓库
+1. 把仓库推到 GitHub（本仓库根即 `yunhai-workspace/`），Vercel → **Add New → Project → Import** 该仓库
 2. Framework 会自动识别为 Vite；确认 Build Command = `pnpm build`、Output Directory = `dist`
 3. 展开 **Environment Variables**，把上表三个变量填进去（Production / Preview 都勾上更省事）
 4. **Deploy**，等 1~2 分钟拿到 `https://<项目名>.vercel.app`
@@ -687,15 +762,15 @@ Vercel 会自动挑满足条件的版本；不使用 `packageManager` 字段，V
 3. **Supabase 加回跳域名**：Authentication → URL Configuration 的 Site URL 与 Redirect URLs 加上
    `https://<用户名>.github.io/<仓库名>/**`（否则邮件里的验证/重置链接会跳回 localhost）
 
-站点地址形如 `https://lihuazou1230.github.io/vue3-smart-workspace/`。工作流里已处理两个 Pages 特有的坑：
+站点地址形如 `https://lihuazou1230.github.io/yunhai-workspace/`。工作流里已处理两个 Pages 特有的坑：
 
 | 坑                                                 | 处理方式                                                                                                                     |
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | 项目站点部署在 `/<仓库名>/` 子路径，绝对路径会 404 | 构建时注入 `BASE_PATH=/<仓库名>/`（`vite.config.ts` 读它），路由用的 `createWebHistory(import.meta.env.BASE_URL)` 会自动跟随 |
 | Pages 对未知路径返回 404，刷新 `/todos` 会白屏     | 构建后 `cp dist/index.html dist/404.html`，让 404 页也是应用入口；另加 `.nojekyll` 防止 `_` 开头的产物被 Jekyll 丢掉         |
 
-> 本地想验一遍子路径构建：`$env:BASE_PATH='/vue3-smart-workspace/'; pnpm build; pnpm preview`，
-> 然后访问 `http://localhost:4173/vue3-smart-workspace/todos`——应为 200 且资源路径都带子路径前缀。
+> 本地想验一遍子路径构建：`$env:BASE_PATH='/yunhai-workspace/'; pnpm build; pnpm preview`，
+> 然后访问 `http://localhost:4173/yunhai-workspace/todos`——应为 200 且资源路径都带子路径前缀。
 
 **踩坑记录：部署报 `status 400 … due to in progress deployment`**
 
@@ -714,13 +789,13 @@ GitHub 的已知问题（[actions/deploy-pages#22](https://github.com/actions/de
 > 5000 是个税项目、9090 是系统 HTTPAPI 服务、3389 是 RDP，都不能碰。
 > 既然不动安全组、不开新端口，就复用唯一已放行的 **80**。
 
-| 决策点   | 选择                                                 | 理由                                                                       |
-| -------- | ---------------------------------------------------- | -------------------------------------------------------------------------- |
-| 部署方式 | **RDP 3389 + 一键部署包**                            | 445/5985/135 全关、不装 SSH → 没有命令行通道；RDP 剪贴板原生支持文件复制   |
-| 访问地址 | **`http://124.220.159.58/workspace/`**（80 子应用）  | 用户不愿动腾讯云控制台 → 复用已开放的 80，与主站二维码工具共存互不影响     |
-| 前端产物 | **`BASE_PATH=/workspace/` 构建**                     | 子路径部署必须让 assets 引用带前缀，否则白屏（`vite.config.ts` 已支持该变量） |
-| 缓存策略 | **入口 HTML `no-cache`，`assets/` 长缓存一年**       | IIS 默认不发 `Cache-Control`，浏览器按启发式猜新鲜度、明文 HTTP 上代理还会自行缓存 → 会出现「同一个链接、两台设备两个版本」的幽灵旧版（旧 index.html 配旧 assets 永远自洽）。见 `deploy/web.config` 末尾两处配置 |
-| HTTPS    | 本期不做（纯 HTTP + IP）                             | 无域名无证书；限制见下方「已知限制」，绑域名后可随时升级                   |
+| 决策点   | 选择                                                | 理由                                                                                                                                                                                                             |
+| -------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 部署方式 | **RDP 3389 + 一键部署包**                           | 445/5985/135 全关、不装 SSH → 没有命令行通道；RDP 剪贴板原生支持文件复制                                                                                                                                         |
+| 访问地址 | **`http://124.220.159.58/workspace/`**（80 子应用） | 用户不愿动腾讯云控制台 → 复用已开放的 80，与主站二维码工具共存互不影响                                                                                                                                           |
+| 前端产物 | **`BASE_PATH=/workspace/` 构建**                    | 子路径部署必须让 assets 引用带前缀，否则白屏（`vite.config.ts` 已支持该变量）                                                                                                                                    |
+| 缓存策略 | **入口 HTML `no-cache`，`assets/` 长缓存一年**      | IIS 默认不发 `Cache-Control`，浏览器按启发式猜新鲜度、明文 HTTP 上代理还会自行缓存 → 会出现「同一个链接、两台设备两个版本」的幽灵旧版（旧 index.html 配旧 assets 永远自洽）。见 `deploy/web.config` 末尾两处配置 |
+| HTTPS    | 本期不做（纯 HTTP + IP）                            | 无域名无证书；限制见下方「已知限制」，绑域名后可随时升级                                                                                                                                                         |
 
 **本机打包**（一条命令，产物已 gitignore）：
 
@@ -762,17 +837,17 @@ rewrite 规则只对**既不是文件也不是目录**的请求回退到 `/works
 
 ### 部署自检记录（本机实测，2026-09-13）
 
-| 检查项                                      | 结果                                                                                                            |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| 子路径构建                                  | `BASE_PATH=/workspace/ pnpm build` 后 `dist/index.html` 的 9 处资源引用全部带 `/workspace/` 前缀，产物零硬编码绝对路径 |
-| 子路径预览（等价于 IIS 的 rewrite 语义）    | `pnpm preview` 下 `/workspace/`、`/workspace/dashboard` 均 200（回退 index.html）；`/workspace/assets/*.js` 返回 `text/javascript`、`*.css` 返回 `text/css`（不是被 fallback 吞成 HTML） |
-| 部署包结构                                  | 33 个文件 / ~520 KB，根目录恰为 `dist/` + `web.config` + `install.ps1` + `部署说明.txt`，解压后逐项校验通过    |
-| `web.config` 正确性                         | XML 可解析；rewrite 动作为 `/workspace/index.html` + 两个 negate 条件；8 条 MIME 补登记；默认文档 index.html      |
-| `install.ps1` 语法                          | Windows PowerShell 解析零错误（打包脚本内置该检查，语法错直接拒绝出包）                                          |
-| `install.ps1` 站点探测逻辑                  | 用桩函数（模拟 WebAdministration 真实返回形态）驱动 **18 项用例全通过**：单站点 `*:80:`、`Get-WebBinding` 优先、多站点挑 80 且已启动、仅主机头绑定、80 站点未启动、绑定串取不到时单站点兜底、错误信息带真实绑定串、`-SiteName` 指定、裸字符串数组兼容、应用存在性判定的三种属性名与配置查询兜底、物理路径展开与兜底 |
-| 交付脚本编码                                | `install.ps1` 与 `部署说明.txt` 均为 UTF-8 **带 BOM**（2012 R2 的 Windows PowerShell 4.0 无 BOM 会按 GBK 读，中文提示全乱码） |
-| 服务器实机部署（第一轮）                    | 跑到 2/6 暴露一个真 bug（见下方"服务器首跑挖出的坑"），已修复并重新出包                                |
-| 服务器实机部署（第二轮）                    | **待用户 RDP 执行**（本机无 IIS，无法预演；`install.ps1` 自带部署后连通性自检，跑完会直接打印响应码）  |
+| 检查项                                   | 结果                                                                                                                                                                                                                                                                                                                |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 子路径构建                               | `BASE_PATH=/workspace/ pnpm build` 后 `dist/index.html` 的 9 处资源引用全部带 `/workspace/` 前缀，产物零硬编码绝对路径                                                                                                                                                                                              |
+| 子路径预览（等价于 IIS 的 rewrite 语义） | `pnpm preview` 下 `/workspace/`、`/workspace/dashboard` 均 200（回退 index.html）；`/workspace/assets/*.js` 返回 `text/javascript`、`*.css` 返回 `text/css`（不是被 fallback 吞成 HTML）                                                                                                                            |
+| 部署包结构                               | 33 个文件 / ~520 KB，根目录恰为 `dist/` + `web.config` + `install.ps1` + `部署说明.txt`，解压后逐项校验通过                                                                                                                                                                                                         |
+| `web.config` 正确性                      | XML 可解析；rewrite 动作为 `/workspace/index.html` + 两个 negate 条件；8 条 MIME 补登记；默认文档 index.html                                                                                                                                                                                                        |
+| `install.ps1` 语法                       | Windows PowerShell 解析零错误（打包脚本内置该检查，语法错直接拒绝出包）                                                                                                                                                                                                                                             |
+| `install.ps1` 站点探测逻辑               | 用桩函数（模拟 WebAdministration 真实返回形态）驱动 **18 项用例全通过**：单站点 `*:80:`、`Get-WebBinding` 优先、多站点挑 80 且已启动、仅主机头绑定、80 站点未启动、绑定串取不到时单站点兜底、错误信息带真实绑定串、`-SiteName` 指定、裸字符串数组兼容、应用存在性判定的三种属性名与配置查询兜底、物理路径展开与兜底 |
+| 交付脚本编码                             | `install.ps1` 与 `部署说明.txt` 均为 UTF-8 **带 BOM**（2012 R2 的 Windows PowerShell 4.0 无 BOM 会按 GBK 读，中文提示全乱码）                                                                                                                                                                                       |
+| 服务器实机部署（第一轮）                 | 跑到 2/6 暴露一个真 bug（见下方"服务器首跑挖出的坑"），已修复并重新出包                                                                                                                                                                                                                                             |
+| 服务器实机部署（第二轮）                 | **待用户 RDP 执行**（本机无 IIS，无法预演；`install.ps1` 自带部署后连通性自检，跑完会直接打印响应码）                                                                                                                                                                                                               |
 
 **服务器首跑挖出的坑：`Get-Website` 的 `Bindings` 不能直接匹配**
 
@@ -785,12 +860,12 @@ rewrite 规则只对**既不是文件也不是目录**的请求回退到 `/works
 `Get-Website` 返回的是 IIS 配置对象，`$site.Bindings` 直接 `-match` / `-join` 只能得到**类型名**（配置元素集合并不会摊平成绑定串），
 所以 `"http/*:80:"` 永远匹配不到。修法是从集合里取 `bindingInformation`：
 
-| 改动 | 内容 |
-| --- | --- |
-| 取绑定串（新增 `Get-SiteBindingInfo`） | 策略 1：`Get-WebBinding -Name <站点>`；策略 2：`$site.Bindings.Collection` 里逐项取 `bindingInformation`（大小写两种写法都试），并兼容"裸字符串数组"形态 |
-| 站点选择兜底（重写 `Get-MainSite`） | ① 绑定该端口且已启动 ② 只有一个已启动站点就直接用（打印其绑定串供复核） ③ 绑定该端口但未启动（提示）④ 都不满足才报错，且错误信息列出**每个站点的真实绑定串与状态** |
+| 改动                                         | 内容                                                                                                                                                                                                                     |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 取绑定串（新增 `Get-SiteBindingInfo`）       | 策略 1：`Get-WebBinding -Name <站点>`；策略 2：`$site.Bindings.Collection` 里逐项取 `bindingInformation`（大小写两种写法都试），并兼容"裸字符串数组"形态                                                                 |
+| 站点选择兜底（重写 `Get-MainSite`）          | ① 绑定该端口且已启动 ② 只有一个已启动站点就直接用（打印其绑定串供复核） ③ 绑定该端口但未启动（提示）④ 都不满足才报错，且错误信息列出**每个站点的真实绑定串与状态**                                                       |
 | 同源加固（新增 `Test-WebApplicationExists`） | 幂等性判定同样依赖属性名：`Get-WebApplication` 的返回对象在 `Path`/`Name`/`PSChildName` 之间因版本而异，写死一个就会把"已存在"误判成"不存在"→ 二次部署重复建应用报错。改为三个属性轮询 + `Get-WebConfiguration` 查询兜底 |
-| 零散加固 | `PhysicalPath` 为空时从 IIS 提供程序兜底读取；应用池名取不到时不传 `-ApplicationPool`（交给 IIS 用默认池），避免传空值报参数错误 |
+| 零散加固                                     | `PhysicalPath` 为空时从 IIS 提供程序兜底读取；应用池名取不到时不传 `-ApplicationPool`（交给 IIS 用默认池），避免传空值报参数错误                                                                                         |
 
 ### 上线后的自检清单
 
@@ -815,22 +890,23 @@ rewrite 规则只对**既不是文件也不是目录**的请求回退到 `/works
 
 ### 为什么选 Tauri 而不是 Electron
 
-| | Tauri 2 ✅ | Electron |
-|---|---|---|
-| 包体 | **8~15 MB** | 100~150 MB |
-| 内存 | 低（复用系统 WebView2） | 高（自带 Chromium，一个窗口几百 MB） |
-| 额外依赖 | Rust + MSVC 工具链（一次性） | 无 |
+|          | Tauri 2 ✅                   | Electron                             |
+| -------- | ---------------------------- | ------------------------------------ |
+| 包体     | **8~15 MB**                  | 100~150 MB                           |
+| 内存     | 低（复用系统 WebView2）      | 高（自带 Chromium，一个窗口几百 MB） |
+| 额外依赖 | Rust + MSVC 工具链（一次性） | 无                                   |
 
 ### 环境前置（一次性）
 
-| 组件 | 状态检查 | 说明 |
-|---|---|---|
-| Rust（stable-msvc） | `rustc --version` | `winget install Rustlang.Rustup` 后 `rustup default stable-x86_64-pc-windows-msvc` |
-| VS Build Tools（C++ 工具链） | `vswhere -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64` | 链接器与 Windows SDK 来源 |
-| WebView2 运行时 | Win10 21H2 / Win11 自带 | 老系统由安装包的 `downloadBootstrapper` 自动补装 |
+| 组件                         | 状态检查                                                              | 说明                                                                               |
+| ---------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Rust（stable-msvc）          | `rustc --version`                                                     | `winget install Rustlang.Rustup` 后 `rustup default stable-x86_64-pc-windows-msvc` |
+| VS Build Tools（C++ 工具链） | `vswhere -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64` | 链接器与 Windows SDK 来源                                                          |
+| WebView2 运行时              | Win10 21H2 / Win11 自带                                               | 老系统由安装包的 `downloadBootstrapper` 自动补装                                   |
 
 > 💡 **国内网络提示**：直连 crates.io 的 sparse 索引是延迟瓶颈（实测 25 秒只前进 ~42KB）。
 > 本机在 `~/.cargo/config.toml` 里配了 USTC 镜像（纯附加配置，删掉即回到官方源）：
+>
 > ```toml
 > [source.crates-io]
 > replace-with = 'ustc'
@@ -865,7 +941,7 @@ pnpm desktop:build:kill   # 同上，但先强杀正在运行的桌面版（见�
 一并写进 `_desktop_build.log`。
 
 > ⚠️ **桌面版正在运行时打包会失败**：cargo 删不掉被占用的 target 产物，报
-> `failed to remove file ... 拒绝访问 (os error 5)`；项目根里那份 `智能工作台.exe`
+> `failed to remove file ... 拒绝访问 (os error 5)`；项目根里那份 `云海工作台.exe`
 > 被双击跑着时，最后一步拷贝也会 EBUSY。脚本在编译**之前**就查运行中的进程
 > （按映像名查，所以「跑的是项目根那份」也算）与文件占用：
 >
@@ -878,8 +954,8 @@ pnpm desktop:build:kill   # 同上，但先强杀正在运行的桌面版（见�
 产物统一拷到 **workspace 上一级目录**（即 `C:\Users\asus\Desktop\个人项目`），不用再翻 `target`：
 
 ```
-..\智能工作台.exe                     ← 绿色版，双击即用
-..\智能工作台_0.1.0_x64-setup.exe     ← 安装包（版本号取 tauri.conf.json 的 version）
+..\云海工作台.exe                     ← 绿色版，双击即用
+..\云海工作台_0.1.0_x64-setup.exe     ← 安装包（版本号取 tauri.conf.json 的 version）
 ..\_desktop_build.log                 ← 构建日志，失败先看它
 ```
 
@@ -891,11 +967,11 @@ Tauri 原始产物（脚本拷贝的来源，仍会保留）：
 
 ```
 src-tauri/target/release/smart-workspace.exe                ← 绿色版（4.91 MB）
-src-tauri/target/release/bundle/nsis/智能工作台_0.1.0_x64-setup.exe  ← 安装版（2.01 MB，可选安装目录）
+src-tauri/target/release/bundle/nsis/云海工作台_0.1.0_x64-setup.exe  ← 安装版（2.01 MB，可选安装目录）
 ```
 
 > 绿色版文件名来自 Cargo 的 `name`（Rust crate 名只能是 ASCII），窗口标题与安装包名来自
-> `productName: 智能工作台`，所以两者不同名——这是 Cargo 的硬约束，不是配置漏了。
+> `productName: 云海工作台`，所以两者不同名——这是 Cargo 的硬约束，不是配置漏了。
 
 > ⚠️ **别用裸 `cargo build --release` 代替打包**：`tauri` 的 `build.rs` 里是
 > `let dev = !has_feature("custom-protocol")`，不带该特性构建出来的是**dev 模式二进制**——
@@ -903,28 +979,30 @@ src-tauri/target/release/bundle/nsis/智能工作台_0.1.0_x64-setup.exe  ← �
 > 那个端口没有服务时，双击 exe 只会看到 WebView2 的 **`ERR_CONNECTION_REFUSED`** 错误页，
 > 看起来像「打包坏了」，其实是构建模式选错了。`pnpm tauri build`（以及上面的
 > `pnpm desktop:build`）会由 CLI 自动带上该特性；手动构建必须写全：
+>
 > ```bash
 > cargo build --release --features custom-protocol
 > ```
+>
 > `src-tauri/Cargo.toml` 里已补上标准特性别名，所以上面这条命令可直接使用。
 
 ### 桌面版做了什么增量（全部经 `utils/platform.ts` 一处判定，Web 版零影响）
 
-| 改造 | 实现 | 为什么 |
-|---|---|---|
-| **无边框窗口 + 自绘标题栏** | `tauri.conf.json` 里 `decorations: false`；`TitleBar.vue` 画 40px 标题栏：左图标名、中拖拽区（`data-tauri-drag-region`，双击最大化）、右三键（46×32，关闭键 hover 红） | 去掉 Windows 系统白条标题栏，界面从窗口最顶端开始——这是「原生质感」与「套壳网页」的分界线 |
-| **去掉移动端底部导航** | `shouldShowBottomNav()` 在桌面版返回 false | 窗口最窄 900px，底部导航既占地方又「移动端感」十足 |
-| **侧边栏默认折叠成活动栏** | 默认值取 `isTauri()`（VS Code Activity Bar 风格，tooltip 提示全名） | 桌面屏空间大，紧凑一点信息密度更高；点一下即可展开，选择会被记住 |
-| **关闭 = 最小化到托盘** | Rust 侧 `CloseRequested` 里 `prevent_close()` + `hide()`；托盘菜单「显示主窗口 / 退出」 | **功能级增量**：窗口藏起来后秒表 tick 与提醒调度继续跑，到点照常弹原生通知 |
-| **系统托盘** | Rust 侧 `tauri::tray::TrayIconBuilder` + 菜单，左键单击显示窗口。**只在 Rust 建一次**——配置里别写 `app.trayIcon`，否则通知区会出现两个图标（见缺陷表） | 「真桌面应用」的行为标志 |
-| **外链唤起系统浏览器** | 全局 click 监听：只拦绝对 http(s) 链接 → `shell.open` | 壳内导航会让用户「走丢」回不来；`javascript:` 之类绝不交给 shell |
-| **禁止误选文字** | `html[data-platform="desktop"] body { user-select: none }`，输入框/`.selectable` 例外 | 桌面应用习惯；但连标题都复制不了就是把原生感做成了残废 |
-| **细滚动条** | 6px 半透明、hover 加深（两种形态共用） | 浏览器默认粗滚动条是「网页感」最大来源 |
-| **默认紧凑密度** | 首次进入桌面版时写入 `compact` | 桌面屏空间大，信息密度优先；设置面板仍可调 |
-| **窗口状态记忆** | `tauri-plugin-window-state` | 位置/尺寸/最大化状态不用每次重设 |
-| **单实例锁** | `tauri-plugin-single-instance`（必须**第一个**注册） | 第二次启动不该开第二份，而是把已有窗口拉到前台 |
-| **定位兜底** | 浏览器定位 → 上次位置 → **高德 `/v3/ip`** → 默认城市 | 浏览器版与桌面版**默认都开**：明文 HTTP 部署下浏览器必然拒绝定位（安全上下文限制），IP 定位只要联网就能出城市级位置；WebView2 的定位则要过系统隐私设置，被拒后同样只剩这一条路 |
-| **vite base 双形态** | `TAURI_ENV_PLATFORM` 存在时强制 `base: '/'` | 桌面壳里带子路径会资源 404 → 白屏 |
+| 改造                        | 实现                                                                                                                                                                   | 为什么                                                                                                                                                                         |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **无边框窗口 + 自绘标题栏** | `tauri.conf.json` 里 `decorations: false`；`TitleBar.vue` 画 40px 标题栏：左图标名、中拖拽区（`data-tauri-drag-region`，双击最大化）、右三键（46×32，关闭键 hover 红） | 去掉 Windows 系统白条标题栏，界面从窗口最顶端开始——这是「原生质感」与「套壳网页」的分界线                                                                                      |
+| **去掉移动端底部导航**      | `shouldShowBottomNav()` 在桌面版返回 false                                                                                                                             | 窗口最窄 900px，底部导航既占地方又「移动端感」十足                                                                                                                             |
+| **侧边栏默认折叠成活动栏**  | 默认值取 `isTauri()`（VS Code Activity Bar 风格，tooltip 提示全名）                                                                                                    | 桌面屏空间大，紧凑一点信息密度更高；点一下即可展开，选择会被记住                                                                                                               |
+| **关闭 = 最小化到托盘**     | Rust 侧 `CloseRequested` 里 `prevent_close()` + `hide()`；托盘菜单「显示主窗口 / 退出」                                                                                | **功能级增量**：窗口藏起来后秒表 tick 与提醒调度继续跑，到点照常弹原生通知                                                                                                     |
+| **系统托盘**                | Rust 侧 `tauri::tray::TrayIconBuilder` + 菜单，左键单击显示窗口。**只在 Rust 建一次**——配置里别写 `app.trayIcon`，否则通知区会出现两个图标（见缺陷表）                 | 「真桌面应用」的行为标志                                                                                                                                                       |
+| **外链唤起系统浏览器**      | 全局 click 监听：只拦绝对 http(s) 链接 → `shell.open`                                                                                                                  | 壳内导航会让用户「走丢」回不来；`javascript:` 之类绝不交给 shell                                                                                                               |
+| **禁止误选文字**            | `html[data-platform="desktop"] body { user-select: none }`，输入框/`.selectable` 例外                                                                                  | 桌面应用习惯；但连标题都复制不了就是把原生感做成了残废                                                                                                                         |
+| **细滚动条**                | 6px 半透明、hover 加深（两种形态共用）                                                                                                                                 | 浏览器默认粗滚动条是「网页感」最大来源                                                                                                                                         |
+| **默认紧凑密度**            | 首次进入桌面版时写入 `compact`                                                                                                                                         | 桌面屏空间大，信息密度优先；设置面板仍可调                                                                                                                                     |
+| **窗口状态记忆**            | `tauri-plugin-window-state`                                                                                                                                            | 位置/尺寸/最大化状态不用每次重设                                                                                                                                               |
+| **单实例锁**                | `tauri-plugin-single-instance`（必须**第一个**注册）                                                                                                                   | 第二次启动不该开第二份，而是把已有窗口拉到前台                                                                                                                                 |
+| **定位兜底**                | 浏览器定位 → 上次位置 → **高德 `/v3/ip`** → 默认城市                                                                                                                   | 浏览器版与桌面版**默认都开**：明文 HTTP 部署下浏览器必然拒绝定位（安全上下文限制），IP 定位只要联网就能出城市级位置；WebView2 的定位则要过系统隐私设置，被拒后同样只剩这一条路 |
+| **vite base 双形态**        | `TAURI_ENV_PLATFORM` 存在时强制 `base: '/'`                                                                                                                            | 桌面壳里带子路径会资源 404 → 白屏                                                                                                                                              |
 
 ### 数据隔离（要知道的一件事）
 
@@ -951,31 +1029,31 @@ src-tauri/target/release/bundle/nsis/智能工作台_0.1.0_x64-setup.exe  ← �
 
 ### 验收记录（本机实测，2026-09-12 ~ 09-13）
 
-| 验收项 | 实测结果 |
-|---|---|
-| 绿色版 exe 体积 | **4.91 MB**（`target/release/smart-workspace.exe`） |
-| 安装版体积 | **2.01 MB**（`bundle/nsis/智能工作台_0.1.0_x64-setup.exe`） |
-| 运行内存 | **29.2 MB** 工作集（Electron 同规模应用通常几百 MB） |
-| 启动即原生感 | 窗口矩形 1296×809、客户区 **1280×800**，垂直非客户区仅 9px（纯调整边框）→ **无 31px 系统标题栏**，`decorations: false` 确实生效 |
-| 窗口标题 | `智能工作台`（配置生效） |
-| 前端已加载 | `msedgewebview2` 宿主进程挂在应用进程下（WebView2 载入成功，非白屏空壳） |
-| 单实例锁 | 连续启动两次，进程数始终为 **1** → 第二次启动被拦截并聚焦已有窗口；进程内可见 `com.smartworkspace.desktop-sic/-siw` 两个隐藏窗口（插件的消息窗口） |
-| **托盘已注册（客观证据）** | 进程内存在 `tray_icon_app` 隐藏窗口（`tray-icon` 库每个 `TrayIcon` 建一个）→ `Shell_NotifyIcon(NIM_ADD)` 成功。另有逻辑侧证据：`TrayIconBuilder::build()` 失败会让 `setup` 返回 Err、启动直接失败，而应用启动正常 |
-| **托盘菜单文案已进产物** | 反查二进制 UTF-8 字面量：`显示主窗口`、`退出`、`智能工作台` 均在 |
-| **双击最大化链路已进产物** | 二进制含 `data-tauri-drag-region`、`start_dragging`、`internal_toggle_maximize` 与权限标识 `allow-internal-toggle-maximize`；且 `core:window:default` 的权限集本身含该内部命令 |
-| **原生通知的验证基线** | 测试前 `HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\com.smartworkspace.desktop` **不存在**，且 `wpndatabase.db` 的 `Notification` 表中属于本应用的记录为 **0** → 从未成功弹过 Toast。跑通一次提醒后这两处都会留下痕迹，可作为客观判据（无需靠"看到气泡"） |
-| **关闭 = 最小化到托盘** | 向主窗口发 `WM_CLOSE` 后进程仍在（进程数 1）→ 关闭键不退出应用，秒表/提醒留在后台继续跑 |
-| **窗口位置/尺寸记忆** | `MoveWindow` 到 (210,190,1020,690) → 关闭 → 状态文件写下 `x:210 y:190`（宽高存**客户区** 1004×681）→ 重启后 `GetWindowRect` 精确回到 (210,190,1020,690) |
-| **CSP 与真实调用域名一致** | `connect-src` 覆盖高德 `restapi.amap.com`、`*.supabase.co`、`wxpusher.zjiecode.com`、`api.deepseek.com`、`open.bigmodel.cn`；`img-src https:` 覆盖 Google favicon 服务与 GitHub 头像 |
-| **新 CSP 下前端真的跑起来** | 启动后 `%LOCALAPPDATA%\com.smartworkspace.desktop\EBWebView\Default\Local Storage\leveldb\*.log` 被写入 `smart-workspace:theme` = `compact` → 打包产物在主进程 CSP 下执行成功（不是白屏空壳），桌面默认紧凑密度也按预期落盘 |
-| **CSP 已随构建生效** | 反查产物二进制：生产 CSP 为 `connect-src 'self' ipc: http://ipc.localhost https:`，`devCsp` 另含 `ws://localhost:5173`；旧的域名白名单字符串已不存在于二进制中 |
-| **安装版安装** | 静默 `/S`：退出码 0、耗时 1.9s、**无 UAC 提示**（脚本为 `RequestExecutionLevel user`）；装到 `%LOCALAPPDATA%\智能工作台`（`smart-workspace.exe` 4.91MB + `uninstall.exe`），写入 `HKCU\...\Uninstall\智能工作台` 与开始菜单 `智能工作台.lnk` |
-| **安装版运行** | 从 `%LOCALAPPDATA%\智能工作台\smart-workspace.exe` 启动正常；窗口沿用绿色版同一份数据（仍为 210,190,1020,690）→ 两种形态数据互通 |
-| **卸载（不删数据分支）** | 目录、`HKCU` 卸载项、开始菜单快捷方式全清，残留进程 0；**两个数据目录完整保留**，窗口状态文件内容不变 |
-| **跨安装周期持久性** | 卸载后重装 → 窗口仍精确恢复 210,190,1020,690，数据未被安装/卸载动作影响 |
-| **清空数据后的全新启动** | 删除两个数据目录后启动 → 窗口回到配置默认 **1280×800 居中**（X/Y=320/116，即 1920×1080 屏的居中位置），Web 数据目录与 `smart-workspace:theme`（桌面默认紧凑密度）重新生成 |
-| Web 版不受影响 | 全量 1512 例测试通过；`title-bar` 只在 `platform=desktop` 下渲染 |
-| **一键打包脚本（2026-09-13 补）** | `pnpm desktop:build:kill` 全流程跑通：typecheck + 1494 例单测 + lint → `pnpm build` → `tauri build` → 两个产物拷到项目根；脚本自动补 `~/.cargo/bin` 进 PATH；运行中的桌面版（含项目根那份 `智能工作台.exe`）会被识别、结束并重试，耗时约 172 秒 |
+| 验收项                            | 实测结果                                                                                                                                                                                                                                                                            |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 绿色版 exe 体积                   | **4.91 MB**（`target/release/smart-workspace.exe`）                                                                                                                                                                                                                                 |
+| 安装版体积                        | **2.01 MB**（`bundle/nsis/云海工作台_0.1.0_x64-setup.exe`）                                                                                                                                                                                                                         |
+| 运行内存                          | **29.2 MB** 工作集（Electron 同规模应用通常几百 MB）                                                                                                                                                                                                                                |
+| 启动即原生感                      | 窗口矩形 1296×809、客户区 **1280×800**，垂直非客户区仅 9px（纯调整边框）→ **无 31px 系统标题栏**，`decorations: false` 确实生效                                                                                                                                                     |
+| 窗口标题                          | `云海工作台`（配置生效）                                                                                                                                                                                                                                                            |
+| 前端已加载                        | `msedgewebview2` 宿主进程挂在应用进程下（WebView2 载入成功，非白屏空壳）                                                                                                                                                                                                            |
+| 单实例锁                          | 连续启动两次，进程数始终为 **1** → 第二次启动被拦截并聚焦已有窗口；进程内可见 `com.smartworkspace.desktop-sic/-siw` 两个隐藏窗口（插件的消息窗口）                                                                                                                                  |
+| **托盘已注册（客观证据）**        | 进程内存在 `tray_icon_app` 隐藏窗口（`tray-icon` 库每个 `TrayIcon` 建一个）→ `Shell_NotifyIcon(NIM_ADD)` 成功。另有逻辑侧证据：`TrayIconBuilder::build()` 失败会让 `setup` 返回 Err、启动直接失败，而应用启动正常                                                                   |
+| **托盘菜单文案已进产物**          | 反查二进制 UTF-8 字面量：`显示主窗口`、`退出`、`云海工作台` 均在                                                                                                                                                                                                                    |
+| **双击最大化链路已进产物**        | 二进制含 `data-tauri-drag-region`、`start_dragging`、`internal_toggle_maximize` 与权限标识 `allow-internal-toggle-maximize`；且 `core:window:default` 的权限集本身含该内部命令                                                                                                      |
+| **原生通知的验证基线**            | 测试前 `HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\com.smartworkspace.desktop` **不存在**，且 `wpndatabase.db` 的 `Notification` 表中属于本应用的记录为 **0** → 从未成功弹过 Toast。跑通一次提醒后这两处都会留下痕迹，可作为客观判据（无需靠"看到气泡"） |
+| **关闭 = 最小化到托盘**           | 向主窗口发 `WM_CLOSE` 后进程仍在（进程数 1）→ 关闭键不退出应用，秒表/提醒留在后台继续跑                                                                                                                                                                                             |
+| **窗口位置/尺寸记忆**             | `MoveWindow` 到 (210,190,1020,690) → 关闭 → 状态文件写下 `x:210 y:190`（宽高存**客户区** 1004×681）→ 重启后 `GetWindowRect` 精确回到 (210,190,1020,690)                                                                                                                             |
+| **CSP 与真实调用域名一致**        | `connect-src` 覆盖高德 `restapi.amap.com`、`*.supabase.co`、`wxpusher.zjiecode.com`、`api.deepseek.com`、`open.bigmodel.cn`；`img-src https:` 覆盖 Google favicon 服务与 GitHub 头像                                                                                                |
+| **新 CSP 下前端真的跑起来**       | 启动后 `%LOCALAPPDATA%\com.smartworkspace.desktop\EBWebView\Default\Local Storage\leveldb\*.log` 被写入 `smart-workspace:theme` = `compact` → 打包产物在主进程 CSP 下执行成功（不是白屏空壳），桌面默认紧凑密度也按预期落盘                                                         |
+| **CSP 已随构建生效**              | 反查产物二进制：生产 CSP 为 `connect-src 'self' ipc: http://ipc.localhost https:`，`devCsp` 另含 `ws://localhost:5173`；旧的域名白名单字符串已不存在于二进制中                                                                                                                      |
+| **安装版安装**                    | 静默 `/S`：退出码 0、耗时 1.9s、**无 UAC 提示**（脚本为 `RequestExecutionLevel user`）；装到 `%LOCALAPPDATA%\云海工作台`（`smart-workspace.exe` 4.91MB + `uninstall.exe`），写入 `HKCU\...\Uninstall\云海工作台` 与开始菜单 `云海工作台.lnk`                                        |
+| **安装版运行**                    | 从 `%LOCALAPPDATA%\云海工作台\smart-workspace.exe` 启动正常；窗口沿用绿色版同一份数据（仍为 210,190,1020,690）→ 两种形态数据互通                                                                                                                                                    |
+| **卸载（不删数据分支）**          | 目录、`HKCU` 卸载项、开始菜单快捷方式全清，残留进程 0；**两个数据目录完整保留**，窗口状态文件内容不变                                                                                                                                                                               |
+| **跨安装周期持久性**              | 卸载后重装 → 窗口仍精确恢复 210,190,1020,690，数据未被安装/卸载动作影响                                                                                                                                                                                                             |
+| **清空数据后的全新启动**          | 删除两个数据目录后启动 → 窗口回到配置默认 **1280×800 居中**（X/Y=320/116，即 1920×1080 屏的居中位置），Web 数据目录与 `smart-workspace:theme`（桌面默认紧凑密度）重新生成                                                                                                           |
+| Web 版不受影响                    | 全量 1512 例测试通过；`title-bar` 只在 `platform=desktop` 下渲染                                                                                                                                                                                                                    |
+| **一键打包脚本（2026-09-13 补）** | `pnpm desktop:build:kill` 全流程跑通：typecheck + 1494 例单测 + lint → `pnpm build` → `tauri build` → 两个产物拷到项目根；脚本自动补 `~/.cargo/bin` 进 PATH；运行中的桌面版（含项目根那份 `云海工作台.exe`）会被识别、结束并重试，耗时约 172 秒                                     |
 
 > 说明 1：`decorations: false` 无法用「有没有 `WS_CAPTION` 样式位」来判断——tao 保留了该位用于尺寸计算，
 > 真正去掉标题栏靠的是 `WM_NCCALCSIZE`。所以判据是**客户区与窗口矩形的差**（上式），不是样式位。
@@ -990,7 +1068,7 @@ src-tauri/target/release/bundle/nsis/智能工作台_0.1.0_x64-setup.exe  ← �
 > 少了任何一处，「调好大小 → 直接退出」的用户都会丢窗口状态。
 > 状态文件位于 `%APPDATA%\com.smartworkspace.desktop\.window-state.json`。
 >
-> 说明 3：卸载时**不勾**「删除应用数据」会留下 `HKCU\Software\smartworkspace\智能工作台`（值 = 旧安装路径）。
+> 说明 3：卸载时**不勾**「删除应用数据」会留下 `HKCU\Software\smartworkspace\云海工作台`（值 = 旧安装路径）。
 > 这不是本项目的代码问题——生成的 `installer.nsi`（Tauri 模板）把这段注册表清理放在了复选框分支**内部**
 > （第 824–831 行，与该分支的 `RmDir /r` 同级），故未勾选时必然残留；勾选后一并清除。
 
@@ -999,15 +1077,15 @@ src-tauri/target/release/bundle/nsis/智能工作台_0.1.0_x64-setup.exe  ← �
 合成鼠标输入会干扰使用者当前桌面，所以没有用自动化点击，而是用一个只读探针（每 300ms 采样窗口矩形 /
 可见性 / `IsIconic` / 进程存活）记录人工操作造成的真实状态变化，再由坐标数据判定：
 
-| 验收项 | 判定 | 日志证据（1920×1080 屏） |
-|---|---|---|
-| 拖拽标题栏移动 | ✅ | `(632,0) → (589,33) → (133,219)`，宽高恒为 1296×809（尺寸不变、位置变化即拖动） |
-| 双击最大化 | ✅ | `02:33:42.950` → `X=-8 Y=-8 1936×1048`（含边框的最大化尺寸） |
-| 双击还原 | ✅ | `02:33:44.258` → 回到 `320,116 1296×809` |
-| 最小化键 | ✅ | `IsIconic=true`（`-32000,-32000 160×28`） |
-| 关闭键 = 隐藏到托盘 | ✅ | 两次 `vis=False` 且进程始终存活 |
-| 托盘左键唤起 | ✅ | 隐藏后重新 `vis=True` |
-| 托盘「退出」 | ✅ | 进程消失且无崩溃记录；状态文件**不**被重写，与 `app.exit()` 走 `std::process::exit` 完全吻合 |
+| 验收项              | 判定 | 日志证据（1920×1080 屏）                                                                     |
+| ------------------- | ---- | -------------------------------------------------------------------------------------------- |
+| 拖拽标题栏移动      | ✅   | `(632,0) → (589,33) → (133,219)`，宽高恒为 1296×809（尺寸不变、位置变化即拖动）              |
+| 双击最大化          | ✅   | `02:33:42.950` → `X=-8 Y=-8 1936×1048`（含边框的最大化尺寸）                                 |
+| 双击还原            | ✅   | `02:33:44.258` → 回到 `320,116 1296×809`                                                     |
+| 最小化键            | ✅   | `IsIconic=true`（`-32000,-32000 160×28`）                                                    |
+| 关闭键 = 隐藏到托盘 | ✅   | 两次 `vis=False` 且进程始终存活                                                              |
+| 托盘左键唤起        | ✅   | 隐藏后重新 `vis=True`                                                                        |
+| 托盘「退出」        | ✅   | 进程消失且无崩溃记录；状态文件**不**被重写，与 `app.exit()` 走 `std::process::exit` 完全吻合 |
 
 > 额外抓到一条原生行为：窗口处于最大化时拖动标题栏 → 自动还原并跟随光标移动（Windows 原生语义），
 > 说明拖拽区在最大化状态下也正确。
@@ -1048,21 +1126,25 @@ src-tauri/target/release/bundle/nsis/智能工作台_0.1.0_x64-setup.exe  ← �
 ## 测试挖出并修掉的缺陷
 
 第六阶段补测试时（覆盖率从 96% 推到 99.8% 的过程中）挖出 4 个真 bug，都已修复并把当时
-「锁定缺陷现状」的用例反过来写成回归断言。第七阶段做桌面验收时又挖出 1 个（标题栏双击）。
+「锁定缺陷现状」的用例反过来写成回归断言。第七阶段做桌面验收时又挖出 1 个（标题栏双击），
+第五阶段做注册安全时又被自己的用例当场抓住 2 个（置灰挡不住回车、失败缓存清不掉）。
 这部分比覆盖率数字本身更有价值——**测试与验收的意义就是逼出这些**：
 
-| 缺陷 | 后果 | 修法 |
-|---|---|---|
-| `useReminder` 的 30 秒轮询从未启动 | `useIntervalFn` 的 `immediate` 控制的是「是否自动 `resume()`」，传 `false` 定时器压根没建 —— 规划要求的周期轮询成了死代码 | 改 `immediate: true` + `immediateCallback: false`，首轮仍由挂载时显式 `scan()` 负责 |
-| `isSearchEngineId` / `isThemeColorName` 用 `value in OBJ` | 原型链上的 `'toString'` 被当成合法值放行，随后取到函数直接 `TypeError`（值来自可被手改的 localStorage） | 改用 `Object.hasOwn` |
-| `todoSignature` 漏掉新字段 | 只归档 / 只 snooze / 只改标签算不出差异 → **这些改动永远同步不到其它设备** | 指纹补上 `tags / archived / archivedAt / snoozedUntil / reminderAt / reminderOff` |
-| snooze 到期不随日期回归 | 列表 computed 缺「今天」这个响应式来源，页面开一整夜后已到期任务仍被藏着 | `todoStore` 增加 `today` + `refreshToday()`，由 `App.vue` 每分钟与回前台校准 |
-| 登录拉取云端期间的改动被吞（数据丢失） | 「补差」代码紧跟在赋值之后、比的是同一份数据，差异恒为空；期间新增的任务既没进队列也被覆盖 | 拉取**前**拍快照，用 `applyDiff` 把用户改动叠加到云端结果上并补发 |
-| `httpClient` 的 `res.text()` 未包装 | 流被消费/连接中断时抛出原始 `TypeError`，与「任何失败都抛 `HttpError`」的约定不符 | 包成 `kind: 'network'` |
-| `getCurrentCoords` 同步抛错未收敛 | 上层 `e instanceof GeoError` 判断落空，「已拒绝定位」标记记不住，每次进站都白试一次 | 同步异常也包成 `GeoError`，并校验坐标非 NaN |
-| 标题栏自己绑了双击最大化（第七阶段查框架源码时发现） | Tauri 注入的 `drag.js` 已按 `e.detail === 2` 调 `internal_toggle_maximize`，我们再绑一次 `@dblclick` 就是第二次切换——**双击标题栏表现为毫无反应**（最大化后立刻还原） | 删掉自绑的 handler，只留 `data-tauri-drag-region` 标记；测试反过来断言「双击不得调用 toggleMaximize」防后人加回来 |
-| 托盘图标被建了两次（第七阶段验收枚举进程窗口时发现） | `tauri.conf.json` 的 `app.trayIcon` 与 Rust 的 `TrayIconBuilder` 各建一个托盘。而托盘一旦 `register()` 就进了 App 资源表，**丢弃返回值也不会被回收**（`tray/mod.rs` 写着「最后一个实例析构时才移除」）→ 通知区出现**两个图标**，且配置那个没有任何菜单、点了没反应 | 删掉配置块，托盘只由 Rust 建一次（菜单与左键行为本来也只在 Rust 侧）；实测进程内 `tray_icon_app` 隐藏窗口从 **2 个降为 1 个** |
-| `pruneWorkLog` 只看「有没有被时间窗裁掉」（第八阶段写新代码时被自己的用例当场抓住） | 条数上限是**另一条**约束：日志全都落在 400 天窗口内但数量超限时（例如一次性导入几千条），它直接原样返回——上限形同虚设，localStorage 可以无限长胖 | 早返回条件补上 `kept.length <= limit`，两条约束同时判定 |
+| 缺陷                                                                                | 后果                                                                                                                                                                                                                                                               | 修法                                                                                                                                 |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `useReminder` 的 30 秒轮询从未启动                                                  | `useIntervalFn` 的 `immediate` 控制的是「是否自动 `resume()`」，传 `false` 定时器压根没建 —— 规划要求的周期轮询成了死代码                                                                                                                                          | 改 `immediate: true` + `immediateCallback: false`，首轮仍由挂载时显式 `scan()` 负责                                                  |
+| `isSearchEngineId` / `isThemeColorName` 用 `value in OBJ`                           | 原型链上的 `'toString'` 被当成合法值放行，随后取到函数直接 `TypeError`（值来自可被手改的 localStorage）                                                                                                                                                            | 改用 `Object.hasOwn`                                                                                                                 |
+| `todoSignature` 漏掉新字段                                                          | 只归档 / 只 snooze / 只改标签算不出差异 → **这些改动永远同步不到其它设备**                                                                                                                                                                                         | 指纹补上 `tags / archived / archivedAt / snoozedUntil / reminderAt / reminderOff`                                                    |
+| snooze 到期不随日期回归                                                             | 列表 computed 缺「今天」这个响应式来源，页面开一整夜后已到期任务仍被藏着                                                                                                                                                                                           | `todoStore` 增加 `today` + `refreshToday()`，由 `App.vue` 每分钟与回前台校准                                                         |
+| 登录拉取云端期间的改动被吞（数据丢失）                                              | 「补差」代码紧跟在赋值之后、比的是同一份数据，差异恒为空；期间新增的任务既没进队列也被覆盖                                                                                                                                                                         | 拉取**前**拍快照，用 `applyDiff` 把用户改动叠加到云端结果上并补发                                                                    |
+| `httpClient` 的 `res.text()` 未包装                                                 | 流被消费/连接中断时抛出原始 `TypeError`，与「任何失败都抛 `HttpError`」的约定不符                                                                                                                                                                                  | 包成 `kind: 'network'`                                                                                                               |
+| `getCurrentCoords` 同步抛错未收敛                                                   | 上层 `e instanceof GeoError` 判断落空，「已拒绝定位」标记记不住，每次进站都白试一次                                                                                                                                                                                | 同步异常也包成 `GeoError`，并校验坐标非 NaN                                                                                          |
+| 标题栏自己绑了双击最大化（第七阶段查框架源码时发现）                                | Tauri 注入的 `drag.js` 已按 `e.detail === 2` 调 `internal_toggle_maximize`，我们再绑一次 `@dblclick` 就是第二次切换——**双击标题栏表现为毫无反应**（最大化后立刻还原）                                                                                              | 删掉自绑的 handler，只留 `data-tauri-drag-region` 标记；测试反过来断言「双击不得调用 toggleMaximize」防后人加回来                    |
+| 托盘图标被建了两次（第七阶段验收枚举进程窗口时发现）                                | `tauri.conf.json` 的 `app.trayIcon` 与 Rust 的 `TrayIconBuilder` 各建一个托盘。而托盘一旦 `register()` 就进了 App 资源表，**丢弃返回值也不会被回收**（`tray/mod.rs` 写着「最后一个实例析构时才移除」）→ 通知区出现**两个图标**，且配置那个没有任何菜单、点了没反应 | 删掉配置块，托盘只由 Rust 建一次（菜单与左键行为本来也只在 Rust 侧）；实测进程内 `tray_icon_app` 隐藏窗口从 **2 个降为 1 个**        |
+| `pruneWorkLog` 只看「有没有被时间窗裁掉」（第八阶段写新代码时被自己的用例当场抓住） | 条数上限是**另一条**约束：日志全都落在 400 天窗口内但数量超限时（例如一次性导入几千条），它直接原样返回——上限形同虚设，localStorage 可以无限长胖                                                                                                                   | 早返回条件补上 `kept.length <= limit`，两条约束同时判定                                                                              |
+| 注册按钮置灰挡不住回车（第五阶段，被自己的用例当场抓住）                            | 按钮 `disabled` 只挡点击，**在输入框里按回车照样触发 `form submit`** → 弱密码照样发请求、验证码没过也照样提交                                                                                                                                                      | `validateForm` 里再拦一次（密码强度 + 人机验证），并把这两条写成用例锁死                                                             |
+| Turnstile 脚本加载器的失败缓存不会被清（第五阶段，同上）                            | 清缓存写在 `fail()` 里，而失败可能是 `appendChild` **同步**触发的——那时 `scriptPromise` 还没被赋值，随后的 `scriptPromise = promise` 把 `null` 覆盖掉 → 缓存里永远躺着一个已拒绝的 promise，「重试」按钮成了空转                                                   | 改成创建 promise 后统一 `.catch()` 里按 `scriptPromise === promise` 清理                                                             |
+| happy-dom 会真的去 fetch 外链脚本（第五阶段，测试环境问题）                         | 单测里 `appendChild(script)` 立刻同步触发 onerror（"文件加载被禁用"），用例根本轮不到自己 `dispatchEvent` 驱动 load/error/timeout 三条分支                                                                                                                         | 给脚本加载器加一个可注入的 appender（测试注入只记录的实现），并在 `vite.config.ts` 关掉 happy-dom 的文件加载——测试环境不该有网络行为 |
 
 ## 待优化项
 
@@ -1094,24 +1176,27 @@ src-tauri/target/release/bundle/nsis/智能工作台_0.1.0_x64-setup.exe  ← �
 
 施工过程中有几处**有意偏离**规划原文，都有具体理由；还有一处是规划写错了、按官方文档纠正：
 
-| 规划原文                          | 实际实现                                                             | 理由                                                                                                                                                                                                                                     |
-| --------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `layouts/MobileLayout.vue`        | 无此文件，移动端由 `components/organisms/MobileBottomNav.vue` 承担   | 移动端与桌面端共用同一个 `DefaultLayout`，只是底部导航换成 bottom nav；再拆一个布局文件会带来两份几乎相同的骨架                                                                                                                          |
-| `Login.vue` 用 ElForm 校验        | 自研 `BaseInput` + `utils/validation.ts` 纯函数校验                  | 校验规则要复用到 TodoForm/ResetPassword，抽成纯函数才能单测；ElForm 的规则是运行时配置，测起来反而绕                                                                                                                                     |
-| 头像「方形裁剪框 + 圆形遮罩」     | 圆形引导环（无遮罩压暗），导出方形 256×256 + CSS `rounded-full` 显示 | 遮罩压暗后很难看清选区外的构图；导出方形是为了将来支持非圆形头像展示，圆形只在展示层做                                                                                                                                                   |
-| `reminderAt`「默认策略自动生成」  | **不自动写入**，为空时由 `dueDate` 推导出默认提醒时间                | 可推导的字段写进每条任务只会让存储与云同步 payload 平白变胖；语义改为「用户改过才存」                                                                                                                                                    |
-| WxPusher `contentType: 3`（HTML） | `contentType: 2`（HTML）+ `uids: [uid]` 数组                         | 规划此处写错了：按 [WxPusher 官方文档](https://wxpusher.zjiecode.com/docs/api-reference.html)，`1`=文本 / `2`=HTML / `3`=Markdown，照抄会把 `<p>` 当 Markdown 渲染；且 POST 接收人字段是 `uids` 数组（单数 `uid` 只存在于 GET 查询参数） |
-| 侧边栏「帮助」入口                | 已实现（打开使用说明弹窗）                                           | —                                                                                                                                                                                                                                        |
-| 卡片拖拽「等槽化」                | 按规划实现：进入编辑布局即切等槽网格，默认仍是精调 bento             | 变跨度卡片无法直接拖拽换位，等槽化是规划自己给出的取舍                                                                                                                                                                                   |
-| CSP 只列 5 个 API 域名            | `connect-src 'self' ipc: http://ipc.localhost https:`                | 规划要求「白名单」，但第六阶段是 **BYOK**：用户可把 AI `baseUrl` 指向自建网关，Supabase 也可自托管——域名写死会让这些功能在壳里静默失效，违背「Web 版功能原样可用」。真正的防线是 `script-src 'self'`（没有可执行注入就不存在可利用的连接），故 `connect-src` 放开 `https:` |
-| 绿色版叫 `智能工作台.exe`         | 实际为 `smart-workspace.exe`                                        | Cargo 的 crate/二进制名只能是 ASCII；`productName` 的「智能工作台」用于窗口标题与安装包名，两者不同名是工具链约束 |
-| 通知「点击聚焦窗口并跳转任务」    | 桌面版只能弹 Toast，点击不深链；应用内兜底路径照常高亮任务           | 插件能力边界：`tauri-plugin-notification` 2.4.0 桌面端 `invoke_handler` 只注册 `notify`/`request_permission`/`is_permission_granted`，JS 侧 `onAction`/`onNotificationReceived` 依赖的 `register_listener` 与 `desktop.rs` 的点击处理**都只在移动端存在**——不是没写，是拿不到回调 |
-| 子应用建在 `C:\inetpub\wwwroot\workspace` | 由 `Get-Website` 读出主站 `PhysicalPath` 再拼 `\workspace` | 主站在注册表里的物理路径可能被改过（也可能压根不是 Default Web Site）；写死路径会在那种机器上把文件拷到 IIS 根本不看的地方——部署成功却打不开 |
-| 部署包直接放 `dist/`             | `dist/` 之外还放了 `部署说明.txt`，脚本里带 4 项自检（管理员/包完整性/base 前缀/install.ps1 语法） | 这份包是给"RDP 里点一下"的人用的：白屏、500.19、404.3 这些失败的现场在服务器上很难查，所以把校验前移——打包时就拦掉 base 忘设、脚本语法错这类低级事故 |
-| 散点图的「秒表每日累计时长」直接读 store | 新增**按天的投入日志**（`utils/workLog.ts` + `smart-workspace:worklog` 键），由赚钱秒表 tick 时写入 | 秒表快照只描述「此刻」，关掉页面后昨天的计薪时长无从得知——不落日志就没有"每日"这个维度；详见「投入时长从哪来」 |
-| 标签占比「各标签完成数占比」     | 按任务的**第一个标签**归类，无标签单列一片 | 一个任务挂多个标签时各计一次，各切片占比之和 > 100%，环形图的"占比"就不成立了 |
-| 统计页保留第六阶段的「近 30 天完成趋势」柱状图 | 该图已被「完成趋势柱线混合图」取代并从 `StatisticsCard` 删除 | 同一个数字在同一页出现两种画法只会互相打架；优先级环图仍留在 `StatisticsCard` |
-| 侧边栏主导航保持 4 项           | 年度报告 `/annual` 从统计页的按钮进入，不进侧边栏 | 视觉规范写明「上组=主导航 4 项」，为一张报告页破例会牵动整块导航的视觉节奏 |
+| 规划原文                                       | 实际实现                                                                                                           | 理由                                                                                                                                                                                                                                                                              |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `layouts/MobileLayout.vue`                     | 无此文件，移动端由 `components/organisms/MobileBottomNav.vue` 承担                                                 | 移动端与桌面端共用同一个 `DefaultLayout`，只是底部导航换成 bottom nav；再拆一个布局文件会带来两份几乎相同的骨架                                                                                                                                                                   |
+| `Login.vue` 用 ElForm 校验                     | 自研 `BaseInput` + `utils/validation.ts` 纯函数校验                                                                | 校验规则要复用到 TodoForm/ResetPassword，抽成纯函数才能单测；ElForm 的规则是运行时配置，测起来反而绕                                                                                                                                                                              |
+| 头像「方形裁剪框 + 圆形遮罩」                  | 圆形引导环（无遮罩压暗），导出方形 256×256 + CSS `rounded-full` 显示                                               | 遮罩压暗后很难看清选区外的构图；导出方形是为了将来支持非圆形头像展示，圆形只在展示层做                                                                                                                                                                                            |
+| `reminderAt`「默认策略自动生成」               | **不自动写入**，为空时由 `dueDate` 推导出默认提醒时间                                                              | 可推导的字段写进每条任务只会让存储与云同步 payload 平白变胖；语义改为「用户改过才存」                                                                                                                                                                                             |
+| WxPusher `contentType: 3`（HTML）              | `contentType: 2`（HTML）+ `uids: [uid]` 数组                                                                       | 规划此处写错了：按 [WxPusher 官方文档](https://wxpusher.zjiecode.com/docs/api-reference.html)，`1`=文本 / `2`=HTML / `3`=Markdown，照抄会把 `<p>` 当 Markdown 渲染；且 POST 接收人字段是 `uids` 数组（单数 `uid` 只存在于 GET 查询参数）                                          |
+| 侧边栏「帮助」入口                             | 已实现（打开使用说明弹窗）                                                                                         | —                                                                                                                                                                                                                                                                                 |
+| 卡片拖拽「等槽化」                             | 按规划实现：进入编辑布局即切等槽网格，默认仍是精调 bento                                                           | 变跨度卡片无法直接拖拽换位，等槽化是规划自己给出的取舍                                                                                                                                                                                                                            |
+| CSP 只列 5 个 API 域名                         | `connect-src 'self' ipc: http://ipc.localhost https:`                                                              | 规划要求「白名单」，但第六阶段是 **BYOK**：用户可把 AI `baseUrl` 指向自建网关，Supabase 也可自托管——域名写死会让这些功能在壳里静默失效，违背「Web 版功能原样可用」。真正的防线是 `script-src 'self'`（没有可执行注入就不存在可利用的连接），故 `connect-src` 放开 `https:`        |
+| 绿色版叫 `云海工作台.exe`                      | 实际为 `smart-workspace.exe`                                                                                       | Cargo 的 crate/二进制名只能是 ASCII；`productName` 的「云海工作台」用于窗口标题与安装包名，两者不同名是工具链约束                                                                                                                                                                 |
+| 通知「点击聚焦窗口并跳转任务」                 | 桌面版只能弹 Toast，点击不深链；应用内兜底路径照常高亮任务                                                         | 插件能力边界：`tauri-plugin-notification` 2.4.0 桌面端 `invoke_handler` 只注册 `notify`/`request_permission`/`is_permission_granted`，JS 侧 `onAction`/`onNotificationReceived` 依赖的 `register_listener` 与 `desktop.rs` 的点击处理**都只在移动端存在**——不是没写，是拿不到回调 |
+| 子应用建在 `C:\inetpub\wwwroot\workspace`      | 由 `Get-Website` 读出主站 `PhysicalPath` 再拼 `\workspace`                                                         | 主站在注册表里的物理路径可能被改过（也可能压根不是 Default Web Site）；写死路径会在那种机器上把文件拷到 IIS 根本不看的地方——部署成功却打不开                                                                                                                                      |
+| 部署包直接放 `dist/`                           | `dist/` 之外还放了 `部署说明.txt`，脚本里带 4 项自检（管理员/包完整性/base 前缀/install.ps1 语法）                 | 这份包是给"RDP 里点一下"的人用的：白屏、500.19、404.3 这些失败的现场在服务器上很难查，所以把校验前移——打包时就拦掉 base 忘设、脚本语法错这类低级事故                                                                                                                              |
+| 散点图的「秒表每日累计时长」直接读 store       | 新增**按天的投入日志**（`utils/workLog.ts` + `smart-workspace:worklog` 键），由赚钱秒表 tick 时写入                | 秒表快照只描述「此刻」，关掉页面后昨天的计薪时长无从得知——不落日志就没有"每日"这个维度；详见「投入时长从哪来」                                                                                                                                                                    |
+| 标签占比「各标签完成数占比」                   | 按任务的**第一个标签**归类，无标签单列一片                                                                         | 一个任务挂多个标签时各计一次，各切片占比之和 > 100%，环形图的"占比"就不成立了                                                                                                                                                                                                     |
+| 统计页保留第六阶段的「近 30 天完成趋势」柱状图 | 该图已被「完成趋势柱线混合图」取代并从 `StatisticsCard` 删除                                                       | 同一个数字在同一页出现两种画法只会互相打架；优先级环图仍留在 `StatisticsCard`                                                                                                                                                                                                     |
+| 侧边栏主导航保持 4 项                          | 年度报告 `/annual` 从统计页的按钮进入，不进侧边栏                                                                  | 视觉规范写明「上组=主导航 4 项」，为一张报告页破例会牵动整块导航的视觉节奏                                                                                                                                                                                                        |
+| 密码规则「禁纯数字 / 纯字母」单列一条          | 不单列，由「必须同时含大写、小写与数字」覆盖                                                                       | `12345678` 缺大小写、`abcdefgh` 缺大写与数字，都会被那条拦下；单列只会多一句永远不会单独出现的提示                                                                                                                                                                                |
+| `Login.vue` 用 ElForm 自定义 validator         | 沿用项目既有约定（自研 `BaseInput` + `utils/auth.ts` 纯函数），另加 `PasswordStrengthMeter.vue` 原子组件承载强度条 | 与上一条 ElForm 偏离同源：规则要注册/改密/单测三处复用，抽成纯函数 + 一个共用组件比写两遍运行时规则更省                                                                                                                                                                           |
+| Turnstile 在桌面壳里直接可用                   | `src-tauri/tauri.conf.json` 的 CSP 显式放行 `https://challenges.cloudflare.com`（`script-src` + `frame-src`）      | 壳里 `script-src 'self'` 会把 CDN 脚本拦掉，注册会永远停在「验证加载失败」；只放行这一个域名，仍不写通配符                                                                                                                                                                        |
 
 ## 许可证
 

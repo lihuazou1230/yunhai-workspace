@@ -13,23 +13,23 @@ describe('buildAppUrl（部署子路径感知）', () => {
   })
 
   it('GitHub Pages 子路径部署：保留仓库前缀（回归保护）', () => {
-    const base = '/vue3-smart-workspace/'
-    expect(buildAppUrl(ORIGIN, base)).toBe(`${ORIGIN}/vue3-smart-workspace/`)
+    const base = '/yunhai-workspace/'
+    expect(buildAppUrl(ORIGIN, base)).toBe(`${ORIGIN}/yunhai-workspace/`)
     expect(buildAppUrl(ORIGIN, base, 'reset-password')).toBe(
-      `${ORIGIN}/vue3-smart-workspace/reset-password`,
+      `${ORIGIN}/yunhai-workspace/reset-password`,
     )
-    expect(buildAppUrl(ORIGIN, base, 'login')).toBe(`${ORIGIN}/vue3-smart-workspace/login`)
+    expect(buildAppUrl(ORIGIN, base, 'login')).toBe(`${ORIGIN}/yunhai-workspace/login`)
   })
 
   it('base 缺尾斜杠时自动补，不会拼出 //', () => {
-    expect(buildAppUrl(ORIGIN, '/vue3-smart-workspace', 'todos')).toBe(
-      `${ORIGIN}/vue3-smart-workspace/todos`,
+    expect(buildAppUrl(ORIGIN, '/yunhai-workspace', 'todos')).toBe(
+      `${ORIGIN}/yunhai-workspace/todos`,
     )
   })
 
   it('path 带前导斜杠也正常（不会出现双斜杠）', () => {
-    expect(buildAppUrl(ORIGIN, '/vue3-smart-workspace/', '/reset-password')).toBe(
-      `${ORIGIN}/vue3-smart-workspace/reset-password`,
+    expect(buildAppUrl(ORIGIN, '/yunhai-workspace/', '/reset-password')).toBe(
+      `${ORIGIN}/yunhai-workspace/reset-password`,
     )
   })
 
@@ -58,10 +58,8 @@ describe('appUrl（读当前 origin + 构建期 BASE_URL）', () => {
     const original = import.meta.env.BASE_URL
     try {
       // 用 stub 让运行时 base 指向子路径，验证 appUrl 不是写死 origin
-      ;(import.meta.env as Record<string, unknown>).BASE_URL = '/vue3-smart-workspace/'
-      expect(appUrl('reset-password')).toBe(
-        `${location.origin}/vue3-smart-workspace/reset-password`,
-      )
+      ;(import.meta.env as Record<string, unknown>).BASE_URL = '/yunhai-workspace/'
+      expect(appUrl('reset-password')).toBe(`${location.origin}/yunhai-workspace/reset-password`)
     } finally {
       ;(import.meta.env as Record<string, unknown>).BASE_URL = original
     }

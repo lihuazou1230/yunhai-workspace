@@ -206,7 +206,7 @@ export function drawAnnualCard(
 
   ctx.fillStyle = palette.primary
   ctx.font = `bold ${Math.round(width * 0.03)}px "PingFang SC", "Microsoft YaHei", sans-serif`
-  ctx.fillText('Vue 3 智能工作台', width / 2, height - pad - 16)
+  ctx.fillText('云海工作台', width / 2, height - pad - 16)
 }
 
 /**

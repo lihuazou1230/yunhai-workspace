@@ -138,7 +138,7 @@ describe('drawAnnualCard', () => {
     expect(texts).toContain('96 天')
     expect(texts).toContain('21 天')
     expect(texts).toContain('8.5 小时')
-    expect(texts).toContain('Vue 3 智能工作台')
+    expect(texts).toContain('云海工作台')
     // 6 个数据格 + 顶部装饰条
     expect(texts.filter((t) => t === '工作').length).toBeGreaterThan(0)
   })

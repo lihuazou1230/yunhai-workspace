@@ -40,6 +40,12 @@ export interface SignUpPayload {
   email: string
   password: string
   displayName: string
+  /**
+   * Cloudflare Turnstile 的一次性 token（第五阶段：注册安全增强）。
+   * 由 `TurnstileCaptcha` 提供，supabase-js 透传给 Auth 服务端核验；
+   * 未启用验证码时为空（服务端也就不会校验）。
+   */
+  captchaToken?: string
 }
 
 /** 头像允许的文件类型白名单 */

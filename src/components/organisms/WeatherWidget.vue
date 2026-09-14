@@ -3,9 +3,11 @@
  * 有机体组件：天气卡片
  * - 进站自动定位，展示当前位置的天气
  * - **手动切换城市**：城市名经地理编码换 adcode（阶段三要求保留的能力），
- *   输入框 + 六个常用城市快捷键；切换成功后记为「上次的位置」
+ *   输入框 + 六个常用城市快捷键 + 「用当前位置」；切换成功后记为「上次的位置」
  * - 定位不可用时按「上次的位置 → 默认城市」逐级回落，并在卡片内说明原因
- * - 本地缓存：30 分钟内命中缓存不请求接口（显示「缓存」标记，可手动刷新）
+ * - 本地缓存：30 分钟内命中缓存不请求接口（不再在界面上标注——省下的额度是内部实现，不是用户要看的信息）
+ * - **「↻ 刷新」= 重新定位 + 强制取最新**：所以工具栏不再单独放「📍 定位」按钮；
+ *   手动选过城市时刷新只刷那座城市（尊重用户选择），要回到定位从「🏙 城市」面板里点「用当前位置」
  * - **未来 3 日预报条**：与实况并行请求，跟随当前城市；拿不到就不渲染，绝不影响实况卡片
  * - 未配置 API Key 时给出配置指引
  */
@@ -17,6 +19,7 @@ import { CITY_ADCODE, fetchWeatherForecast } from '@/api/weather'
 import { useWeather } from '@/composables/useWeather'
 import type { WeatherForecast } from '@/types/weather'
 import BaseButton from '@/components/atoms/BaseButton.vue'
+import { formatShortDate } from '@/utils/dateFormatter'
 
 const weatherApi = useWeather()
 const {
@@ -24,7 +27,6 @@ const {
   state,
   error,
   configured,
-  fromCache,
   locating,
   located,
   locateHint,
@@ -90,12 +92,14 @@ async function loadForecast(): Promise<void> {
 watch(currentTarget, () => void loadForecast())
 
 /**
- * 「↻ 刷新」：实况强制刷新；预报只在还没拿到时顺带重试
- * （已经拿到就不重复占额度 —— 免费 Key 一天 5000 次，省着点用）。
+ * 「↻ 刷新」= 重新定位 + 强制取最新（所以工具栏不再单独放「📍 定位」按钮）。
+ * - 当前展示的是定位结果 → 重新定位一次（人可能已经换了地方），并跳过 30 分钟缓存
+ * - 手动选过城市 → 尊重用户的选择，只强制刷新那座城市，不把定位结果盖回去
+ * 预报只在还没拿到时顺带重试（已经拿到就不重复占额度 —— 免费 Key 一天 5000 次，省着点用）。
  */
 function onRefresh(): Promise<boolean> {
   void loadForecast()
-  return refresh()
+  return located.value ? locate({ force: true }) : refresh()
 }
 
 onMounted(() => {
@@ -136,10 +140,21 @@ async function onQuickCity(name: string) {
   switching.value = false
   showCityPicker.value = false
 }
+
+/**
+ * 面板里的「用当前位置」：手动切城后想回到自动定位就走这里。
+ * 工具栏不再放「定位」按钮（刷新已经会重新定位），但这个入口必须留着——
+ * 否则手动选过一次城市后，本次会话内就再也回不到定位结果了。
+ */
+async function onUseCurrentLocation() {
+  if (locating.value) return
+  showCityPicker.value = false
+  await locate({ force: true })
+}
 </script>
 
 <template>
-  <section class="card p-5" aria-label="天气">
+  <section class="card flex flex-col p-5" aria-label="天气">
     <header class="mb-3 flex items-center justify-between gap-2">
       <h2
         class="flex items-center gap-1.5 text-sm font-semibold text-slate-700 dark:text-slate-200"
@@ -147,32 +162,15 @@ async function onQuickCity(name: string) {
         ☀️ 天气
         <span
           v-if="located"
-          class="text-[10px] font-normal text-[var(--el-color-primary)]"
+          class="text-[11px] font-normal text-[var(--el-color-primary)]"
           title="当前展示的是定位到的位置"
           >📍 当前位置</span
         >
       </h2>
       <div class="flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500">
-        <span v-if="weather && state === 'success'">
-          更新于 {{ formatTime(weather.updatedAt) }}
-          <span
-            v-if="fromCache"
-            class="ml-1 rounded bg-slate-100 px-1 text-[10px] dark:bg-slate-700"
-            title="10 分钟内命中本地缓存，未请求接口"
-            >缓存</span
-          >
-        </span>
-        <button
-          v-if="configured"
-          type="button"
-          class="rounded px-1 transition-colors hover:text-[var(--el-color-primary)] disabled:cursor-not-allowed disabled:opacity-50"
-          :disabled="locating"
-          title="重新定位到当前位置"
-          aria-label="重新定位"
-          @click="locate"
+        <span v-if="weather && state === 'success'"
+          >更新于 {{ formatTime(weather.updatedAt) }}</span
         >
-          {{ locating ? '定位中…' : '📍 定位' }}
-        </button>
         <button
           v-if="configured"
           type="button"
@@ -187,7 +185,7 @@ async function onQuickCity(name: string) {
           v-if="weather && state === 'success'"
           type="button"
           class="rounded px-1 transition-colors hover:text-[var(--el-color-primary)]"
-          title="跳过缓存，重新获取"
+          title="取最新数据（展示的是定位结果时会重新定位）"
           aria-label="刷新天气"
           @click="onRefresh"
         >
@@ -196,7 +194,7 @@ async function onQuickCity(name: string) {
       </div>
     </header>
 
-    <!-- 手动切换城市：输入城市名（地理编码换 adcode）+ 常用城市快捷键 -->
+    <!-- 手动切换城市：输入城市名（地理编码换 adcode）+ 常用城市快捷键 + 回到自动定位 -->
     <div
       v-if="showCityPicker && configured"
       class="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700"
@@ -216,6 +214,17 @@ async function onQuickCity(name: string) {
       </form>
       <div class="flex flex-wrap gap-1">
         <button
+          type="button"
+          class="rounded-full border border-[var(--el-color-primary-light-5)] px-2 py-0.5 text-[11px] text-[var(--el-color-primary)] transition-colors hover:bg-[var(--el-color-primary-light-9)] disabled:cursor-not-allowed disabled:opacity-50"
+          :disabled="locating"
+          aria-label="使用当前位置"
+          title="重新定位到当前位置"
+          data-testid="weather-use-current-location"
+          @click="onUseCurrentLocation"
+        >
+          {{ locating ? '定位中…' : '📍 用当前位置' }}
+        </button>
+        <button
           v-for="name in quickCities"
           :key="name"
           type="button"
@@ -232,15 +241,36 @@ async function onQuickCity(name: string) {
       {{ locateHint }}
     </p>
 
-    <!-- 未配置 API Key -->
+    <!--
+      未配置 API Key：这是一条**部署侧**的提示（Key 是构建期环境变量，用户在设置页改不了），
+      所以不做成占满卡片的虚线空框——那会让整张卡看起来「坏了」。
+      改成一条安静的说明：一句话讲清缺什么、去哪儿补，正文仍然是可读的 13px。
+    -->
     <div
       v-if="!configured"
-      class="rounded-xl border border-dashed border-slate-300 p-5 text-center text-sm text-slate-400 dark:border-slate-600 dark:text-slate-500"
+      class="my-auto flex items-start gap-3 rounded-xl bg-slate-50 p-4 dark:bg-slate-800/60"
     >
-      未配置天气 API Key<br />
-      <span class="text-xs"
-        >请在项目根目录 <code>.env.local</code> 中设置 <code>VITE_AMAP_KEY</code> 后刷新页面。</span
+      <svg
+        class="mt-0.5 h-5 w-5 shrink-0 text-slate-400 dark:text-slate-500"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.6"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
       >
+        <path d="M17.5 18H7a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 17.7 9.2A4.4 4.4 0 0 1 17.5 18Z" />
+      </svg>
+      <div class="min-w-0 text-[13px] leading-relaxed">
+        <p class="font-medium text-slate-700 dark:text-slate-200">天气还没接通</p>
+        <p class="mt-0.5 text-slate-500 dark:text-slate-400">
+          在项目根目录
+          <code class="rounded bg-slate-200/70 px-1 dark:bg-slate-700">.env.local</code> 里填入
+          <code class="rounded bg-slate-200/70 px-1 dark:bg-slate-700">VITE_AMAP_KEY</code>
+          （高德地图「Web 服务」Key），重启开发服务器即可。
+        </p>
+      </div>
     </div>
 
     <template v-else>
@@ -262,8 +292,7 @@ async function onQuickCity(name: string) {
         <BaseButton size="sm" variant="secondary" @click="retry">重试</BaseButton>
       </div>
 
-      <!-- 天气展示 -->
-      <div v-else-if="weather" class="space-y-2">
+      <div v-else-if="weather" class="my-auto space-y-2">
         <div class="flex items-center gap-3">
           <span class="text-4xl leading-none" aria-hidden="true">{{ weather.icon }}</span>
           <div class="min-w-0">
@@ -290,7 +319,7 @@ async function onQuickCity(name: string) {
             风速 {{ weather.windSpeed }} m/s
           </span>
         </div>
-        <p class="text-[10px] text-slate-400 dark:text-slate-500">数据来源：高德地图</p>
+        <p class="text-xs text-slate-500 dark:text-slate-400">数据来源：高德地图</p>
 
         <!-- 未来 3 日预报条：拿不到预报（未配置 / 请求失败 / 无数据）整块不渲染，实况卡片照常 -->
         <div
@@ -304,7 +333,10 @@ async function onQuickCity(name: string) {
             class="min-w-0 text-center"
             :data-testid="`forecast-day-${day.date}`"
           >
-            <p class="text-xs text-slate-400 dark:text-slate-500">{{ day.week }}</p>
+            <!-- 口径是「几号」而不是「周几」：预报跨月时 9月30日/10月1日 也不会歧义 -->
+            <p class="text-xs text-slate-400 dark:text-slate-500">
+              {{ formatShortDate(day.date) || day.week }}
+            </p>
             <p class="text-base leading-tight" aria-hidden="true">{{ day.icon }}</p>
             <p class="text-xs tabular-nums text-slate-600 dark:text-slate-300">
               {{ day.dayTemp }}°/{{ day.nightTemp }}°

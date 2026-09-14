@@ -1,15 +1,42 @@
 /* 自定义纯 CSS3 效果：卡片、数字滚动（odometer）、滚动条 */
-/* 视觉规范：浅灰底 + 白底大圆角卡片，几乎无阴影，靠色差分层 */
+/* 视觉规范：浅灰底 + 白底大圆角卡片，靠底色差分层的**同时对白卡补一层极浅投影** */
 
-/* 卡片（圆角跟随主题：--app-radius + 8px，默认 12 + 8 = 20px，落在规范要求的 20~24px 区间） */
+/*
+  卡片（圆角跟随主题：--app-radius + 8px，默认 12 + 8 = 20px，落在规范要求的 20~24px 区间）
+  —— 阴影是「分层」的一部分，不是装饰：浅色底（slate-100）与白卡只差 5% 亮度，
+  在低亮度屏幕或缩放后几乎糊成一片；一层 1px 偏移 + 大模糊的极浅阴影能把卡片边缘立住，
+  同时保持「几乎无阴影」的观感（深色模式改用黑色投影，白卡那套在深色底上等于没有）。
+*/
 .card {
   @apply border border-slate-200/70 bg-white dark:border-slate-700/60 dark:bg-slate-900;
   border-radius: calc(var(--app-radius, 12px) + 8px);
+  box-shadow: var(--app-card-shadow);
 }
 
-/* 深色强调卡（赚钱秒表 C 位）：深绿渐变 + 白色大数字，暗色模式下保持一致 */
+/*
+  CJK 正文行长：中文没有词间空格，`tracking-tight` 之类的负字距只该给大号数字，
+  正文默认给一点点正字距 + 比西文更松的行高，读起来才不「糊成一块」。
+  这里是全局兜底，个别地方仍可用 Tailwind 类覆盖。
+*/
+body {
+  letter-spacing: 0.01em;
+}
+
+/*
+  列表项（任务行等）表面：圆角跟随外观设置里的圆角档位（小/中/大 = 8/12/16px），
+  比卡片（+8px）小一档——同一屏里「容器」和「内容」的圆角必须有大小关系，
+  否则嵌套时会看到两个同心但不同曲率的圆角互相打架。
+*/
+.item-surface {
+  border-radius: var(--app-radius, 12px);
+}
+
+/*
+  深色强调卡（赚钱秒表 C 位）：深绿渐变 + 白色大数字，暗色模式下保持一致。
+  渐变走垂直方向，卡片从上到下均匀压深（斜向渐变在窄卡上会显得一边亮一边暗）。
+*/
 .card-accent {
-  background-image: linear-gradient(135deg, #059669 0%, #047857 55%, #065f46 100%);
+  background-image: linear-gradient(180deg, #059669 0%, #047857 50%, #065f46 100%);
   border-radius: calc(var(--app-radius, 12px) + 8px);
   @apply border border-emerald-700/40;
 }
@@ -89,19 +116,25 @@
 
 /* 细滚动条（浏览器默认的粗滚动条是「网页感」最大来源） */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply rounded-full bg-slate-300 dark:bg-slate-600;
+  /* 半透明描边色：浅色/深色底都自适应，且能透出卡片自身底色（纯色块会在玻璃层上显脏） */
+  @apply rounded-full bg-slate-400/50 dark:bg-slate-500/50;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-slate-400 dark:bg-slate-500;
+  background-color: color-mix(in srgb, var(--el-color-primary) 55%, transparent);
 }
 
 ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 滚动条角落（横竖交汇处）：默认会画一个白色小方块 */
+::-webkit-scrollbar-corner {
   background: transparent;
 }
 
@@ -130,4 +163,3 @@ html[data-platform='desktop'] .selectable * {
 html[data-platform='desktop'] {
   overscroll-behavior: none;
 }
-

@@ -154,7 +154,7 @@ function goToday() {
       <span
         v-for="label in WEEKDAY_LABELS"
         :key="label"
-        class="pb-1 text-center text-[10px] leading-none text-slate-400 dark:text-slate-500"
+        class="pb-1.5 text-center text-[11px] leading-none text-slate-500 dark:text-slate-400"
       >
         {{ label }}
       </span>

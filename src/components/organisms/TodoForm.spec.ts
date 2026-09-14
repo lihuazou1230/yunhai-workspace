@@ -77,8 +77,8 @@ describe('TodoForm', () => {
     const selected = '2026-09-10'
     vm.dueDate = selected
 
-    const dayBtn = wrapper.findAll('button').find((b) => b.text() === '1天')
-    const weekBtn = wrapper.findAll('button').find((b) => b.text() === '1周')
+    const dayBtn = wrapper.findAll('button').find((b) => b.text() === '1 天')
+    const weekBtn = wrapper.findAll('button').find((b) => b.text() === '1 周')
     expect(dayBtn).toBeTruthy()
     expect(weekBtn).toBeTruthy()
 

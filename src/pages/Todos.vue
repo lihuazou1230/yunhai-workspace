@@ -10,6 +10,7 @@
  */
 
 import AiTodoInput from '@/components/organisms/AiTodoInput.vue'
+import PageHeader from '@/components/organisms/PageHeader.vue'
 import TodoForm from '@/components/organisms/TodoForm.vue'
 import TodoList from '@/components/organisms/TodoList.vue'
 import { useTodoStore } from '@/stores/todoStore'
@@ -22,22 +23,17 @@ function handleCreate(payload: Parameters<typeof store.addTodo>[0]) {
 </script>
 
 <template>
-  <div class="space-y-5">
-    <header>
-      <h1 class="text-xl font-bold tracking-tight text-slate-800 dark:text-slate-100">✅ 任务</h1>
-      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
-        新建、筛选、搜索、子任务、批量操作与拖拽排序都在这一页
-      </p>
-    </header>
+  <div class="space-y-6">
+    <PageHeader title="任务" subtitle="新建、筛选、子任务、批量操作与拖拽排序都在这一页" />
 
-    <!-- AI 智能添加（自然语言 → 预览卡片 → 确认入库） -->
-    <section class="card p-5" aria-label="AI 智能添加">
-      <AiTodoInput @create="handleCreate" />
-    </section>
-
-    <!-- 新建任务 -->
-    <section class="card p-5">
-      <TodoForm @create="handleCreate" />
+    <!--
+      新建区：「AI 智能添加」与手动表单是**同一件事的两种入口**（一句话描述 vs 逐字段填），
+      所以合成一张卡：上半句自然语言、下半句手动表单，中间一条极浅分割线。
+      拆成两张同尺寸卡片时，用户会先看到两个几乎一样的输入框，第一反应是「我要填哪个」。
+    -->
+    <section class="card divide-y divide-slate-100 p-5 dark:divide-slate-800" aria-label="新建任务">
+      <AiTodoInput class="pb-5" @create="handleCreate" />
+      <TodoForm class="pt-5" @create="handleCreate" />
     </section>
 
     <!-- 任务列表 -->

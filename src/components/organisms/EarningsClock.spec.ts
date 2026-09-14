@@ -28,11 +28,6 @@ function amountElement(wrapper: ReturnType<typeof mount>) {
   return wrapper.find('[data-testid="earnings-today"]')
 }
 
-/** 次指标元素：本月已赚 */
-function monthElement(wrapper: ReturnType<typeof mount>) {
-  return wrapper.find('[data-testid="earnings-month"]')
-}
-
 async function openSettings(wrapper: ReturnType<typeof mount>) {
   const button = wrapper.findAll('button').find((b) => b.text() === '设置')
   expect(button).toBeTruthy()
@@ -59,37 +54,127 @@ describe('EarningsClock', () => {
     expect(amountElement(wrapper).exists()).toBe(false)
   })
 
-  it('工作中：显示精准到分的金额、状态、进度与倒计时', () => {
+  it('展开的设置是「同一张卡的内容」：一张背景壳 + 一个圆角矩形，不是拼接也不是第二张卡', async () => {
+    seed(CONFIG)
+    freezeTime(11)
+    const wrapper = mount(EarningsClock)
+
+    const card = wrapper.find('section[aria-label="PayDance"]')
+    expect(card.classes()).toContain('relative')
+    expect(card.classes()).toContain('isolate')
+
+    // 背景壳：整张卡的渐变/边框/圆角由它画（卡片本体自己不带背景色）
+    const shell = wrapper.find('[data-testid="earnings-shell"]')
+    expect(shell.exists()).toBe(true)
+    expect(shell.classes()).toContain('card-accent')
+    expect(shell.classes()).toContain('absolute')
+    expect(shell.classes()).toContain('-z-10')
+    // 收起时壳正好等于卡片本身（没有往下延伸的样子）
+    expect(shell.attributes('style') ?? '').not.toContain('bottom')
+    expect(card.classes()).not.toContain('card-accent')
+
+    await openSettings(wrapper)
+
+    const panel = wrapper.find('[data-testid="earnings-settings"]')
+    // 设置区贴着卡片下沿（top-full）、不带自己的背景/边框/圆角：视觉上是同一张卡往下长
+    expect(panel.classes()).toContain('absolute')
+    expect(panel.classes()).toContain('top-full')
+    expect(panel.classes()).toContain('z-20')
+    expect(panel.classes()).not.toContain('card-accent')
+    // 壳按设置区高度往下延伸（量到的高度接到 bottom 负值上）
+    expect(wrapper.find('[data-testid="earnings-shell"]').attributes('style')).toContain('bottom')
+    // 卡片自己依然没有为"接缝"做任何妥协
+    expect(card.attributes('style')).toBeUndefined()
+  })
+
+  it('工作中：显示精准到分的金额、状态、三栏统计条与进度', () => {
     seed(CONFIG)
     freezeTime(11)
     const wrapper = mount(EarningsClock)
 
     expect(amountElement(wrapper).text()).toContain('250.00')
     expect(wrapper.text()).toContain(EARNINGS_STATUS_TEXT.working)
-    expect(wrapper.text()).toContain('距离午休还有 1 小时 0 分')
-    expect(wrapper.text()).toContain('时薪 ¥125.00')
-    expect(wrapper.text()).toContain('日薪 ¥1,000.00')
-    expect(wrapper.text()).toContain('每日计薪 8 小时')
+
+    // 统计条（参考稿的中间那块）：已工作 ｜ 距离午休 ｜ 今日预计
+    const stats = wrapper.find('[data-testid="earnings-stats"]').text()
+    expect(stats).toContain('已工作')
+    expect(stats).toContain('2h 0m')
+    expect(stats).toContain('距离午休')
+    expect(stats).toContain('1h 0m')
+    expect(stats).toContain('今日预计')
+    expect(stats).toContain('¥1,000.00')
+
+    // 时薪/日薪/每日计薪这些明细已经不上卡（参考稿里没有），口径改由数据层用例兜住
+    expect(wrapper.text()).not.toContain('时薪 ¥')
     expect(wrapper.find('[role="progressbar"]').attributes('aria-valuenow')).toBe('25')
   })
 
-  it('主指标是「今日已赚」、次指标是「本月已赚」，两者同屏且层级分明', () => {
+  it('严格照参考稿：卡上只有「今日入账 + 金额 + 三栏统计条 + 进度光条」，不再有本月已赚/明细/百分比文字', () => {
     seed(CONFIG)
     freezeTime(10)
     const wrapper = mount(EarningsClock)
 
     // 今日：09:00-10:00 计薪 1 小时 => 125.00 元
     expect(amountElement(wrapper).text()).toContain('125.00')
-    // 本月：9/1 ~ 9/9 完整计薪 7 天（7000.00）+ 今日 125.00 = 7125.00 元
-    expect(monthElement(wrapper).text()).toContain('本月已赚')
-    expect(monthElement(wrapper).text()).toContain('7,125.00')
-    expect(monthElement(wrapper).text()).toContain('已计薪 8/22 天')
+    // 今日金额是卡片主体（text-5xl 起步、宽屏 text-6xl）
+    expect(amountElement(wrapper).classes().join(' ')).toContain('text-5xl')
+    // 深绿强调卡（C 位）：渐变画在背景壳上（组件是多根，迷你模式与完整卡二选一）
+    expect(wrapper.find('[data-testid="earnings-shell"]').classes()).toContain('card-accent')
 
-    // 层级：今日金额 text-4xl 起步，月金额是 text-sm
-    expect(amountElement(wrapper).classes().join(' ')).toContain('text-4xl')
-    expect(monthElement(wrapper).classes().join(' ')).toContain('text-sm')
-    // 深绿强调卡（C 位）；组件是多根（迷你模式与完整卡二选一），所以定位到 section 再取类名
-    expect(wrapper.find('section[aria-label="赚钱秒表"]').classes()).toContain('card-accent')
+    // 参考稿里没有的几块：本月已赚（含涨跌徽章）、时薪/日薪明细、进度文字，一律不出现在卡上
+    expect(wrapper.find('[data-testid="earnings-month"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="earnings-month-trend"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('本月已赚')
+    expect(wrapper.text()).not.toContain('时薪')
+    expect(wrapper.text()).not.toContain('今日进度')
+    // 进度条本身还在（只有轨道 + 填充 + 圆点，没有文字）
+    expect(wrapper.find('[role="progressbar"]').exists()).toBe(true)
+  })
+
+  it('卡片标题是 PayDance；金额居中作为主体、三栏统计条在下、进度光条钉在卡片底端', () => {
+    seed(CONFIG)
+    freezeTime(11)
+    const wrapper = mount(EarningsClock)
+
+    expect(wrapper.text()).toContain('💰 PayDance')
+
+    // 主体：今日入账 + 金额居中；统计条在同一块居中区域里
+    const hero = wrapper.find('[data-testid="earnings-hero"]')
+    expect(hero.classes()).toContain('text-center')
+    expect(hero.classes()).toContain('my-auto')
+    expect(hero.text()).toContain('今日入账')
+    expect(hero.find('[data-testid="earnings-today"]').exists()).toBe(true)
+    expect(hero.find('[data-testid="earnings-stats"]').exists()).toBe(true)
+
+    // 进度光条是最后一个参与布局的块（设置面板是绝对定位的悬浮层，不算布局块），且被 mt-auto 钉到底端
+    const progress = wrapper.find('[data-testid="earnings-progress"]')
+    expect(progress.exists()).toBe(true)
+    expect(progress.classes()).toContain('mt-auto')
+
+    const flow = [...wrapper.find('section[aria-label="PayDance"]').element.children].filter(
+      (el) => el.getAttribute('data-testid') !== 'earnings-settings',
+    )
+    expect(flow[flow.length - 1]).toBe(progress.element)
+  })
+
+  it('进度光条：平时只留图形，鼠标悬浮时在右侧浮出百分比（且不参与布局、不顶高卡片）', () => {
+    seed(CONFIG)
+    freezeTime(10)
+    const wrapper = mount(EarningsClock)
+
+    // 悬浮组：hover 在进度条那一块（含内边距）都能触发
+    const block = wrapper.find('[data-testid="earnings-progress"]')
+    expect(block.classes()).toContain('group')
+
+    const badge = wrapper.find('[data-testid="earnings-progress-hover"]')
+    expect(badge.exists()).toBe(true)
+    expect(badge.text()).toBe('13%')
+    // 默认透明 + group-hover 才显形（fade，不改布局：absolute + pointer-events-none）
+    expect(badge.classes()).toContain('opacity-0')
+    expect(badge.classes()).toContain('group-hover:opacity-100')
+    expect(badge.classes()).toContain('absolute')
+    expect(badge.classes()).toContain('right-0')
+    expect(badge.classes()).toContain('pointer-events-none')
   })
 
   it('今日金额逐位上滑滚动（odometer）：每位停在正确的数字上', () => {
@@ -106,45 +191,27 @@ describe('EarningsClock', () => {
     expect(amountElement(wrapper).find('.digit-window').exists()).toBe(true)
   })
 
-  it('目标进度条展示「今日已赚 / 目标日收入」', () => {
+  it('进度光条只留图形：aria 里仍带百分比，卡上不再写「今日进度 / 目标日收入」文字', () => {
     seed(CONFIG)
     freezeTime(10)
     const wrapper = mount(EarningsClock)
 
-    expect(wrapper.text()).toContain('今日进度 · 目标日收入 ¥1,000.00')
-    expect(wrapper.find('[role="progressbar"]').attributes('aria-valuenow')).toBe('13')
+    const bar = wrapper.find('[role="progressbar"]')
+    expect(bar.attributes('aria-valuenow')).toBe('13')
+    expect(bar.attributes('aria-label')).toContain('今日已赚进度 13%')
+    // 卡面上唯一带百分比的只有悬浮徽标（默认透明），没有常驻文字
+    expect(wrapper.find('[data-testid="earnings-progress"]').text().trim()).toBe('13%')
+    expect(wrapper.text()).not.toContain('今日进度')
   })
 
-  it('本月已赚展示相对上月同期的涨跌徽章', () => {
-    seed(CONFIG)
-    freezeTime(12)
-    const wrapper = mount(EarningsClock)
-
-    const trend = wrapper.find('[data-testid="earnings-month-trend"]')
-    expect(trend.exists()).toBe(true)
-    expect(trend.text()).toContain('+37.2%')
-    expect(trend.attributes('aria-label')).toContain('较上月同期')
-  })
-
-  it('周末：今日金额隐藏，但本月已赚（月度累计）仍然展示', () => {
+  it('周末：不渲染金额，只给状态文案（本月已赚这类月度信息已不在这张卡上）', () => {
     seed(CONFIG)
     freezeTime(14, 0, 0, 12)
     const wrapper = mount(EarningsClock)
 
+    expect(wrapper.text()).toContain(EARNINGS_STATUS_TEXT.weekend)
     expect(amountElement(wrapper).exists()).toBe(false)
-    // 9/1 ~ 9/11 完整计薪 9 天 => 9000.00 元（周末当天不计薪）
-    expect(monthElement(wrapper).text()).toContain('9,000.00')
-    expect(monthElement(wrapper).text()).toContain('已计薪 9/22 天')
-  })
-
-  it('本月已赚封顶在月薪（月计薪天数取月平均，工作日多的月份不会超发）', () => {
-    seed(CONFIG)
-    // 2026-09-30（周三）下班后：21 个完整计薪日 + 今日满勤
-    freezeTime(19, 0, 0, 30)
-    const wrapper = mount(EarningsClock)
-
-    expect(monthElement(wrapper).text()).toContain('21,750.00')
-    expect(monthElement(wrapper).text()).toContain('已计薪 22/22 天')
+    expect(wrapper.find('[data-testid="earnings-month"]').exists()).toBe(false)
   })
 
   it('午休期间：金额冻结在午休开始时刻', () => {
@@ -154,7 +221,9 @@ describe('EarningsClock', () => {
 
     expect(wrapper.text()).toContain(EARNINGS_STATUS_TEXT.lunch)
     expect(amountElement(wrapper).text()).toContain('375.00')
-    expect(wrapper.text()).toContain('距离下午上班还有 30 分 0 秒')
+    // 统计条中栏：午休时等的是下午上班
+    expect(wrapper.find('[data-testid="earnings-stats"]').text()).toContain('距离上班')
+    expect(wrapper.find('[data-testid="earnings-stats"]').text()).toContain('30m 0s')
   })
 
   it('上班前：只显示状态文案与倒计时，不渲染金额', () => {
@@ -163,7 +232,8 @@ describe('EarningsClock', () => {
     const wrapper = mount(EarningsClock)
 
     expect(wrapper.text()).toContain(EARNINGS_STATUS_TEXT['before-work'])
-    expect(wrapper.text()).toContain('距离上班还有 2 小时 0 分')
+    expect(wrapper.find('[data-testid="earnings-stats"]').text()).toContain('距离上班')
+    expect(wrapper.find('[data-testid="earnings-stats"]').text()).toContain('2h 0m')
     expect(amountElement(wrapper).exists()).toBe(false)
   })
 
@@ -176,14 +246,16 @@ describe('EarningsClock', () => {
     expect(amountElement(wrapper).exists()).toBe(false)
   })
 
-  it('下班后：显示今日总计金额', () => {
+  it('下班后：显示今日总计金额（统计条中栏退回「今日班次」）', () => {
     seed(CONFIG)
     freezeTime(19)
     const wrapper = mount(EarningsClock)
 
     expect(wrapper.text()).toContain(EARNINGS_STATUS_TEXT['after-work'])
     expect(amountElement(wrapper).text()).toContain('1,000.00')
-    expect(wrapper.text()).toContain('今日总计 ¥1,000.00')
+    const stats = wrapper.find('[data-testid="earnings-stats"]').text()
+    expect(stats).toContain('今日班次')
+    expect(stats).toContain('8h 0m')
   })
 
   it('修改月薪即时生效并写入 localStorage', async () => {
@@ -213,8 +285,17 @@ describe('EarningsClock', () => {
       .trigger('click')
     await nextTick()
 
-    // 清空午休后，每日计薪时长由 8 小时变为 9 小时
-    expect(wrapper.text()).toContain('每日计薪 9 小时')
+    // 两个午休输入框被清空
+    const timeInputs = wrapper.findAll('input[type="time"]')
+    expect((timeInputs[2].element as HTMLInputElement).value).toBe('')
+    expect((timeInputs[3].element as HTMLInputElement).value).toBe('')
+
+    // 卡上不再列「每日计薪」时长，改看统计条：午休一取消，11 点时的下一个节点从「距离午休 1h」
+    // 变成「距离下班 7h」（月薪模式下日薪不随时长变，仍是 ¥1,000.00）
+    const stats = wrapper.find('[data-testid="earnings-stats"]').text()
+    expect(stats).toContain('距离下班')
+    expect(stats).toContain('7h 0m')
+    expect(stats).toContain('¥1,000.00')
   })
 
   it('「恢复默认」把月薪重置为未配置状态', async () => {
@@ -270,12 +351,12 @@ describe('EarningsClock', () => {
     expect(wrapper.text()).toContain('时薪（元）')
     expect(wrapper.text()).not.toContain('月薪（元）')
 
-    // 输入时薪 125 → 每日 8 小时 → 日薪 1000，今日（1 小时）125
+    // 输入时薪 125 → 每日 8 小时 → 日薪 1000（统计条「今日预计」可见），今日（1 小时）125
     const salaryInput = wrapper.find('input[type="number"]')
     await salaryInput.setValue('125')
     await nextTick()
 
-    expect(wrapper.text()).toContain('日薪 ¥1,000.00')
+    expect(wrapper.find('[data-testid="earnings-stats"]').text()).toContain('¥1,000.00')
     expect(amountElement(wrapper).text()).toContain('125.00')
   })
 
@@ -361,7 +442,7 @@ describe('EarningsClock', () => {
     expect(bar.exists()).toBe(true)
     expect(bar.find('[data-testid="earnings-compact-amount"]').text()).toContain('125.00')
     // 完整卡不再渲染
-    expect(wrapper.find('[data-testid="earnings-month"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="earnings-today"]').exists()).toBe(false)
 
     // 状态落盘
     await nextTick()
@@ -370,7 +451,9 @@ describe('EarningsClock', () => {
     await wrapper.find('[data-testid="earnings-expand"]').trigger('click')
     await nextTick()
     expect(wrapper.find('[data-testid="earnings-compact"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="earnings-month"]').exists()).toBe(true)
+    // 还原成完整卡：主体与统计条回来
+    expect(wrapper.find('[data-testid="earnings-today"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="earnings-stats"]').exists()).toBe(true)
   })
 
   it('迷你模式状态从本地恢复（刷新后仍然是迷你条）', async () => {
@@ -380,12 +463,5 @@ describe('EarningsClock', () => {
     const wrapper = mount(EarningsClock)
 
     expect(wrapper.find('[data-testid="earnings-compact"]').exists()).toBe(true)
-  })
-
-  it('底部有免责声明', () => {
-    seed(CONFIG)
-    freezeTime(10)
-    const wrapper = mount(EarningsClock)
-    expect(wrapper.find('[data-testid="earnings-disclaimer"]').text()).toContain('估算值')
   })
 })

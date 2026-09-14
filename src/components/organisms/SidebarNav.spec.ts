@@ -81,7 +81,7 @@ describe('SidebarNav', () => {
   it('渲染品牌、4 个导航项与姓名首字母兜底', async () => {
     const { wrapper } = await mountSidebar()
 
-    expect(wrapper.text()).toContain('Vue 3 智能工作台')
+    expect(wrapper.text()).toContain('云海工作台')
     expect(wrapper.text()).toContain('仪表板')
     expect(wrapper.text()).toContain('任务')
     expect(wrapper.text()).toContain('统计')
@@ -155,9 +155,10 @@ describe('SidebarNav', () => {
     expect(router.currentRoute.value.name).toBe('stats')
   })
 
-  it('头像区按规格用 64px 圆形头像（折叠时收成 40px）', async () => {
+  it('头像区用圆形头像（展开 56px，折叠收成 36px）', async () => {
     const { wrapper } = await mountSidebar()
-    expect(wrapper.find('[data-testid="sidebar-avatar"]').classes()).toContain('h-16')
+    expect(wrapper.find('[data-testid="sidebar-avatar"]').classes()).toContain('h-14')
+    expect(wrapper.find('[data-testid="sidebar-avatar"]').classes()).toContain('rounded-full')
   })
 
   it('点帮助打开使用说明弹窗', async () => {
@@ -178,7 +179,7 @@ describe('SidebarNav', () => {
 
     expect(wrapper.find('[data-testid="sidebar"]').classes()).toContain('w-16')
     expect(wrapper.text()).not.toContain('仪表板')
-    expect(wrapper.text()).not.toContain('Vue 3 智能工作台')
+    expect(wrapper.text()).not.toContain('云海工作台')
     expect(wrapper.find('[data-testid="sidebar-nav-dashboard"]').exists()).toBe(true)
   })
 
@@ -201,14 +202,14 @@ describe('SidebarNav', () => {
     expect(wrapper.text()).toContain('本地访客')
   })
 
-  it('已登录：显示昵称/邮箱、同步状态与退出按钮', async () => {
+  it('已登录：显示昵称/邮箱与退出按钮，但**不再**显示同步状态角标', async () => {
     configureSupabase()
     const pinia = createPinia()
     setActivePinia(pinia)
     const authStore = useAuthStore()
     authApiStub.getCurrentSessionUser.mockResolvedValue(AUTH_TEST_USER)
     await authStore.init()
-    // 激活云同步后侧边栏才会出现同步角标
+    // 即使云同步已激活，侧边栏也不该再出现同步角标（同步态归「设置」页）
     await useTodoStore().activateCloud(AUTH_TEST_USER.id)
 
     const router = createRouter({ history: createMemoryHistory(), routes: TEST_ROUTES })
@@ -222,7 +223,8 @@ describe('SidebarNav', () => {
     expect(wrapper.text()).toContain('张三')
     expect(wrapper.text()).toContain('zhang@example.com')
     expect(wrapper.find('[data-testid="sidebar-sign-out"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('云同步 · 已同步')
+    expect(wrapper.text()).not.toContain('云同步')
+    expect(wrapper.text()).not.toContain('已同步')
   })
 
   it('点退出登录：调用 signOut 并跳回登录页', async () => {

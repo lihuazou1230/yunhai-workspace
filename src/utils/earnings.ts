@@ -80,6 +80,20 @@ export function formatDuration(seconds: number): string {
   return `${secs} 秒`
 }
 
+/**
+ * 秒 -> 「8h 30m」/「24m 12s」/「12s」：统计条那种窄格子用的紧凑写法
+ *（中文写法「8 小时 30 分」在三栏里会挤成一团，见卡片参考稿）
+ */
+export function formatDurationCompact(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds))
+  const hours = Math.floor(total / SECONDS_PER_HOUR)
+  const minutes = Math.floor((total % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE)
+  const secs = total % SECONDS_PER_MINUTE
+  if (hours > 0) return `${hours}h ${minutes}m`
+  if (minutes > 0) return `${minutes}m ${secs}s`
+  return `${secs}s`
+}
+
 // ---- 班次（含跨零点夜班） ----
 
 /**

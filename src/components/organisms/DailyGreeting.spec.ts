@@ -1,8 +1,27 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { nextTick } from 'vue'
+import { nextTick, ref } from 'vue'
 
 import { quoteOfDay } from '@/utils/dailyQuote'
+
+/**
+ * 认证 store 的桩：页头只读「是否登录 + 显示名」两个字段，
+ * 认证流程本身由 authStore.spec.ts 负责，这里不必把整条 Supabase 链路拖进来。
+ * 用 getter 暴露（而不是直接给 ref），跟 Pinia store 解包后的形态保持一致——
+ * 组件里写的是 `authStore.displayName`，不是 `.value`。
+ */
+const auth = vi.hoisted(() => ({ isAuthed: null as unknown, displayName: null as unknown }))
+vi.mock('@/stores/authStore', () => ({
+  useAuthStore: () => ({
+    get isAuthed() {
+      return (auth.isAuthed as { value: boolean }).value
+    },
+    get displayName() {
+      return (auth.displayName as { value: string }).value
+    },
+  }),
+}))
+
 import DailyGreeting from './DailyGreeting.vue'
 
 /** 2026-09-10 是周四 */
@@ -10,6 +29,12 @@ function freezeTime(hours: number, minutes = 0, day = 10) {
   vi.useFakeTimers()
   vi.setSystemTime(new Date(2026, 8, day, hours, minutes, 0))
 }
+
+beforeEach(() => {
+  // 默认：本地模式（未登录），问候语不带称呼
+  auth.isAuthed = ref(false)
+  auth.displayName = ref('本地访客')
+})
 
 afterEach(() => {
   vi.useRealTimers()
@@ -36,6 +61,35 @@ describe('DailyGreeting', () => {
 
     freezeTime(21)
     expect(mount(DailyGreeting).text()).toContain('晚上好')
+  })
+
+  // ---- 问候语带用户名 ----
+
+  it('登录后问候语带上用户名：早上好，张三，今天是 …', () => {
+    freezeTime(9, 30)
+    auth.isAuthed = ref(true)
+    auth.displayName = ref('张三')
+
+    expect(mount(DailyGreeting).text()).toContain('早上好，张三，今天是 9月10日 星期四')
+  })
+
+  it('本地模式（未登录）不带称呼：不硬塞「本地访客」', () => {
+    freezeTime(9, 30)
+    auth.isAuthed = ref(false)
+
+    const text = mount(DailyGreeting).text()
+    expect(text).toContain('早上好，今天是 9月10日 星期四')
+    expect(text).not.toContain('本地访客')
+  })
+
+  it('超长昵称截断，避免把右边的格言挤没（昵称上限 20 字，页头只留 12 字）', () => {
+    freezeTime(9, 30)
+    auth.isAuthed = ref(true)
+    auth.displayName = ref('一二三四五六七八九十一二三四五六七八九十')
+
+    const text = mount(DailyGreeting).text()
+    expect(text).toContain('早上好，一二三四五六七八九十一二…，今天是')
+    expect(text).not.toContain('一二三四五六七八九十一二三四五六七八九十')
   })
 
   it('同一天多次挂载取到同一句格言（不因重新渲染而换句）', () => {

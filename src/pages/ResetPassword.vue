@@ -17,8 +17,10 @@ import { useRouter } from 'vue-router'
 
 import BaseButton from '@/components/atoms/BaseButton.vue'
 import BaseInput from '@/components/atoms/BaseInput.vue'
+import PasswordStrengthMeter from '@/components/atoms/PasswordStrengthMeter.vue'
 import { useAuthStore } from '@/stores/authStore'
-import { validatePassword, validatePasswordConfirm } from '@/utils/validation'
+import { validatePassword } from '@/utils/auth'
+import { validatePasswordConfirm } from '@/utils/validation'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -41,11 +43,15 @@ onMounted(async () => {
   ready.value = true
 })
 
+/** 新密码是否达标（未达 strong 前保存按钮置灰，理由同注册：不给服务端拒一次的机会） */
+const passwordCheck = computed(() => validatePassword(password.value))
+
 function validateForm(): boolean {
   const errors: Record<string, string> = {}
 
-  const passwordCheck = validatePassword(password.value)
-  if (!passwordCheck.valid) errors.password = passwordCheck.message ?? '密码不符合要求'
+  // 按钮已按强度置灰，但回车仍会触发 form submit —— 这里再拦一次（只报第一条，细则在强度条里）
+  const strength = passwordCheck.value
+  if (!strength.valid) errors.password = strength.errors[0] ?? '密码不符合要求'
 
   const confirmCheck = validatePasswordConfirm(password.value, confirmPassword.value)
   if (!confirmCheck.valid) errors.confirmPassword = confirmCheck.message ?? '两次密码不一致'
@@ -126,7 +132,7 @@ async function submit() {
               v-model="password"
               data-testid="reset-password"
               type="password"
-              placeholder="至少 6 位"
+              placeholder="至少 8 位，含大小写字母与数字"
             />
             <p
               v-if="formErrors.password"
@@ -135,6 +141,8 @@ async function submit() {
             >
               {{ formErrors.password }}
             </p>
+            <!-- 与注册页共用同一套强度规则（utils/auth）：改密也是"新设一个密码" -->
+            <PasswordStrengthMeter :password="password" />
           </div>
 
           <div>
@@ -161,7 +169,7 @@ async function submit() {
             native-type="submit"
             variant="primary"
             block
-            :disabled="submitting"
+            :disabled="submitting || !passwordCheck.valid"
           >
             保存新密码
           </BaseButton>

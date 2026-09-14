@@ -58,7 +58,10 @@ describe('StreakCard', () => {
     )
     expect(wrapper.find('[data-testid="streak-rate"]').text()).toBe('50%')
     expect(wrapper.find('[role="progressbar"]').attributes('aria-valuenow')).toBe('50')
-    expect(wrapper.text()).toContain('本周进度 10 / 20 个')
+    // 目标值只在一处出现（那个可编辑的输入框），不再另写一行「本周进度 x / y 个」重复三遍同一个数字
+    expect(
+      (wrapper.find('[data-testid="streak-goal-input"]').element as HTMLInputElement).value,
+    ).toBe('20')
   })
 
   it('未达标时不显示达标徽章', () => {
@@ -78,7 +81,9 @@ describe('StreakCard', () => {
   })
 
   it('没传 weekGoal 时用默认目标 20', () => {
-    expect(mountCard().text()).toContain('本周进度 0 / 20 个')
+    expect(
+      (mountCard().find('[data-testid="streak-goal-input"]').element as HTMLInputElement).value,
+    ).toBe('20')
   })
 
   it('卡上改周目标会 emit update:weekGoal', async () => {
@@ -104,7 +109,7 @@ describe('StreakCard', () => {
     expect(wrapper.emitted('update:weekGoal')).toEqual([[12]])
   })
 
-  it('父级把新目标回传后，卡上的进度文案同步更新', async () => {
+  it('父级把新目标回传后，卡上的目标值同步更新', async () => {
     const wrapper = mountCard({ weekGoal: 20 })
 
     await wrapper.find('[data-testid="streak-goal-input"]').setValue('30')
@@ -113,6 +118,5 @@ describe('StreakCard', () => {
     expect(wrapper.find<HTMLInputElement>('[data-testid="streak-goal-input"]').element.value).toBe(
       '30',
     )
-    expect(wrapper.text()).toContain('本周进度 0 / 30 个')
   })
 })

@@ -13,6 +13,7 @@ import { computed, ref } from 'vue'
 import { onClickOutside } from '@vueuse/core'
 
 import BaseButton from '@/components/atoms/BaseButton.vue'
+import UiIcon from '@/components/atoms/UiIcon.vue'
 import type { DueReminder } from '@/types/reminder'
 import { formatReminderTime, reminderTimingText } from '@/utils/reminderSchedule'
 
@@ -66,7 +67,7 @@ function dismiss(todoId: string) {
       data-testid="reminder-bell"
       @click="toggle"
     >
-      <span class="text-base leading-none" aria-hidden="true">🔔</span>
+      <UiIcon name="bell" class="h-[18px] w-[18px]" />
       <!-- 红点：只有真有待处理提醒才出现，避免变成常亮的装饰 -->
       <span
         v-if="count > 0"

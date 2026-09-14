@@ -22,6 +22,7 @@ vi.mock('./supabase', async (importOriginal) => {
 })
 
 import {
+  consumeAuthRedirect,
   describeAuthError,
   emailPrefix,
   getCurrentSessionUser,
@@ -49,6 +50,14 @@ function fakeClient(overrides: Record<string, unknown> = {}) {
     signOut: vi.fn(async () => ({ data: {}, error: null as unknown })),
     resend: vi.fn(async () => ({ data: {}, error: null as unknown })),
     resetPasswordForEmail: vi.fn(async () => ({ data: {}, error: null as unknown })),
+    exchangeCodeForSession: vi.fn(async () => ({
+      data: { session: { access_token: 't' } },
+      error: null as unknown,
+    })),
+    verifyOtp: vi.fn(async () => ({
+      data: { session: { access_token: 't' } },
+      error: null as unknown,
+    })),
     getSession: vi.fn(async () => ({ data: { session: null }, error: null as unknown })),
     updateUser: vi.fn(async () => ({ data: { user: {} }, error: null as unknown })),
     onAuthStateChange: vi.fn<
@@ -170,6 +179,36 @@ describe('describeAuthError（英文报错 → 中文文案）', () => {
     expect(describeAuthError(null)).toBe('认证失败，请稍后重试')
   })
 
+  it('密码强度不足：把 weak_password 翻译成可执行动作（调高最小长度后老账号登录会撞上）', () => {
+    // supabase-js 只带错误码的情形
+    expect(describeAuthError({ code: 'weak_password', message: '' })).toContain('忘记密码')
+    // 只有英文 message 的情形（GoTrue 两套措辞都认）
+    expect(describeAuthError(new Error('Password is too weak'))).toContain('强度要求')
+    expect(describeAuthError(new Error('Weak password detected'))).toContain('强度要求')
+  })
+
+  it('人机验证失败：把 Cloudflare 的错误码翻译成「重新验证」的可执行动作', () => {
+    // token 一次性：用第二次就是这个错，提示必须指向"再验一次"而不是"再点一次注册"
+    expect(
+      describeAuthError(new Error('captcha protection: request disallowed (timeout-or-duplicate)')),
+    ).toContain('重新完成验证')
+    expect(describeAuthError(new Error('captcha verification process failed'))).toBe(
+      '人机验证未通过，请重新完成验证后再试',
+    )
+    expect(describeAuthError(new Error('invalid-input-response'))).toBe(
+      '人机验证未通过，请重新完成验证后再试',
+    )
+  })
+
+  it('最小密码长度从服务端报错里读（长度可配，写死会骗人）', () => {
+    expect(describeAuthError(new Error('Password should be at least 6 characters'))).toBe(
+      '密码至少 6 位',
+    )
+    expect(describeAuthError(new Error('Password should be at least 8 characters'))).toBe(
+      '密码至少 8 位',
+    )
+  })
+
   it('原始错误是字符串或没有 message 的对象时不能二次抛错', () => {
     // SDK / fetch polyfill 有时直接把错误当字符串抛；读 .message 会得到 undefined
     expect(describeAuthError('Invalid login credentials')).toBe('邮箱或密码不正确')
@@ -222,6 +261,29 @@ describe('认证动作（已配置）', () => {
         password: '123456',
         options: expect.objectContaining({ data: { display_name: '张三' } }),
       }),
+    )
+  })
+
+  it('注册：把 Turnstile 的一次性 token 透传给服务端（前端伪造无效，核验在服务端）', async () => {
+    await signUpWithPassword({
+      email: 'a@b.com',
+      password: 'Abcd1234',
+      displayName: '张三',
+      captchaToken: 'turnstile-one-shot',
+    })
+    const client = holder.client as ReturnType<typeof fakeClient>
+    expect(client.auth.signUp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({ captchaToken: 'turnstile-one-shot' }),
+      }),
+    )
+  })
+
+  it('注册：未启用验证码时 captchaToken 为 undefined（不给服务端送空 token）', async () => {
+    await signUpWithPassword({ email: 'a@b.com', password: 'Abcd1234', displayName: '' })
+    const client = holder.client as ReturnType<typeof fakeClient>
+    expect(client.auth.signUp).toHaveBeenCalledWith(
+      expect.objectContaining({ options: expect.objectContaining({ captchaToken: undefined }) }),
     )
   })
 
@@ -376,6 +438,101 @@ describe('认证动作（已配置）', () => {
     )
   })
 
+  it('登录也支持 captchaToken（Captcha 是全局开关，不开就给 undefined）', async () => {
+    await signInWithPassword('a@b.com', 'pw', 'turnstile-token')
+    let client = holder.client as ReturnType<typeof fakeClient>
+    expect(client.auth.signInWithPassword).toHaveBeenCalledWith({
+      email: 'a@b.com',
+      password: 'pw',
+      options: { captchaToken: 'turnstile-token' },
+    })
+
+    holder.client = fakeClient()
+    await signInWithPassword('a@b.com', 'pw')
+    client = holder.client as ReturnType<typeof fakeClient>
+    expect(client.auth.signInWithPassword).toHaveBeenCalledWith({
+      email: 'a@b.com',
+      password: 'pw',
+      options: undefined,
+    })
+  })
+
+  it('重发验证邮件也支持 captchaToken', async () => {
+    await resendConfirmEmail('a@b.com', undefined, 'turnstile-token')
+    const client = holder.client as ReturnType<typeof fakeClient>
+    expect(client.auth.resend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({ captchaToken: 'turnstile-token' }),
+      }),
+    )
+  })
+
+  describe('consumeAuthRedirect（邮件链接落地）', () => {
+    it('没有邮件凭据：返回 null，不打扰服务端', async () => {
+      expect(await consumeAuthRedirect('http://localhost:5173/todos?filter=all')).toBeNull()
+      const client = holder.client as ReturnType<typeof fakeClient>
+      expect(client.auth.exchangeCodeForSession).not.toHaveBeenCalled()
+      expect(client.auth.verifyOtp).not.toHaveBeenCalled()
+    })
+
+    it('implicit（#access_token=…）交给 supabase-js 自己换，这里不动手', async () => {
+      expect(
+        await consumeAuthRedirect('http://localhost:5173/#access_token=a&refresh_token=b'),
+      ).toBeNull()
+      const client = holder.client as ReturnType<typeof fakeClient>
+      expect(client.auth.verifyOtp).not.toHaveBeenCalled()
+    })
+
+    it('PKCE：用 ?code= 换会话，并把一次性 code 从地址栏抹掉', async () => {
+      window.history.replaceState({}, '', '/?code=abc-123&redirect=%2Ftodos')
+
+      const result = await consumeAuthRedirect()
+
+      expect(result).toMatchObject({ ok: true })
+      expect(result?.message).toContain('已自动登录')
+      const client = holder.client as ReturnType<typeof fakeClient>
+      expect(client.auth.exchangeCodeForSession).toHaveBeenCalledWith('abc-123')
+      // 关键：用完即清，刷新页面不会拿同一个 code 再换一次
+      expect(window.location.search).toBe('?redirect=%2Ftodos')
+    })
+
+    it('新版模板：用 ?token_hash= 调 verifyOtp（supabase-js 不会自动处理这一种）', async () => {
+      window.history.replaceState({}, '', '/auth/confirm?token_hash=hash-1&type=signup')
+
+      const result = await consumeAuthRedirect()
+
+      expect(result).toMatchObject({ ok: true })
+      const client = holder.client as ReturnType<typeof fakeClient>
+      expect(client.auth.verifyOtp).toHaveBeenCalledWith({ token_hash: 'hash-1', type: 'signup' })
+      expect(window.location.search).toBe('')
+    })
+
+    it('链接过期/已被用过：翻成中文可执行提示，且不去换会话', async () => {
+      window.history.replaceState({}, '', '/#error=access_denied&error_code=otp_expired')
+
+      const result = await consumeAuthRedirect()
+
+      expect(result?.ok).toBe(false)
+      expect(result?.message).toContain('重新发送')
+      const client = holder.client as ReturnType<typeof fakeClient>
+      expect(client.auth.exchangeCodeForSession).not.toHaveBeenCalled()
+      expect(window.location.hash).toBe('')
+    })
+
+    it('换会话失败（如凭据已被用过）时返回可展示的失败结果', async () => {
+      holder.client = fakeClient({
+        exchangeCodeForSession: vi.fn(async () => ({
+          data: {},
+          error: {
+            message: 'invalid request: both auth code and code verifier should be non-empty',
+          },
+        })),
+      })
+      const result = await consumeAuthRedirect('http://localhost:5173/?code=used')
+      expect(result?.ok).toBe(false)
+    })
+  })
+
   /**
    * 回归保护：部署在子路径（GitHub Pages 的 /<repo>/）时，默认回跳地址必须带上前缀。
    * 以前这里拼的是 location.origin，线上会得到不是本应用的地址、且匹配不上白名单。
@@ -392,7 +549,7 @@ describe('认证动作（已配置）', () => {
     }
 
     it('注册验证邮件的回跳地址 = origin + base', async () => {
-      await withBase('/vue3-smart-workspace/', async () => {
+      await withBase('/yunhai-workspace/', async () => {
         await signUpWithPassword({ email: 'a@b.com', password: 'secret1', displayName: '张三' })
       })
 
@@ -400,25 +557,25 @@ describe('认证动作（已配置）', () => {
       expect(client.auth.signUp).toHaveBeenCalledWith(
         expect.objectContaining({
           options: expect.objectContaining({
-            emailRedirectTo: `${location.origin}/vue3-smart-workspace/`,
+            emailRedirectTo: `${location.origin}/yunhai-workspace/`,
           }),
         }),
       )
     })
 
     it('重置密码邮件的回跳地址 = origin + base + reset-password', async () => {
-      await withBase('/vue3-smart-workspace/', async () => {
+      await withBase('/yunhai-workspace/', async () => {
         await sendPasswordReset('zhang@example.com')
       })
 
       const client = holder.client as ReturnType<typeof fakeClient>
       expect(client.auth.resetPasswordForEmail).toHaveBeenCalledWith('zhang@example.com', {
-        redirectTo: `${location.origin}/vue3-smart-workspace/reset-password`,
+        redirectTo: `${location.origin}/yunhai-workspace/reset-password`,
       })
     })
 
     it('显式传入 redirectTo 时优先使用调用方的值（不被 base 覆盖）', async () => {
-      await withBase('/vue3-smart-workspace/', async () => {
+      await withBase('/yunhai-workspace/', async () => {
         await sendPasswordReset('zhang@example.com', 'https://custom.example.com/reset')
       })
 
@@ -459,6 +616,15 @@ describe('认证动作（已配置）', () => {
       redirectTo: 'https://app.example.com/reset-password',
     })
     expect(result.message).toContain('邮箱')
+  })
+
+  it('忘记密码也支持 captchaToken（/recover 同样被 Captcha 保护）', async () => {
+    await sendPasswordReset('zhang@example.com', 'https://app.example.com/reset', 'turnstile-token')
+    const client = holder.client as ReturnType<typeof fakeClient>
+    expect(client.auth.resetPasswordForEmail).toHaveBeenCalledWith('zhang@example.com', {
+      redirectTo: 'https://app.example.com/reset',
+      captchaToken: 'turnstile-token',
+    })
   })
 
   it('忘记密码：失败时给出中文文案（如发信失败）', async () => {

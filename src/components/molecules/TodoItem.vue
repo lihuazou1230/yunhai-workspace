@@ -356,7 +356,7 @@ function onPurge() {
 
 <template>
   <li
-    class="group relative flex items-start gap-3 rounded-xl border-[0.5px] border-slate-200 bg-white px-3.5 py-3 transition-colors hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600"
+    class="item-surface group relative flex items-start gap-3 border border-slate-200 bg-white px-4 py-3.5 transition-colors hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600"
     :class="[
       overdue ? 'border-rose-300 dark:border-rose-700' : '',
       isDone ? 'opacity-[0.65]' : '',
@@ -456,108 +456,131 @@ function onPurge() {
         <span class="truncate">{{ todo.title }}</span>
       </p>
 
-      <!-- 元信息行（12px 小图标 + 灰字） -->
-      <p class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-        <span
-          v-if="hasValidDue"
-          class="inline-flex items-center gap-1"
-          :class="dueClass"
-          :title="dueText"
-        >
-          <svg class="h-3 w-3 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <rect
-              x="2.5"
-              y="3.5"
-              width="11"
-              height="10"
-              rx="2"
-              stroke="currentColor"
-              stroke-width="1.5"
-            />
-            <path
-              d="M2.5 6.5h11M5.5 2v2.5M10.5 2v2.5"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
-            />
-          </svg>
-          {{ dueText }}
-        </span>
+      <!--
+        元信息行（13px 灰字）。
+        一行的容量是有限的：日期/优先级/子任务/标签/提醒全挤在同一行时，
+        任何一条都会被淹没。所以按「权重」分两层——第一行只放**会改变行动决策**的信息
+        （何时到期、多重要），第二行放附加状态（子任务进度、标签、提醒）。
+      -->
+      <div class="mt-1.5 space-y-1 text-[13px] leading-5">
+        <!-- 第一层：到期 + 优先级 -->
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span
+            v-if="hasValidDue"
+            class="inline-flex items-center gap-1.5"
+            :class="dueClass"
+            :title="dueText"
+          >
+            <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <rect
+                x="2.5"
+                y="3.5"
+                width="11"
+                height="10"
+                rx="2"
+                stroke="currentColor"
+                stroke-width="1.5"
+              />
+              <path
+                d="M2.5 6.5h11M5.5 2v2.5M10.5 2v2.5"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+            </svg>
+            {{ dueText }}
+          </span>
 
-        <span
-          class="inline-flex items-center gap-1"
-          :class="priorityClass"
-          :aria-label="priorityText"
-          :title="priorityText"
-        >
-          <svg class="h-3 w-3 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path
-              d="M4 14V2.5M4 3h7.5l-1.5 2.5 1.5 2.5H4"
-              stroke="currentColor"
-              stroke-width="1.6"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-          {{ priorityText }}
-        </span>
+          <span
+            class="inline-flex items-center gap-1.5"
+            :class="priorityClass"
+            :aria-label="priorityText"
+            :title="priorityText"
+          >
+            <!--
+              优先级用**旗帜的填充度**表达，而不是一个「P」字：
+              「P 高优先级」既占宽度又要用户去读字母才懂，旗帜实心/空心一眼就能扫。
+            -->
+            <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4 14V2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+              <path
+                d="M4 3h7.5l-1.5 2.5 1.5 2.5H4"
+                :fill="todo.priority === 'high' ? 'currentColor' : 'none'"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            {{ priorityText }}
+          </span>
+        </div>
 
-        <button
-          v-if="subtaskTotal > 0"
-          type="button"
-          class="inline-flex items-center gap-1 text-slate-400 transition-colors hover:text-[var(--el-color-primary)] dark:text-slate-500"
-          :aria-label="expandSubtasks ? '收起子任务' : '展开子任务'"
-          @click="toggleExpandSubtask"
+        <!-- 第二层：子任务进度 / 标签 / 归档与提醒状态 -->
+        <div
+          v-if="
+            subtaskTotal > 0 ||
+            todoTags.length > 0 ||
+            view === 'archived' ||
+            todo.snoozedUntil ||
+            todo.reminderOff ||
+            todo.reminderAt
+          "
+          class="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-500 dark:text-slate-400"
         >
-          <span class="transition-transform" :class="expandSubtasks ? 'rotate-90' : ''">▶</span>
-          {{ subtaskDone }}/{{ subtaskTotal }}
-        </button>
+          <button
+            v-if="subtaskTotal > 0"
+            type="button"
+            class="inline-flex items-center gap-1 transition-colors hover:text-[var(--el-color-primary)]"
+            :aria-label="expandSubtasks ? '收起子任务' : '展开子任务'"
+            @click="toggleExpandSubtask"
+          >
+            <span
+              class="text-[10px] transition-transform"
+              :class="expandSubtasks ? 'rotate-90' : ''"
+              >▶</span
+            >
+            {{ subtaskDone }}/{{ subtaskTotal }}
+          </button>
 
-        <!-- 标签：彩色小点 + 文字（Finexy 风格的「彩色小点+文字」语言） -->
-        <span
-          v-for="tag in todoTags"
-          :key="tag.id"
-          class="inline-flex items-center gap-1"
-          :class="TAG_COLOR_TEXT[tag.color]"
-          :title="`标签：${tag.name}`"
-          :data-testid="`todo-tag-${tag.id}`"
-        >
-          <span class="h-2 w-2 shrink-0 rounded-full" :class="TAG_COLOR_DOT[tag.color]"></span>
-          {{ tag.name }}
-        </span>
+          <!-- 标签：彩色小点 + 文字（Finexy 风格的「彩色小点+文字」语言） -->
+          <span
+            v-for="tag in todoTags"
+            :key="tag.id"
+            class="inline-flex items-center gap-1"
+            :class="TAG_COLOR_TEXT[tag.color]"
+            :title="`标签：${tag.name}`"
+            :data-testid="`todo-tag-${tag.id}`"
+          >
+            <span class="h-2 w-2 shrink-0 rounded-full" :class="TAG_COLOR_DOT[tag.color]"></span>
+            {{ tag.name }}
+          </span>
 
-        <!-- 归档 / Snooze 状态提示（让用户知道这条为什么不在主列表） -->
-        <span
-          v-if="view === 'archived'"
-          class="inline-flex items-center gap-1 text-slate-400 dark:text-slate-500"
-        >
-          📦 已归档
-        </span>
-        <span
-          v-else-if="todo.snoozedUntil"
-          class="inline-flex items-center gap-1 text-slate-400 dark:text-slate-500"
-        >
-          💤 隐藏至 {{ todo.snoozedUntil }}
-        </span>
+          <!-- 归档 / Snooze 状态提示（让用户知道这条为什么不在主列表） -->
+          <span v-if="view === 'archived'" class="inline-flex items-center gap-1"> 📦 已归档 </span>
+          <span v-else-if="todo.snoozedUntil" class="inline-flex items-center gap-1">
+            💤 隐藏至 {{ todo.snoozedUntil }}
+          </span>
 
-        <!-- 提醒状态：关掉了就明说（否则用户会以为是提醒坏了）；自定义时间才显示具体时刻 -->
-        <span
-          v-if="todo.reminderOff"
-          class="inline-flex items-center gap-1 text-slate-400 dark:text-slate-500"
-          :title="'这条任务已关闭提醒'"
-          data-testid="todo-reminder-off"
-        >
-          🔕 不提醒
-        </span>
-        <span
-          v-else-if="todo.reminderAt"
-          class="inline-flex items-center gap-1 text-slate-400 dark:text-slate-500"
-          :title="`自定义提醒时间：${todo.reminderAt}`"
-          data-testid="todo-reminder-at"
-        >
-          🔔 {{ customReminderText }}
-        </span>
-      </p>
+          <!-- 提醒状态：关掉了就明说（否则用户会以为是提醒坏了）；自定义时间才显示具体时刻 -->
+          <span
+            v-if="todo.reminderOff"
+            class="inline-flex items-center gap-1"
+            :title="'这条任务已关闭提醒'"
+            data-testid="todo-reminder-off"
+          >
+            🔕 不提醒
+          </span>
+          <span
+            v-else-if="todo.reminderAt"
+            class="inline-flex items-center gap-1"
+            :title="`自定义提醒时间：${todo.reminderAt}`"
+            data-testid="todo-reminder-at"
+          >
+            🔔 {{ customReminderText }}
+          </span>
+        </div>
+      </div>
 
       <!-- 子任务清单（默认折叠，不再每卡常驻） -->
       <div v-if="showSubtasks" class="mt-1.5 space-y-1.5">

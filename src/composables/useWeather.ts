@@ -21,7 +21,6 @@ import { GeoError, getCurrentCoords } from '@/composables/useGeolocation'
 import { DEFAULT_WEATHER_CITY } from '@/types/weather'
 import type { WeatherData, WeatherLoadState } from '@/types/weather'
 import { buildPlaceLabel, weatherPlaceLabel } from '@/utils/placeFormatter'
-import { isTauri } from '@/utils/platform'
 
 /** 用户拒绝过定位权限：记住后不必每次进站都白试一次 */
 const GEO_DENIED_KEY = 'smart-workspace:geo-denied'
@@ -77,15 +76,22 @@ function errMessage(e: unknown): string {
 
 export interface UseWeatherOptions {
   /**
-   * 是否允许「IP 定位」兜底。
-   * 默认在桌面版开启：WebView2 的定位要过系统隐私设置，被拒后没有别的办法，
-   * 而 `/v3/ip` 只要联网就能出城市级位置。浏览器版保持关闭，不改变既有降级链路。
+   * 是否允许「IP 定位」兜底。**默认开启**（浏览器版与桌面版一致）。
+   *
+   * 为什么浏览器版也要开：定位只在**安全上下文**（https / localhost）可用，
+   * 而这个项目的网页端是部署在 `http://<IP>/workspace/` 上的 —— 明文 HTTP 下浏览器
+   * 必然拒绝定位，且**没有任何开关能改**（不是用户点了"拒绝"，是平台规则）。
+   * 那种情况下 `/v3/ip` 是唯一还能自动贴近用户的途径，至少能落到城市级（南昌而不是默认的北京）。
+   * 逆地理编码的隐私成本为零：这个请求本来就发给高德，它早已知道请求方 IP。
+   *
+   * 代价：定位被拒时多一次请求（免费额度内）。HTTPS 部署后基本不触发 ——
+   * 浏览器定位成功就走不到这一层（它只排在「浏览器定位 → 上次的位置」之后）。
    */
   ipFallback?: boolean
 }
 
 export function useWeather(options: UseWeatherOptions = {}) {
-  const ipFallback = options.ipFallback ?? isTauri()
+  const ipFallback = options.ipFallback ?? true
   const weather = ref<WeatherData | null>(null)
   const state = ref<WeatherLoadState>('loading')
   const error = ref('')
@@ -140,8 +146,11 @@ export function useWeather(options: UseWeatherOptions = {}) {
     return refresh()
   }
 
-  /** 定位并加载当前位置的天气 */
-  async function locate(): Promise<boolean> {
+  /**
+   * 定位并加载当前位置的天气。
+   * @param options force 跳过 30 分钟缓存强制取最新（卡片上的「↻ 刷新」走这条）
+   */
+  async function locate(options: { force?: boolean } = {}): Promise<boolean> {
     if (!configured.value) return false
     locating.value = true
     locateHint.value = ''
@@ -149,10 +158,12 @@ export function useWeather(options: UseWeatherOptions = {}) {
     try {
       const coords = await getCurrentCoords()
       const place = await locatePlace(coords.latitude, coords.longitude)
-      const ok = await run(place.adcode)
+      const ok = await run(place.adcode, { force: options.force })
       located.value = ok
       locatedLabel.value = ok ? buildPlaceLabel(place) : ''
-      locateHint.value = ok ? '已定位到当前位置' : '定位成功，但获取天气失败'
+      // 成功**不写提示**：卡片上只留「失败 / 回落 / 手动切城」这类需要解释的信息，
+      // 「已定位到当前位置」由标题旁的小标承担，再来一行字纯属噪音。
+      locateHint.value = ok ? '' : '定位成功，但获取天气失败'
       // 记住这次成功的位置，供下次定位不可用时回退
       if (ok) {
         writeFlag(

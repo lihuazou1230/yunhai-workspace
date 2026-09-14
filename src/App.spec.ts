@@ -50,7 +50,7 @@ describe('App 集成（第五阶段：路由拆分后的整体装配）', () => 
       expect(router.currentRoute.value.name).toBe('dashboard')
 
       // 侧边栏品牌 + 布局
-      expect(wrapper.text()).toContain('Vue 3 智能工作台')
+      expect(wrapper.text()).toContain('云海工作台')
       expect(wrapper.find('[data-testid="sidebar"]').exists()).toBe(true)
       expect(wrapper.find('[data-testid="bottom-nav-todos"]').exists()).toBe(true)
 
@@ -59,10 +59,10 @@ describe('App 集成（第五阶段：路由拆分后的整体装配）', () => 
       expect(wrapper.text()).toContain('9月10日 星期四')
       expect(wrapper.text()).toContain(quoteOfDay('2026-09-10').text)
 
-      // 赚钱秒表：今日 09:00-10:00 计薪 1 小时 => 125.00 元；本月（7 个完整计薪日 + 今日）=> 7,125.00 元
-      expect(wrapper.text()).toContain('💰 赚钱秒表')
+      // PayDance（赚钱秒表）：今日 09:00-10:00 计薪 1 小时 => 125.00 元
+      expect(wrapper.text()).toContain('💰 PayDance')
       expect(wrapper.find('[data-testid="earnings-today"]').text()).toContain('125.00')
-      expect(wrapper.find('[data-testid="earnings-month"]').text()).toContain('7,125.00')
+      expect(wrapper.find('[data-testid="earnings-stats"]').exists()).toBe(true)
 
       // 首页只留「一眼看清」的内容：任务表单已搬到 /todos
       expect(wrapper.find('input[placeholder*="添加新任务"]').exists()).toBe(false)

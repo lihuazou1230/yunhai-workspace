@@ -117,16 +117,20 @@ describe('useWeather · IP 定位兜底', () => {
     expect(w.located.value).toBe(false)
   })
 
-  it('浏览器版默认不启用：不发 /v3/ip，直接落到默认城市（既有行为不变）', async () => {
+  it('默认就启用兜底：定位被拒时不再直接落默认城市，而是先按 IP 定位到城市', async () => {
     stubGeoDenied()
     const urls: string[] = []
     stubRoutedFetch(urls)
 
+    // 不传 options：走的就是默认值（浏览器版与桌面版一致）
     const w = useWeather()
     await expect(w.init()).resolves.toBe(true)
 
-    expect(urls.some((u) => u.includes('/v3/ip'))).toBe(false)
-    expect(w.locateHint.value).toContain('默认城市')
+    expect(urls.some((u) => u.includes('/v3/ip'))).toBe(true)
+    expect(w.locateHint.value).toContain('IP 定位')
+    expect(w.locateHint.value).toContain('杭州市')
+    // 明文 HTTP 部署下浏览器必然拒绝定位，这一层是唯一还能自动贴近用户的途径
+    expect(w.state.value).toBe('success')
   })
 
   it('有「上次位置」记忆时优先用记忆，不会绕道 IP（链路顺序不能乱）', async () => {

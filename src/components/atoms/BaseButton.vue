@@ -12,6 +12,11 @@ const props = withDefaults(
     /** 尺寸 */
     size?: 'sm' | 'md'
     disabled?: boolean
+    /**
+     * 加载中：左侧转圈动画 + 自动禁用（防重复提交）。
+     * 文案仍由调用方提供（如「注册中…」）——只有动画和禁用是通用行为，措辞不是。
+     */
+    loading?: boolean
     /** 原生按钮类型 */
     nativeType?: 'button' | 'submit' | 'reset'
     /** 撑满容器 */
@@ -21,6 +26,7 @@ const props = withDefaults(
     variant: 'primary',
     size: 'md',
     disabled: false,
+    loading: false,
     nativeType: 'button',
     block: false,
   },
@@ -46,7 +52,7 @@ const sizeClass: Record<NonNullable<typeof props.size>, string> = {
 }
 
 function onClick(ev: MouseEvent) {
-  if (props.disabled) return
+  if (props.disabled || props.loading) return
   emit('click', ev)
 }
 </script>
@@ -54,11 +60,18 @@ function onClick(ev: MouseEvent) {
 <template>
   <button
     :type="nativeType"
-    :disabled="disabled"
+    :disabled="disabled || loading"
+    :aria-busy="loading || undefined"
     class="inline-flex select-none items-center justify-center gap-1 font-medium outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-[var(--el-color-primary-light-5)] focus-visible:ring-offset-2 disabled:cursor-not-allowed"
     :class="[variantClass[variant], sizeClass[size], block ? 'w-full' : '']"
     @click="onClick"
   >
+    <!-- 转圈：用当前文字色描边，天然适配 primary/secondary/ghost 各种底色 -->
+    <span
+      v-if="loading"
+      class="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent"
+      aria-hidden="true"
+    ></span>
     <slot />
   </button>
 </template>

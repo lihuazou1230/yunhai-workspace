@@ -13,11 +13,12 @@
 import { computed, ref } from 'vue'
 
 import AvatarUpload from '@/components/organisms/AvatarUpload.vue'
+import PageHeader from '@/components/organisms/PageHeader.vue'
 import SettingsPanel from '@/components/organisms/SettingsPanel.vue'
 import WallpaperSettings from '@/components/organisms/WallpaperSettings.vue'
 import BaseBadge from '@/components/atoms/BaseBadge.vue'
 import BaseButton from '@/components/atoms/BaseButton.vue'
-import { SUPABASE_SETUP_HINT, checkSupabaseConnection } from '@/api/supabase'
+import { checkSupabaseConnection } from '@/api/supabase'
 import type { ConnectionCheck } from '@/api/supabase'
 import { TAG_COLOR_DOT, TAG_COLOR_LABEL, TAG_COLOR_PALETTE } from '@/types/tag'
 import type { TagColor } from '@/types/tag'
@@ -87,7 +88,7 @@ async function sendTestPush() {
   wxpusherHint.value = ''
   const result = await sendWxPusherViaProxy({
     uid: reminder.settings.value.wxpusherUid.trim(),
-    title: 'Vue 3 智能工作台 · 测试消息',
+    title: '云海工作台 · 测试消息',
     content: '<p>提醒通道配置成功 ✅ 任务到期时你会在这里收到通知。</p>',
   })
   wxpusherTesting.value = false
@@ -223,11 +224,8 @@ async function testConnection() {
 </script>
 
 <template>
-  <div class="space-y-5">
-    <header>
-      <h1 class="text-xl font-bold tracking-tight text-slate-800 dark:text-slate-100">⚙️ 设置</h1>
-      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">个人资料、数据同步与外观自定义</p>
-    </header>
+  <div class="space-y-6">
+    <PageHeader title="设置" subtitle="个人资料、数据同步与外观自定义" />
 
     <!-- 个人资料 -->
     <section class="card p-5" aria-label="个人资料">
@@ -304,14 +302,33 @@ async function testConnection() {
           {{ todoStore.syncMessage }}
         </p>
 
-        <!-- 未配置 Supabase：给配置引导 -->
-        <p
+        <!--
+        未配置 Supabase：给配置引导。
+        上面那行状态已经说了「本地模式」，所以这里不再重复一遍「本地模式」，
+        直接讲**缺什么、去哪儿补**——一段英文标识符对用户没用，
+        但对做事的人来说，「改哪两个变量名 + 执行哪个脚本」才是能照着做的信息。
+      -->
+        <div
           v-if="authStore.isLocalMode"
           data-testid="settings-setup-hint"
-          class="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-800 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+          class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-[13px] leading-relaxed text-amber-900 dark:border-amber-800/70 dark:bg-amber-900/25 dark:text-amber-100"
         >
-          {{ SUPABASE_SETUP_HINT }}
-        </p>
+          <p class="font-medium">想开启多设备同步？</p>
+          <p class="mt-1 text-amber-800/90 dark:text-amber-100/80">
+            在项目根目录
+            <code class="rounded bg-amber-200/60 px-1 py-0.5 dark:bg-amber-800/50">.env.local</code>
+            里填好 Supabase 的
+            <code class="rounded bg-amber-200/60 px-1 py-0.5 dark:bg-amber-800/50"
+              >VITE_SUPABASE_URL</code
+            >
+            与
+            <code class="rounded bg-amber-200/60 px-1 py-0.5 dark:bg-amber-800/50"
+              >VITE_SUPABASE_ANON_KEY</code
+            >，并在 Supabase 后台执行
+            <code class="rounded bg-amber-200/60 px-1 py-0.5 dark:bg-amber-800/50">schema.sql</code>
+            。填好前，本机的数据一样完整可用。
+          </p>
+        </div>
 
         <div class="flex flex-wrap gap-2 pt-1">
           <BaseButton
