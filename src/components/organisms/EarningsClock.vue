@@ -28,7 +28,6 @@ import BaseInput from '@/components/atoms/BaseInput.vue'
 import RollingAmount from '@/components/molecules/RollingAmount.vue'
 import { useEarnings } from '@/composables/useEarnings'
 import {
-  EARNINGS_DISCLAIMER,
   EARNINGS_STATUS_TEXT,
   SALARY_MODE_LABEL,
   WEEKDAY_LABEL,
@@ -222,16 +221,8 @@ const workDaysSummary = computed(() => {
     class="card-accent flex items-center gap-3 px-4 py-2.5 text-white"
     aria-label="赚钱秒表（迷你）"
     data-testid="earnings-compact"
-    :title="EARNINGS_DISCLAIMER"
   >
     <span class="text-xs text-emerald-100">💰</span>
-    <!--
-      折叠条也必须能读到免责声明：长期保持折叠的用户此前永远看不到
-      「金额是估算、不是实际到手」这句（它原先只在展开态渲染），
-      而折叠态恰恰是最容易把数字当成真实收入的场景。
-      迷你条放不下整句，所以走悬停提示 + 读屏文本两条通道。
-    -->
-    <span class="sr-only">{{ EARNINGS_DISCLAIMER }}</span>
     <span
       class="font-mono text-lg font-bold tabular-nums tracking-tight"
       data-testid="earnings-compact-amount"
@@ -367,19 +358,6 @@ const workDaysSummary = computed(() => {
         填写月薪与上下班时间后，这里会逐位滚动显示「今日已赚」。
       </p>
     </div>
-
-    <!--
-      免责声明（展开态）：这是估算器不是工资条，口径必须写在卡上。
-      刻意**不加 `v-if="isConfigured"`**：未配置时卡上同样有引导文案与占位数字，
-      声明一起显示才不至于"看得到数字、看不到口径"。
-      折叠态看不到它，所以迷你条另补了 title + sr-only 两条通道（见上）。
-    -->
-    <p
-      class="mt-3 text-center text-[11px] leading-relaxed text-emerald-100/70"
-      data-testid="earnings-disclaimer"
-    >
-      {{ EARNINGS_DISCLAIMER }}
-    </p>
 
     <!--
       底部进度光条：只留轨道 + 填充 + 末端圆点（严格照参考稿，不写「今日进度 / 百分比」文字）。
