@@ -726,8 +726,10 @@ pnpm dev
 **未配 LLM Key 也能用**：上传、检索、引用、拒答四条链路都不需要 Key，
 只有"自由生成答案"需要（后端 `.env` 的 `LLM_API_KEY`）——页面会明说缺什么。
 
-> 检索质量的实测数据（语义 vs 字面 BM25 的 recall/MRR 与阈值校准）在
-> `yunhai-agent/eval/report.md`，结论如实记录：这份小语料上 BM25 更准，语义模型的价值要在更大语料上重测。
+> 检索质量的实测数据（语义 vs 字面 BM25 的 recall/MRR 与阈值校准、以及端到端答案验收）在
+> `yunhai-agent/eval/report.md` 与 `eval/answer_report.md`。结论如实记录：这份 30 块的小语料上
+> 两者 recall@1 打平、BM25 在 recall@4 上更满；而**分块粒度**（把 Markdown 小节硬断）才是
+> 把语义 recall@1 从 0.562 拉到 0.750 的那一步——调参之前先看数据。
 
 ## 在线部署
 
