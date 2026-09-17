@@ -10,6 +10,7 @@ const TEST_ROUTES = [
   { path: '/', name: 'dashboard', component: { template: '<div />' } },
   { path: '/todos', name: 'todos', component: { template: '<div />' } },
   { path: '/stats', name: 'stats', component: { template: '<div />' } },
+  { path: '/knowledge', name: 'knowledge', component: { template: '<div />' } },
   { path: '/settings', name: 'settings', component: { template: '<div />' } },
 ]
 
@@ -27,7 +28,7 @@ describe('MobileBottomNav', () => {
     localStorage.clear()
   })
 
-  it('渲染 4 个路由 Tab，与桌面端侧边栏共用同一份导航定义', async () => {
+  it('渲染全部路由 Tab（第五阶段 4 项，第十阶段加知识库成 5 项），与侧边栏共用同一份定义', async () => {
     const wrapper = await mountNav()
 
     expect(wrapper.findAll('a')).toHaveLength(NAV_ITEMS.length)

@@ -27,6 +27,7 @@
 - 🛡️ **注册安全（两道闸，都卡在"发确认邮件之前"）**：**密码复杂度**（≥8 位 + 大小写 + 数字 + 弱密码黑名单，实时强度条列出"缺什么"，未达标按钮置灰）+ **Cloudflare Turnstile** 人机验证（token 由 Cloudflare 签发、**Supabase 服务端核验**，前端伪造无效；managed 模式正常用户无感通过；**登录 / 注册 / 忘记密码 / 重发验证邮件四条链路都带 token**——Supabase 的 Captcha 是全局开关）
 - ☁️ **多设备同步**：任务写进云端 Postgres（行级安全 RLS），离线改动进队列、联网自动补发，旧 localStorage 数据登录后**一次性迁移**
 - 🔄 **账号级数据一致性（第九阶段）**：不只任务——**主题外观、壁纸、标签、快捷导航、倒计时、仪表板布局与周目标、赚钱秒表配置、投入时长日志、提醒设置、默认搜索引擎**统统跟账号走，任一设备登录即是同一套；换账号登录会先清本地再拉新账号的（同一台电脑换人用不串数据）；凭证（AI Key / 微信 UID）与设备相关项（天气缓存 / 定位记忆 / 已通知标记）**刻意留在本机**，设置页可展开查看完整清单与理由
+- 📚 **知识库问答（第十阶段）**：文档上传（pdf/md/txt/jsonl，≤10MB，超 2MB 异步入库）→ 递归分块 → 向量入库 → **SSE 流式问答并带引用来源**；库外问题**直接拒答不编造**，回答下方常显「基于知识库 / 不基于知识库 / 拒答」与命中的来源块。模型与 Key 全在独立后端仓库 [`yunhai-agent`](https://github.com/lihuazou1230/yunhai-agent)，前端只拿一个基地址
 - 🖼️ **头像上传**：本地选图 → 圆形裁剪（cropperjs）→ 压成 256×256 WebP → 已登录传云端 Storage，未登录存 IndexedDB
 - 📋 **任务管理闭环**：增删改查、状态筛选、优先级多选、关键字搜索、localStorage 持久化
 - ↩️ **撤销删除**：软删除 + 1 分钟窗口内可撤销（Toast 倒计时）
@@ -72,7 +73,7 @@
 - **Vite** 构建，路径别名 `@` → `src`
 - **Tailwind CSS v3.4**（`darkMode: 'class'` 与 Element Plus 深色共用 `html.dark`）
 - **Element Plus**（unplugin 按需自动导入）
-- **Pinia** 状态管理 / **Vue Router**（仪表板 / 任务 / 统计 / 年度报告 / 设置 5 个页面按需懒加载 + 登录守卫 + keep-alive）
+- **Pinia** 状态管理 / **Vue Router**（仪表板 / 任务 / 统计 / 年度报告 / 知识库 / 设置 6 个页面按需懒加载 + 登录守卫 + keep-alive）
 - **Supabase**（Auth 邮箱密码 · Postgres + RLS 任务存储 · Storage 头像 bucket）
 - **cropperjs**（头像圆形裁剪）
 - **ECharts**（`echarts/core` 按需注册图表类型）
@@ -83,24 +84,29 @@
 ```
 src/
 ├── api/              # supabase 客户端 / auth 认证 / avatar 头像 Storage / userAssets 用户图片 Storage /
-│                     # todoRemote 任务云端读写 / userSettingsRemote 偏好云端读写 / weather 天气 / notify 微信代理
+│                     # todoRemote 任务云端读写 / userSettingsRemote 偏好云端读写 / weather 天气 / notify 微信代理 /
+│                     # agent 知识库后端（第十阶段：SSE 解析 + 上传/会话/任务轮询）
 ├── assets/styles/    # Tailwind 入口、Element Plus 主题变量、卡片/数字滚动等纯 CSS
 ├── components/
 │   ├── atoms/        # BaseButton / BaseInput / BaseBadge / BaseCheckbox / DigitRoll / TrendBadge /
-│   │                 # PasswordStrengthMeter 密码强度条 / TurnstileCaptcha 人机验证（第五阶段）
-│   ├── molecules/    # TodoItem / SearchBar / ThemeToggle / RollingAmount / ChartEmpty / StatsRangeTabs
+│   │                 # PasswordStrengthMeter 密码强度条 / TurnstileCaptcha 人机验证（第五阶段）/
+│   │                 # BaseChatBubble 聊天气泡 / BaseCitationChip 引用块（第十阶段）
+│   ├── molecules/    # TodoItem / SearchBar / ThemeToggle / RollingAmount / ChartEmpty / StatsRangeTabs /
+│   │                 # BaseMessageGroup 一条消息的完整装配（第十阶段）
 │   └── organisms/    # TodoList / TodoForm / MyDay / DailyGreeting / EarningsClock / TodayProgressCard /
 │                     # WeatherWidget / SettingsPanel / SidebarNav / AvatarUpload / MobileBottomNav /
-│                     # StatsTrendChart / StatsHourHeatmap / StatsTagDonut / StatsScatterChart（第八阶段）
+│                     # StatsTrendChart / StatsHourHeatmap / StatsTagDonut / StatsScatterChart（第八阶段）/
+│                     # ChatPanel 知识库对话 / KnowledgeSidebar 文档管理（第十阶段）
 ├── composables/      # useTheme / useWeather / useEarnings / useECharts / useChartTheme / useStatistics /
 │                     # useWorkLog / useSyncedStorage（账号级设置同步）/ useTurnstile（人机验证状态机）/
 │                     # useAvatar / useIndexedDb
 ├── data/             # quotes.json（每日格言，本地 JSON 轮换）
 ├── layouts/          # DefaultLayout（侧边栏 + 顶栏 + 内容区 + 移动端底部导航）
-├── pages/            # Dashboard / Todos / Stats / AnnualReport / Settings / Login / ResetPassword
+├── pages/            # Dashboard / Todos / Stats / AnnualReport / Knowledge（第十阶段）/ Settings / Login / ResetPassword
 ├── router/           # 路由表 + authGuard（登录守卫与回跳校验）
-├── stores/           # todoStore（含云同步）/ themeStore / authStore / tagStore / linkStore / wallpaperStore
-├── types/            # todo / weather / statistics / earnings / auth / settings（同步清单）类型定义
+├── stores/           # todoStore（含云同步）/ themeStore / authStore / tagStore / linkStore / wallpaperStore /
+│                     # agentStore（第十阶段：会话、消息、文档、流式状态）
+├── types/            # todo / weather / statistics / earnings / auth / settings（同步清单）/ agent（SSE 事件）类型定义
 └── utils/            # 日期、优先级、表单校验、密码强度（auth）、主题色、统计聚合（stats/workLog/annualCard）、
                       # 赚钱换算、每日格言、金额拆位、头像工具、同步差异
 supabase/schema.sql   # todos + user_settings 两张表、RLS 策略、avatars / user-assets 两个 bucket（可重复执行）
@@ -308,14 +314,14 @@ pnpm test:coverage   # 带覆盖率（@vitest/coverage-v8），text 打到终端
 | functions  | 80%      | 95%              | **99.35%** |
 | branches   | 70%      | 90%              | **96.61%** |
 
-分层实测（`pnpm test:coverage`，131 个 spec 文件 / 1854 条用例）：
+分层实测（`pnpm test:coverage`，137 个 spec 文件 / 1940 条用例）：
 
 | 层级                  | 语句   | 分支   | 函数   | 行     |
 | --------------------- | ------ | ------ | ------ | ------ |
 | `src/utils`（纯函数） | 99.19% | 97.62% | 100%   | 99.77% |
 | `src/composables`     | 96.46% | 91.93% | 98.75% | 98.31% |
-| `src/stores`          | 99.48% | 98.61% | 98.80% | 99.68% |
-| `src/api`（请求层）   | 99.42% | 98.29% | 100%   | 99.82% |
+| `src/stores`          | 99.06% | 95.82% | 98.92% | 99.37% |
+| `src/api`（请求层）   | 99.00% | 96.88% | 98.59% | 99.55% |
 
 覆盖口径的**诚实说明**：
 
@@ -584,7 +590,7 @@ create policy "user_settings: own rows only" on public.user_settings
 
 ### 路由与守卫（`router/` + `router/authGuard.ts`）
 
-- **页面拆分**：`/` 仪表板、`/todos` 任务、`/stats` 统计、`/annual` 年度报告、`/settings` 设置、`/login` 登录（不套布局）；
+- **页面拆分**：`/` 仪表板、`/todos` 任务、`/stats` 统计、`/annual` 年度报告、`/knowledge` 知识库（第十阶段）、`/settings` 设置、`/login` 登录（不套布局）；
   页面组件一律 `() => import()` 懒加载，构建后每页独立 chunk，首屏只加载仪表板
 - **会话恢复不能闪跳**：`authStore` 初始状态是 `loading`，守卫 `await ensureReady()` 后再判定——
   刷新页面时 `getSession()` 还没回来就判"未登录"，已登录用户会被踢到登录页再弹回来
@@ -676,6 +682,52 @@ create policy "user_settings: own rows only" on public.user_settings
 
 > **桌面版与浏览器的数据隔离因此不再是问题**：本地缓存各存各的（WebView2 有自己的用户数据目录），
 > 但**登录后云端才是共同真相**，两边看到的是同一套任务与设置。
+
+## 📚 知识库（第十阶段）
+
+前九阶段这个仓库是一个"没有后端的仪表板"；第十阶段第一次引入服务端——但**没有**把 Python 塞进这个仓库：
+AI 能力全部落在独立仓库 **`yunhai-agent`**（FastAPI + Chroma + bge-small-zh），
+本仓库只多了一个消费它的知识库页。前端拿得到的东西只有三样：一个基地址、一条 SSE 事件流、一份自检信息。
+
+### 前端这一层做了什么
+
+| 位置 | 内容 |
+| --- | --- |
+| `types/agent.ts` | 七种 SSE 事件类型一次定死（token / tool_call / tool_result / citation / proposal / done / error）+ 领域类型 |
+| `api/agent.ts` | 原生 fetch + `ReadableStream` **手写 SSE 解析**（按 `\n\n` 切帧、跨分片拼帧）、非流式接口、任务轮询、错误翻译 |
+| `stores/agentStore.ts` | 会话 / 消息 / 文档 / 自检 / 流式状态；`ask()` 把事件逐条落到当前消息上 |
+| `organisms/KnowledgeSidebar.vue` | 连接自检、基地址、拖拽上传、文档清单与删除、两步清空、向量模型自检入口 |
+| `organisms/ChatPanel.vue` | 流式逐字、停止、检索策略与兜底模式切换、示例问题、依据横幅 |
+| `atoms/BaseChatBubble.vue`、`BaseCitationChip.vue`、`molecules/BaseMessageGroup.vue` | 气泡（引用编号高亮）、引用块（空态 = "无知识库来源"）、一条消息的完整装配 |
+
+### 四个值得单独说的决定
+
+1. **手写 SSE 而不是 EventSource**：EventSource 只支持 GET，而问答要 POST 带 body。
+   自己解析只有十几行，还顺带解决了"一帧被网络切成两半"的经典坑（解析器按缓冲区切 `\n\n`，
+   跨分片自动拼接——这条路径有专门的用例）。
+2. **流里的 `error` 不是异常**：后端刻意让 HTTP 保持 200、把错误发在流里，
+   前端因此只有**一条**错误路径：无论是"后端没配 Key"还是"模型限流"，都是同一个事件、同一处渲染。
+3. **引用块永远显示**：命中就列出「文件名 + 页码/块号 + 相似度 + 片段」，没命中就写「无知识库来源」，
+   并标出这次回答是**基于知识库 / 不基于知识库 / 拒答**。RAG 的可信度全靠这两样撑着，藏起来等于没有。
+4. **停止生成是真的取消**：`AbortController` 断开 fetch，后端随之停止生成；
+   而不是前端把字藏起来继续收（那样用户以为停了，额度还在烧）。
+
+### 本机怎么跑起来
+
+```powershell
+# 1) 起后端（独立仓库，默认 8000 端口）
+cd ..\yunhai-agent
+.venv\Scripts\python -m uvicorn app.main:app --port 8000
+# 2) 前端照常
+pnpm dev
+```
+
+知识库页侧栏可改后端基地址（默认 `http://127.0.0.1:8000`，存在本机，不进账号同步）。
+**未配 LLM Key 也能用**：上传、检索、引用、拒答四条链路都不需要 Key，
+只有"自由生成答案"需要（后端 `.env` 的 `LLM_API_KEY`）——页面会明说缺什么。
+
+> 检索质量的实测数据（语义 vs 字面 BM25 的 recall/MRR 与阈值校准）在
+> `yunhai-agent/eval/report.md`，结论如实记录：这份小语料上 BM25 更准，语义模型的价值要在更大语料上重测。
 
 ## 在线部署
 
@@ -1193,7 +1245,10 @@ src-tauri/target/release/bundle/nsis/云海工作台_0.1.0_x64-setup.exe  ← �
 | 散点图的「秒表每日累计时长」直接读 store       | 新增**按天的投入日志**（`utils/workLog.ts` + `smart-workspace:worklog` 键），由赚钱秒表 tick 时写入                | 秒表快照只描述「此刻」，关掉页面后昨天的计薪时长无从得知——不落日志就没有"每日"这个维度；详见「投入时长从哪来」                                                                                                                                                                    |
 | 标签占比「各标签完成数占比」                   | 按任务的**第一个标签**归类，无标签单列一片                                                                         | 一个任务挂多个标签时各计一次，各切片占比之和 > 100%，环形图的"占比"就不成立了                                                                                                                                                                                                     |
 | 统计页保留第六阶段的「近 30 天完成趋势」柱状图 | 该图已被「完成趋势柱线混合图」取代并从 `StatisticsCard` 删除                                                       | 同一个数字在同一页出现两种画法只会互相打架；优先级环图仍留在 `StatisticsCard`                                                                                                                                                                                                     |
-| 侧边栏主导航保持 4 项                          | 年度报告 `/annual` 从统计页的按钮进入，不进侧边栏                                                                  | 视觉规范写明「上组=主导航 4 项」，为一张报告页破例会牵动整块导航的视觉节奏                                                                                                                                                                                                        |
+| 侧边栏主导航从 4 项扩到 5 项                   | 第十阶段把「知识库」提为主导航第 4 项；年度报告 `/annual` 仍从统计页按钮进入                                        | 年度报告是"统计的另一种呈现"，进导航是重复；而知识库是**独立模块**（有自己的文档管理与会话），藏进二级入口会让"答案靠不靠知识库、库里有什么"这些本该一眼看到的信息变难找                                                                                                            |
+| 知识库后端地址 / 检索策略 / 兜底模式存本机     | 不进第九阶段的 16 项账号同步清单（`smart-workspace:agent-*` 键）                                                   | 它们描述的是"这台机器怎么连后端"：家里连本机 uvicorn、公司连另一台，本来就该各填各的；扩同步清单还要连带改 supabase 的类型与自检，收益不成正比                                                                                                                                      |
+| 流式接口未配 Key 也返回 200                    | 把 `error` 事件发在流里，前端只有一条错误路径                                                                      | 若改用 4xx，"流中错误"与"请求错误"就变成两套代码；而 SSE 一旦开始发送，HTTP 状态码早就发出去了，本来也改不了                                                                                                                                                                        |
+| 回答里的引用编号由**后端**生成                 | 前端只渲染，模型不许自报来源                                                                                       | 让模型自己写 `[1]` 就会出现"引用了不存在的片段"这种最难查的假象；编号与 citation 事件同源，才对得上                                                                                                                                                                                |
 | 密码规则「禁纯数字 / 纯字母」单列一条          | 不单列，由「必须同时含大写、小写与数字」覆盖                                                                       | `12345678` 缺大小写、`abcdefgh` 缺大写与数字，都会被那条拦下；单列只会多一句永远不会单独出现的提示                                                                                                                                                                                |
 | `Login.vue` 用 ElForm 自定义 validator         | 沿用项目既有约定（自研 `BaseInput` + `utils/auth.ts` 纯函数），另加 `PasswordStrengthMeter.vue` 原子组件承载强度条 | 与上一条 ElForm 偏离同源：规则要注册/改密/单测三处复用，抽成纯函数 + 一个共用组件比写两遍运行时规则更省                                                                                                                                                                           |
 | Turnstile 在桌面壳里直接可用                   | `src-tauri/tauri.conf.json` 的 CSP 显式放行 `https://challenges.cloudflare.com`（`script-src` + `frame-src`）      | 壳里 `script-src 'self'` 会把 CDN 脚本拦掉，注册会永远停在「验证加载失败」；只放行这一个域名，仍不写通配符                                                                                                                                                                        |

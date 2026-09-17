@@ -9,6 +9,7 @@
  * | /todos | Todos | 新建表单 + 任务列表（筛选/搜索/批量/子任务/拖拽） |
  * | /stats | Stats | 统计图表 + 生产力热力图 |
  * | /annual | AnnualReport | 年度报告（canvas 分享卡） |
+ * | /knowledge | Knowledge | 知识库（第十阶段）：文档入库 + 带引用的流式问答 |
  * | /settings | Settings | 个人资料 + 数据同步 + 外观自定义 |
  *
  * 两个实现要点：
@@ -73,6 +74,13 @@ export const routes: RouteRecordRaw[] = [
         name: 'annual',
         component: () => import('@/pages/AnnualReport.vue'),
         meta: { title: '年度报告' },
+      },
+      {
+        // 知识库（第十阶段）：对话与文档管理都在这一页，状态由 agentStore 统一持有
+        path: 'knowledge',
+        name: 'knowledge',
+        component: () => import('@/pages/Knowledge.vue'),
+        meta: { title: '知识库' },
       },
       {
         path: 'settings',

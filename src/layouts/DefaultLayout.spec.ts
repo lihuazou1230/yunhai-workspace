@@ -36,6 +36,7 @@ const TEST_ROUTES = [
       { path: '', name: 'dashboard', component: Child, meta: { title: '仪表板' } },
       { path: 'todos', name: 'todos', component: Child, meta: { title: '任务' } },
       { path: 'stats', name: 'stats', component: Child, meta: { title: '统计' } },
+      { path: 'knowledge', name: 'knowledge', component: Child, meta: { title: '知识库' } },
       { path: 'settings', name: 'settings', component: Child, meta: { title: '设置' } },
     ],
   },

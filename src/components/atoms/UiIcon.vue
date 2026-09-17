@@ -19,6 +19,7 @@ withDefaults(
       | 'home'
       | 'check-square'
       | 'chart'
+      | 'book'
       | 'settings'
       | 'bell'
       | 'log-out'
@@ -63,6 +64,17 @@ withDefaults(
       <path d="M7 20v-6.5" />
       <path d="M12 20V8.5" />
       <path d="M17 20v-9.5" />
+    </template>
+
+    <!-- 知识库：摊开的书（左右两页 + 书脊），与其他图标的 1.6px 描边同一套笔触 -->
+    <template v-else-if="name === 'book'">
+      <path
+        d="M12 6.6C10.4 5.4 8.4 4.8 6 4.8c-.9 0-1.6.1-2 .3v13c.4-.2 1.1-.3 2-.3 2.4 0 4.4.6 6 1.8"
+      />
+      <path
+        d="M12 6.6c1.6-1.2 3.6-1.8 6-1.8.9 0 1.6.1 2 .3v13c-.4-.2-1.1-.3-2-.3-2.4 0-4.4.6-6 1.8"
+      />
+      <path d="M12 6.6v12.4" />
     </template>
 
     <!-- 设置：齿轮（简化 8 齿，小尺寸下不糊成一团） -->
