@@ -20,15 +20,16 @@ export interface NavItem {
 
 /**
  * 侧边栏主导航 **5 项**。
- * 第十阶段把「知识库」提为主导航第 4 项：它与其他四项一样是**独立模块**（不是设置里的一个开关），
- * 藏在二级入口会让"问答靠不靠知识库、库里有什么"这些本该一眼看到的信息变得难找。
+ * 第十阶段把这一项提为主导航第 4 项（当时叫「知识库」，后更名「AI 助手」）：它与其他四项一样是
+ * **独立模块**（不是设置里的一个开关），藏在二级入口会让"答案靠不靠知识库、库里有什么"这些
+ * 本该一眼看到的信息变得难找。
  * 「设置」仍在其中——顶栏另有齿轮快捷入口，两处都指向同一个 `/settings`。
  */
 export const PRIMARY_NAV_ITEMS: readonly NavItem[] = [
   { name: 'dashboard', label: '仪表板', icon: '🏠', iconName: 'home' },
   { name: 'todos', label: '任务', icon: '✅', iconName: 'check-square' },
   { name: 'stats', label: '统计', icon: '📊', iconName: 'chart' },
-  { name: 'knowledge', label: '知识库', icon: '📚', iconName: 'book' },
+  { name: 'knowledge', label: 'AI 助手', icon: '📚', iconName: 'book' },
   { name: 'settings', label: '设置', icon: '⚙️', iconName: 'settings' },
 ]
 

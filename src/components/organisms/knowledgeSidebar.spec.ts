@@ -1,5 +1,5 @@
 /**
- * 知识库侧栏（KnowledgeSidebar）：连接、上传、删除、清空、降级提示。
+ * AI 助手页侧栏（KnowledgeSidebar）：连接、上传、删除、清空、降级提示。
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'

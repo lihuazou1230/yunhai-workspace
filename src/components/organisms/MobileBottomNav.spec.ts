@@ -28,7 +28,7 @@ describe('MobileBottomNav', () => {
     localStorage.clear()
   })
 
-  it('渲染全部路由 Tab（第五阶段 4 项，第十阶段加知识库成 5 项），与侧边栏共用同一份定义', async () => {
+  it('渲染全部路由 Tab（第五阶段 4 项，第十阶段加 AI 助手成 5 项），与侧边栏共用同一份定义', async () => {
     const wrapper = await mountNav()
 
     expect(wrapper.findAll('a')).toHaveLength(NAV_ITEMS.length)

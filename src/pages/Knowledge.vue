@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 页面：知识库（第十阶段 10.4）
+ * 页面：AI 助手（第十阶段 10.4 建页时叫「知识库」）
  *
  * 一屏三件事，顺序就是数据流向：
  * 1. 左栏（KnowledgeSidebar）：后端连接 + 文档入库与删除；
@@ -24,7 +24,7 @@ const store = useAgentStore()
 
 const subtitle = computed(() => {
   const health = store.health
-  if (!health) return 'RAG 知识库：上传文档 → 分块入库 → 检索 → 带引用的流式回答'
+  if (!health) return '文档问答 + 任务操作：上传文档 → 分块入库 → 检索 → 带引用的流式回答'
   return `${health.documents} 篇文档 · ${health.chunks} 块向量 · 分块 ${health.chunk_size}/${health.chunk_overlap} · top-${health.top_k}`
 })
 
@@ -39,7 +39,7 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-6">
-    <PageHeader title="知识库" :subtitle="subtitle">
+    <PageHeader title="AI 助手" :subtitle="subtitle">
       <template #actions>
         <BaseBadge v-if="store.health" :tone="store.llmConfigured ? 'success' : 'warning'">
           {{ store.llmConfigured ? store.health.llm_model : '未配置 LLM Key' }}

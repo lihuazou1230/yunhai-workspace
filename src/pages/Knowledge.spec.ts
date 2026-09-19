@@ -1,5 +1,5 @@
 /**
- * 知识库页（第十阶段 10.4）：首屏装配、历史会话、未连接时的降级。
+ * AI 助手页（第十阶段 10.4，建页时叫「知识库」）：首屏装配、历史会话、未连接时的降级。
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -70,10 +70,10 @@ beforeEach(() => {
   vi.mocked(listSessions).mockResolvedValue([])
 })
 
-describe('知识库页', () => {
+describe('AI 助手页', () => {
   it('装配三块：页头 + 侧栏 + 对话面板', async () => {
     const wrapper = await setup()
-    expect(wrapper.text()).toContain('知识库')
+    expect(wrapper.text()).toContain('AI 助手')
     expect(wrapper.find('[data-testid="knowledge-sidebar"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="chat-panel"]').exists()).toBe(true)
   })
@@ -90,7 +90,7 @@ describe('知识库页', () => {
   it('后端不可达：页面照常渲染，副标题退回说明文案，不给白屏', async () => {
     vi.mocked(fetchHealth).mockRejectedValue(new AgentError('连不上 Agent 后端'))
     const wrapper = await setup()
-    expect(wrapper.text()).toContain('RAG 知识库')
+    expect(wrapper.text()).toContain('带引用的流式回答')
     expect(wrapper.find('[data-testid="knowledge-sidebar"]').exists()).toBe(true)
     // 未连接时不发文档请求（没必要）
     expect(listDocuments).not.toHaveBeenCalled()

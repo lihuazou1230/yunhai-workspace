@@ -116,10 +116,10 @@ describe('SidebarNav', () => {
     expect(sidebar.find('[data-testid="avatar-file-input"]').exists()).toBe(false)
   })
 
-  it('上组主导航是 5 项（含知识库与设置），下组是帮助与账号区', async () => {
+  it('上组主导航是 5 项（含 AI 助手与设置），下组是帮助与账号区', async () => {
     const { wrapper } = await mountSidebar()
 
-    // 第五阶段 4 项 + 第十阶段的知识库
+    // 第五阶段 4 项 + 第十阶段的 AI 助手（建页时叫「知识库」）
     const nav = wrapper.find('nav[aria-label="主导航"]')
     for (const name of ['dashboard', 'todos', 'stats', 'knowledge', 'settings']) {
       expect(nav.find(`[data-testid="sidebar-nav-${name}"]`).exists()).toBe(true)
@@ -127,7 +127,7 @@ describe('SidebarNav', () => {
     const settings = nav.find('[data-testid="sidebar-nav-settings"]')
     expect(settings.attributes('href')).toBe('/settings')
     expect(settings.text()).toContain('设置')
-    expect(nav.find('[data-testid="sidebar-nav-knowledge"]').text()).toContain('知识库')
+    expect(nav.find('[data-testid="sidebar-nav-knowledge"]').text()).toContain('AI 助手')
 
     // 下组：帮助 / 退出登录（未登录时为登录入口）
     const footer = wrapper.find('[data-testid="sidebar-footer"]')

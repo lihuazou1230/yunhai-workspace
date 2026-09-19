@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 有机体组件：知识库对话面板（规划 10.4）
+ * 有机体组件：AI 助手对话面板（规划 10.4「知识库页」，页面后更名 AI 助手）
  *
  * 三条实现要点：
  * 1. **状态全在 store**：侧栏（文档管理）与这里共享同一份 `agentStore`，
@@ -86,7 +86,7 @@ watch(
       class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-2.5 dark:border-slate-700"
     >
       <div class="flex items-center gap-2">
-        <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200">知识库问答</h2>
+        <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200">对话</h2>
         <span
           v-if="store.activeSessionId"
           class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500 dark:bg-slate-800 dark:text-slate-400"
