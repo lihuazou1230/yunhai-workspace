@@ -39,7 +39,7 @@ export interface TaskStatistics {
   /** 完成率 0-100 */
   completionRate: number
   byPriority: PriorityStat[]
-  /** 近 90 天每日完成情况 */
+  /** 近 HEATMAP_WINDOW_DAYS 天每日完成情况（窗口常量见 composables/useStatistics.ts） */
   daily: DailyStat[]
 }
 

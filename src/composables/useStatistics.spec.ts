@@ -7,6 +7,7 @@ import {
   buildHeatmapWeeks,
   computeStatistics,
   computeTodayProgress,
+  HEATMAP_WINDOW_DAYS,
   heatmapLevel,
   lastNDays,
   useTaskStatistics,
@@ -100,13 +101,17 @@ describe('computeStatistics', () => {
     expect(stats.completed).toBe(1)
     expect(stats.active).toBe(1)
     expect(stats.completionRate).toBe(50)
-    expect(stats.daily).toHaveLength(90)
+    expect(stats.daily).toHaveLength(HEATMAP_WINDOW_DAYS)
   })
 
   it('空列表完成率为 0', () => {
     const stats = computeStatistics([], NOW)
     expect(stats.completionRate).toBe(0)
-    expect(stats.daily).toHaveLength(90)
+    expect(stats.daily).toHaveLength(HEATMAP_WINDOW_DAYS)
+  })
+
+  it('热力图窗口是 30 天（含今天）', () => {
+    expect(HEATMAP_WINDOW_DAYS).toBe(30)
   })
 })
 
@@ -248,7 +253,7 @@ describe('连接 todoStore 的统计（图表数据源）', () => {
 
     store.addTodo({ title: '阅读', priority: 'medium' })
     expect(statistics.value.total).toBe(2)
-    expect(statistics.value.daily).toHaveLength(90)
+    expect(statistics.value.daily).toHaveLength(HEATMAP_WINDOW_DAYS)
   })
 
   it('useTaskStatistics 的热力图随完成情况变化（完成一件后当天格子里有数）', () => {

@@ -16,7 +16,7 @@ import { addDays, todayKey } from '@/utils/dateFormatter'
 import { useTagStore } from './tagStore'
 import { useTodoStore } from './todoStore'
 
-/** 近 90 天每日完成数求和 = 热力图上的总格子数（只关心数字，不关心哪一天） */
+/** 近 30 天每日完成数求和 = 热力图上的总格子数（只关心数字，不关心哪一天） */
 function dailyCompleted(stats: ReturnType<typeof computeStatistics>): number {
   return stats.daily.reduce((sum, day) => sum + day.completed, 0)
 }
@@ -178,7 +178,7 @@ describe('todoStore · 任务组织（6.1）', () => {
     expect(archived.completionRate).toBe(50)
     // 高优先级那一档整体归零：归档必须从聚合口径里彻底消失
     expect(archived.byPriority[0]).toEqual({ priority: 'high', total: 0, completed: 0 })
-    // 热力图（近 90 天每日完成数）也跟着掉一格，而不是「列表看不见了但还在算」
+    // 热力图（近 30 天每日完成数）也跟着掉一格，而不是「列表看不见了但还在算」
     expect(dailyCompleted(archived)).toBe(1)
 
     expect(store.archivedCount).toBe(1)

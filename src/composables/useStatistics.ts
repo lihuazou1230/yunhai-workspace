@@ -48,7 +48,14 @@ export function aggregateDaily(todos: Todo[], days: number, now: Date = new Date
   return dateKeys.map((date) => ({ date, completed: counts.get(date) ?? 0 }))
 }
 
-/** 汇总统计：总数、完成率、按优先级、近 90 天每日 */
+/**
+ * 热力图窗口（天，含今天）。
+ * 对外表现是「星期横排、日期纵排」的一行一周日历，30 天 = 5~6 行，卡片高度才收得住；
+ * 组件里的文案（"近 N 天…"）也读这个常量，避免口径与文案各说各话。
+ */
+export const HEATMAP_WINDOW_DAYS = 30
+
+/** 汇总统计：总数、完成率、按优先级、近 HEATMAP_WINDOW_DAYS 天每日 */
 export function computeStatistics(todos: Todo[], now: Date = new Date()): TaskStatistics {
   const total = todos.length
   const completed = todos.filter((t) => t.status === 'completed').length
@@ -59,11 +66,11 @@ export function computeStatistics(todos: Todo[], now: Date = new Date()): TaskSt
     active,
     completionRate: total === 0 ? 0 : Math.round((completed / total) * 100),
     byPriority: aggregateByPriority(todos),
-    daily: aggregateDaily(todos, 90, now),
+    daily: aggregateDaily(todos, HEATMAP_WINDOW_DAYS, now),
   }
 }
 
-/** 热力图单元：以日期对齐的 90 天色阶格 */
+/** 热力图单元：以日期对齐的 HEATMAP_WINDOW_DAYS 天色阶格 */
 export interface HeatmapCell {
   /** YYYY-MM-DD；空位（对齐周一）为 null */
   date: string | null
