@@ -7,7 +7,7 @@
 export type NavRouteName = 'dashboard' | 'todos' | 'stats' | 'knowledge' | 'settings'
 
 /** 图标名（对应 UiIcon 原子组件；emoji 只作为无 SVG 时的语义备注保留） */
-export type NavIconName = 'home' | 'check-square' | 'chart' | 'book' | 'settings'
+export type NavIconName = 'home' | 'check-square' | 'chart' | 'sparkle' | 'settings'
 
 export interface NavItem {
   /** 路由名（router-link 用 { name } 跳转，避免手写路径） */
@@ -29,7 +29,7 @@ export const PRIMARY_NAV_ITEMS: readonly NavItem[] = [
   { name: 'dashboard', label: '仪表板', icon: '🏠', iconName: 'home' },
   { name: 'todos', label: '任务', icon: '✅', iconName: 'check-square' },
   { name: 'stats', label: '统计', icon: '📊', iconName: 'chart' },
-  { name: 'knowledge', label: 'AI 助手', icon: '📚', iconName: 'book' },
+  { name: 'knowledge', label: 'AI 助手', icon: '✨', iconName: 'sparkle' },
   { name: 'settings', label: '设置', icon: '⚙️', iconName: 'settings' },
 ]
 
