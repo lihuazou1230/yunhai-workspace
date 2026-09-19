@@ -16,19 +16,15 @@ import type { SortableEvent } from 'sortablejs'
 import type { TodoFilter, TodoListView, TodoPriority } from '@/types/todo'
 import { useTagStore } from '@/stores/tagStore'
 import { useTodoStore } from '@/stores/todoStore'
-import { useAiStore } from '@/stores/aiStore'
 import { PRIORITY_ORDER } from '@/utils/priorityHelper'
 import { priorityLabel } from '@/utils/priorityHelper'
 import { resolveSortMove } from '@/utils/sortableMove'
 import { formatShortDate } from '@/utils/dateFormatter'
 import SearchBar from '@/components/molecules/SearchBar.vue'
 import TodoItem from '@/components/molecules/TodoItem.vue'
-import AiBreakdownDialog from '@/components/organisms/AiBreakdownDialog.vue'
 import BaseButton from '@/components/atoms/BaseButton.vue'
 
 const store = useTodoStore()
-// AI 未配置 Key 时要把「AI 拆解」入口藏起来：点进去只有一句配置引导、也没有跳设置页的链接
-const aiStore = useAiStore()
 
 /**
  * 用户是否正在用筛选/搜索条件。
@@ -178,23 +174,6 @@ function onPurge(id: string) {
   onPendingChange()
 }
 
-// ---- AI 拆解（第六阶段 6.3） ----
-/** 拆解弹窗的目标任务 id（null = 关闭） */
-const breakdownTodoId = ref<string | null>(null)
-const breakdownTodo = computed(
-  () => store.todos.find((t) => t.id === breakdownTodoId.value) ?? null,
-)
-const breakdownOpen = computed({
-  get: () => breakdownTodoId.value !== null,
-  set: (value: boolean) => {
-    if (!value) breakdownTodoId.value = null
-  },
-})
-
-function onAiBreakdown(id: string) {
-  breakdownTodoId.value = id
-}
-
 // ---- 从提醒通知跳过来：高亮并滚动到那条任务（第六阶段 6.5） ----
 // 通知点击后由 DefaultLayout 跳到 /todos?focus=<id>；这里消费这个参数。
 // 用查询参数而不是 store 状态：刷新/分享链接也能复现同一个定位。
@@ -231,11 +210,6 @@ watch(
   },
   { immediate: true },
 )
-
-/** 确认写入子任务（用户已在预览里勾选/编辑/删减过） */
-function onBreakdownConfirm(todoId: string, titles: string[]) {
-  titles.forEach((title) => store.addSubtask(todoId, title))
-}
 
 /** 批量归档当前选中的任务 */
 function batchArchive() {
@@ -579,7 +553,6 @@ watch(
         :enter-from-left="todo.id === enterLeftId"
         :draggable="!store.selectionMode && store.listView === 'main'"
         :todo-tags="tagsOf(todo)"
-        :hide-ai-breakdown="!aiStore.configured"
         :view="store.listView"
         :highlighted="todo.id === focusId"
         @toggle="toggle"
@@ -593,7 +566,6 @@ watch(
         @unarchive="onUnarchive"
         @postpone="onPostpone"
         @purge="onPurge"
-        @ai-breakdown="onAiBreakdown"
       />
     </ul>
 
@@ -607,12 +579,5 @@ watch(
       <template v-else-if="hasFilterCriteria">🔍 没有符合当前条件的任务</template>
       <template v-else>🎉 暂无任务，添加一个开始吧</template>
     </div>
-
-    <!-- AI 拆解弹窗（放在列表之外，避免被列表项的动画/拖拽容器影响） -->
-    <AiBreakdownDialog
-      v-model="breakdownOpen"
-      :todo="breakdownTodo"
-      @confirm="onBreakdownConfirm"
-    />
   </section>
 </template>

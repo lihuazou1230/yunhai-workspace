@@ -13,11 +13,9 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { mount } from '@vue/test-utils'
 
 import { AI_STORAGE_KEY } from '@/types/ai'
-import type { Todo } from '@/types/todo'
 
 const aiApi = vi.hoisted(() => ({
   parseTodoWithAi: vi.fn(),
-  breakdownWithAi: vi.fn(),
 }))
 
 vi.mock('@/api/ai', async () => {
@@ -25,12 +23,10 @@ vi.mock('@/api/ai', async () => {
   return {
     ...actual,
     parseTodoWithAi: aiApi.parseTodoWithAi,
-    breakdownWithAi: aiApi.breakdownWithAi,
   }
 })
 
 import AiTodoInput from './AiTodoInput.vue'
-import AiBreakdownDialog from './AiBreakdownDialog.vue'
 import { AiError } from '@/api/ai'
 
 function seedConfigured() {
@@ -69,17 +65,6 @@ async function mountWithPinia(component: unknown, props: Record<string, unknown>
   })
   await nextTick()
   return wrapper
-}
-
-const TODO: Todo = {
-  id: 't1',
-  title: '准备前端面试',
-  status: 'active',
-  priority: 'medium',
-  createdAt: '2026-09-01T00:00:00.000Z',
-  pinned: false,
-  subtasks: [],
-  tags: [],
 }
 
 beforeEach(() => {
@@ -211,131 +196,3 @@ async function parseInput(wrapper: Awaited<ReturnType<typeof mountWithPinia>>, t
   await wrapper.find('[data-testid="ai-todo-parse"]').trigger('click')
   await nextTick()
 }
-
-/** 读预览清单里第 index 条的标题（标题在可编辑输入框里） */
-function titleValue(wrapper: Awaited<ReturnType<typeof mountWithPinia>>, index: number): string {
-  const el = wrapper.find(`[data-testid="ai-breakdown-title-${index}"]`).element as HTMLInputElement
-  return el.value
-}
-
-describe('AiBreakdownDialog（AI 拆解）', () => {
-  it('未配置 Key 时给出引导，不显示拆解表单', async () => {
-    const wrapper = await mountWithPinia(AiBreakdownDialog, { modelValue: true, todo: TODO })
-    expect(wrapper.text()).toContain('还没配置 AI API Key')
-  })
-
-  it('打开时用任务标题预填目标', async () => {
-    seedConfigured()
-    const wrapper = await mountWithPinia(AiBreakdownDialog, { modelValue: false, todo: TODO })
-    await wrapper.setProps({ modelValue: true } as never)
-    await nextTick()
-
-    expect(
-      (wrapper.find('[data-testid="ai-breakdown-goal"]').element as HTMLInputElement).value,
-    ).toBe('准备前端面试')
-  })
-
-  it('拆解结果进预览清单（默认全选），不立刻写入', async () => {
-    seedConfigured()
-    aiApi.breakdownWithAi.mockResolvedValue([
-      { title: '梳理岗位要求', priority: 'high' },
-      { title: '复习手写题', priority: 'medium' },
-      { title: '做两个项目', priority: 'high' },
-    ])
-    const wrapper = await runBreakdown()
-
-    expect(wrapper.find('[data-testid="ai-breakdown-preview"]').exists()).toBe(true)
-    // 标题在可编辑输入框里，取 value
-    expect(titleValue(wrapper, 0)).toBe('梳理岗位要求')
-    expect(titleValue(wrapper, 2)).toBe('做两个项目')
-    // 默认全选
-    expect(wrapper.text()).toContain('已选 3 / 3 条')
-    expect(wrapper.emitted('confirm')).toBeUndefined()
-  })
-
-  it('取消勾选 / 删除条目后只写入保留项', async () => {
-    seedConfigured()
-    aiApi.breakdownWithAi.mockResolvedValue([
-      { title: '步骤一', priority: 'high' },
-      { title: '步骤二', priority: 'medium' },
-      { title: '步骤三', priority: 'low' },
-    ])
-    const wrapper = await runBreakdown()
-
-    await wrapper.find('[data-testid="ai-breakdown-check-1"]').setValue(false)
-    await wrapper.find('[data-testid="ai-breakdown-remove-2"]').trigger('click')
-    await nextTick()
-
-    expect(wrapper.text()).toContain('已选 1 / 2 条')
-
-    await wrapper.find('[data-testid="ai-breakdown-confirm"]').trigger('click')
-    expect(wrapper.emitted('confirm')?.[0]).toEqual(['t1', ['步骤一']])
-  })
-
-  it('可编辑标题后再写入', async () => {
-    seedConfigured()
-    aiApi.breakdownWithAi.mockResolvedValue([
-      { title: 'a', priority: 'high' },
-      { title: 'b', priority: 'high' },
-      { title: 'c', priority: 'high' },
-    ])
-    const wrapper = await runBreakdown()
-
-    await wrapper.find('[data-testid="ai-breakdown-title-0"]').setValue('改成这个')
-    await wrapper.find('[data-testid="ai-breakdown-confirm"]').trigger('click')
-
-    expect(wrapper.emitted('confirm')?.[0]?.[1]).toEqual(['改成这个', 'b', 'c'])
-  })
-
-  it('点优先级在 高→中→低 之间循环', async () => {
-    seedConfigured()
-    aiApi.breakdownWithAi.mockResolvedValue([
-      { title: 'a', priority: 'high' },
-      { title: 'b', priority: 'high' },
-      { title: 'c', priority: 'high' },
-    ])
-    const wrapper = await runBreakdown()
-
-    const button = wrapper.find('[data-testid="ai-breakdown-priority-0"]')
-    expect(button.text()).toBe('高')
-    await button.trigger('click')
-    expect(button.text()).toBe('中')
-    await button.trigger('click')
-    expect(button.text()).toBe('低')
-    await button.trigger('click')
-    expect(button.text()).toBe('高')
-  })
-
-  it('「放弃」不产生写入', async () => {
-    seedConfigured()
-    aiApi.breakdownWithAi.mockResolvedValue([
-      { title: 'a', priority: 'high' },
-      { title: 'b', priority: 'high' },
-      { title: 'c', priority: 'high' },
-    ])
-    const wrapper = await runBreakdown()
-
-    await wrapper.find('[data-testid="ai-breakdown-discard"]').trigger('click')
-
-    expect(wrapper.emitted('confirm')).toBeUndefined()
-    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([false])
-  })
-
-  it('拆解失败：展示原因 + 引导手动添加', async () => {
-    seedConfigured()
-    aiApi.breakdownWithAi.mockRejectedValue(new AiError('账户余额不足'))
-    const wrapper = await runBreakdown()
-
-    const error = wrapper.find('[data-testid="ai-breakdown-error"]')
-    expect(error.text()).toContain('账户余额不足')
-    expect(error.text()).toContain('手动添加子任务')
-    expect(wrapper.find('[data-testid="ai-breakdown-preview"]').exists()).toBe(false)
-  })
-
-  async function runBreakdown() {
-    const wrapper = await mountWithPinia(AiBreakdownDialog, { modelValue: true, todo: TODO })
-    await wrapper.find('[data-testid="ai-breakdown-run"]').trigger('click')
-    await nextTick()
-    return wrapper
-  }
-})

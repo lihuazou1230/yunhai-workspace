@@ -7,8 +7,7 @@
  * 好把错误回灌给模型让它重试一次。
  */
 
-import type { AiSubtaskDraft, AiTodoDraft } from '@/types/ai'
-import { AI_SUBTASK_MAX, AI_SUBTASK_MIN } from '@/types/ai'
+import type { AiTodoDraft } from '@/types/ai'
 import type { TodoPriority } from '@/types/todo'
 import { isValidDateKey } from '@/utils/validation'
 import { addDays, todayKey } from '@/utils/dateFormatter'
@@ -87,54 +86,6 @@ export function validateTodoDraft(raw: unknown, today = todayKey()): ValidationR
   const note = typeof obj.note === 'string' && obj.note.trim() !== '' ? obj.note.trim() : undefined
 
   return { ok: true, value: { title, dueDate, priority, note } }
-}
-
-/**
- * 校验「AI 任务拆解」的模型输出。
- *
- * 数量强制 3~6 条（规划要求）：少于 3 条说明没拆开，多于 6 条对用户是负担。
- * 这里不做截断而是判失败——截断会静默丢掉模型认为重要的步骤，回灌重试更诚实。
- */
-export function validateSubtaskDrafts(raw: unknown): ValidationResult<AiSubtaskDraft[]> {
-  const list = Array.isArray(raw)
-    ? raw
-    : raw && typeof raw === 'object' && Array.isArray((raw as Record<string, unknown>).subtasks)
-      ? ((raw as Record<string, unknown>).subtasks as unknown[])
-      : null
-
-  if (!list) return { ok: false, error: '缺少 subtasks 数组' }
-
-  const drafts: AiSubtaskDraft[] = []
-  // 纯字符串数组是「模型只给了一串标题」的兜底形态；一旦数组里有对象条目，
-  // 说明模型按结构化格式答了，此时混进来的裸字符串属于噪音，直接跳过更安全
-  const hasObjects = list.some((item) => item !== null && typeof item === 'object')
-
-  for (const item of list) {
-    if (typeof item === 'string') {
-      const title = item.trim()
-      if (!hasObjects && title) drafts.push({ title, priority: 'medium' })
-      continue
-    }
-    if (!item || typeof item !== 'object') continue
-    const obj = item as Record<string, unknown>
-    const title = typeof obj.title === 'string' ? obj.title.trim() : ''
-    if (!title) continue
-    drafts.push({ title, priority: toPriority(obj.priority) })
-  }
-
-  if (drafts.length < AI_SUBTASK_MIN) {
-    return {
-      ok: false,
-      error: `子任务数量不足：至少要 ${AI_SUBTASK_MIN} 条，实际 ${drafts.length} 条`,
-    }
-  }
-  if (drafts.length > AI_SUBTASK_MAX) {
-    return {
-      ok: false,
-      error: `子任务数量过多：最多 ${AI_SUBTASK_MAX} 条，实际 ${drafts.length} 条`,
-    }
-  }
-  return { ok: true, value: drafts }
 }
 
 /** 从模型返回的文本里抽出 JSON（有的模型会把 JSON 包在 ```json 代码块里） */

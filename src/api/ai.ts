@@ -7,10 +7,10 @@
  * 3. 仍失败 → 抛错，由 UI 降级到手动表单（AI 永远是加速器，不是阻塞点）
  */
 
-import type { AiConfig, AiSubtaskDraft, AiTodoDraft } from '@/types/ai'
+import type { AiConfig, AiTodoDraft } from '@/types/ai'
 import { AI_TIMEOUT_MS } from '@/types/ai'
 import type { ValidationResult } from '@/utils/aiSchema'
-import { extractJson, validateSubtaskDrafts, validateTodoDraft } from '@/utils/aiSchema'
+import { extractJson, validateTodoDraft } from '@/utils/aiSchema'
 import { todayKey } from '@/utils/dateFormatter'
 
 /** Key 缺失时的标识性错误（UI 依赖它决定「隐藏入口并引导设置」） */
@@ -145,19 +145,6 @@ export function buildTodoSystemPrompt(today: string): string {
   ].join('\n')
 }
 
-/** 系统提示：AI 任务拆解 */
-export function buildBreakdownSystemPrompt(): string {
-  return [
-    '你是一个任务拆解助手。把一个大目标拆成可以直接执行的具体步骤，只输出 JSON。',
-    'JSON 结构：{"subtasks": [{"title": string, "priority": "low"|"medium"|"high"}]}',
-    '规则：',
-    '- 必须拆出 3~6 条，每条都是可以独立完成的具体动作（动词开头，不要「准备阶段」这种空话）',
-    '- 顺序即执行顺序',
-    '- priority 按这条步骤对整体目标的关键程度给，至少有一条 high',
-    '只输出 JSON，不要解释、不要 markdown。',
-  ].join('\n')
-}
-
 export interface AiRunOptions {
   /** 注入 fetch（测试用），默认全局 fetch */
   signal?: AbortSignal
@@ -213,23 +200,6 @@ export function parseTodoWithAi(
     buildTodoSystemPrompt(today),
     trimmed,
     (raw) => validateTodoDraft(raw, today),
-    options,
-  )
-}
-
-/** AI 任务拆解：大目标 -> 3~6 条子任务建议 */
-export function breakdownWithAi(
-  config: AiConfig,
-  goal: string,
-  options: AiRunOptions = {},
-): Promise<AiSubtaskDraft[]> {
-  const trimmed = goal.trim()
-  if (!trimmed) return Promise.reject(new AiError('请先输入要拆解的目标'))
-  return runWithSchemaRetry(
-    config,
-    buildBreakdownSystemPrompt(),
-    trimmed,
-    (raw) => validateSubtaskDrafts(raw),
     options,
   )
 }

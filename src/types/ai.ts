@@ -78,16 +78,6 @@ export interface AiTodoDraft {
   note?: string
 }
 
-/** AI 拆解出的子任务建议 */
-export interface AiSubtaskDraft {
-  title: string
-  priority: TodoPriority
-}
-
-/** 拆解数量约束（prompt 约束 + 校验兜底） */
-export const AI_SUBTASK_MIN = 3
-export const AI_SUBTASK_MAX = 6
-
 /** 请求超时（ms）：AI 比天气慢得多，给足 30 秒 */
 export const AI_TIMEOUT_MS = 30_000
 

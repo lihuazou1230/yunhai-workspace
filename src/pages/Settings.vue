@@ -523,7 +523,8 @@ async function testConnection() {
       <h2 class="mb-1 text-sm font-semibold text-slate-500 dark:text-slate-400">AI 助手</h2>
       <p class="mb-4 text-xs text-slate-400 dark:text-slate-500">
         用自己的 API Key（BYOK）：Key 只保存在本机 localStorage，不会上传到任何服务端。
-        配置后「任务」页会出现自然语言添加与 AI 拆解入口。
+        配置后「任务」页会出现自然语言添加入口；目标拆解、查任务、问文档这些交给「知识库」页的助手，
+        由后端仓库 yunhai-agent 统一保管 Key。
       </p>
 
       <div class="space-y-3">

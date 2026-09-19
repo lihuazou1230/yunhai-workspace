@@ -11,7 +11,6 @@ import {
   AI_BASE_URL_MISSING_MESSAGE,
   AI_KEY_MISSING_MESSAGE,
   AiError,
-  breakdownWithAi,
   chatJson,
   isAiConfigured,
   parseTodoWithAi,
@@ -295,52 +294,5 @@ describe('parseTodoWithAi（校验失败带错误重试一次）', () => {
     await parseTodoWithAi(CONFIG, '写周报', TODAY)
     const messages = calls[0].messages as Array<{ content: string }>
     expect(messages[0].content).toContain(TODAY)
-  })
-})
-
-describe('breakdownWithAi（3~6 条约束 + 重试）', () => {
-  it('合法输出直接返回 3~6 条', async () => {
-    const { bodies: calls } = stubSequence([
-      chatResponse({
-        subtasks: [
-          { title: '梳理岗位要求', priority: 'high' },
-          { title: '复习手写题', priority: 'medium' },
-          { title: '做两个项目', priority: 'high' },
-        ],
-      }),
-    ])
-
-    const drafts = await breakdownWithAi(CONFIG, '准备前端面试')
-
-    expect(drafts).toHaveLength(3)
-    expect(drafts[0].priority).toBe('high')
-    expect(calls).toHaveLength(1)
-  })
-
-  it('数量超限：重试一次；仍超限则抛错（不静默截断）', async () => {
-    const tooMany = {
-      subtasks: Array.from({ length: 8 }, (_, i) => ({ title: `步骤${i}` })),
-    }
-    const { bodies: calls } = stubSequence([chatResponse(tooMany), chatResponse(tooMany)])
-
-    await expect(breakdownWithAi(CONFIG, '准备面试')).rejects.toThrow('最多 6 条')
-    expect(calls).toHaveLength(2)
-  })
-
-  it('数量不足：重试后补齐即成功', async () => {
-    const { bodies: calls } = stubSequence([
-      chatResponse({ subtasks: [{ title: '只有一条' }] }),
-      chatResponse({ subtasks: [{ title: 'a' }, { title: 'b' }, { title: 'c' }] }),
-    ])
-
-    const drafts = await breakdownWithAi(CONFIG, '准备面试')
-    expect(drafts.map((d) => d.title)).toEqual(['a', 'b', 'c'])
-    expect(calls).toHaveLength(2)
-  })
-
-  it('空目标直接拒绝', async () => {
-    const { fetchMock } = stubSequence([])
-    await expect(breakdownWithAi(CONFIG, '  ')).rejects.toThrow('请先输入要拆解的目标')
-    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
