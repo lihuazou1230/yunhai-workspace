@@ -200,7 +200,9 @@ describe('TodoList', () => {
     const a = store.addTodo({ title: '任务', priority: 'medium' })
     await nextTick()
     await wrapper.find('li button[aria-label="标记为已完成"]').trigger('click')
-    vi.advanceTimersByTime(800)
+    // 完成是一条「先礼花、再滑出」的完整动画（见 TodoItem 的 .anim-slide-left），
+    // 总共约 1.1s 后才 emit；这里推进到它之后
+    vi.advanceTimersByTime(1200)
     await nextTick()
     expect(store.todos.find((t) => t.id === a.id)?.status).toBe('completed')
   })

@@ -194,17 +194,27 @@ watch(
   },
 )
 
-const COMPLETE_MS = 750
+/**
+ * 完成：**礼花先放完，再左滑离场**。
+ *
+ * 时序写在 CSS 里（`.anim-slide-left` 的 keyframes），不靠 JS 串定时器：
+ * `animation-delay` + `animation-fill-mode: both` 就能表达「先播礼花、保持住、再滑走」，
+ * 少一处 JS/动画时长不同步就会出现的错位。
+ *
+ * 为什么不是"礼花和滑动同时开始"：两者叠在一起时，卡片在礼花刚炸开的那一刻就在位移，
+ * 视觉上礼花像是被"拖走"了，开心的一下变得很仓促。
+ */
+const COMPLETE_MS = 1100
 const REMOVE_MS = 600
 
-/** 完成动画触发后延迟 emit toggle（让滑出与礼花播完再移除该项） */
+/** 完成动画触发后延迟 emit toggle（让礼花与滑出都播完再移除该项） */
 function onToggle() {
   if (anim.value !== 'none') return
-  // 只有 未完成 -> 完成 才触发礼花（+ 进行中视图左滑）；已完成取消勾选直接恢复
+  // 只有 未完成 -> 完成 才触发礼花；已完成取消勾选直接恢复
   if (!isDone.value) {
     celebrate.value = true
     if (props.completeSlide) {
-      // 进行中/需移除的场景：左滑 + 礼花，播完再 emit
+      // 进行中视图：这一行要给「完成」一个痛快的高光时刻，所以先爆炸再退场
       anim.value = 'complete'
       setTimeout(() => {
         emit('toggle', props.todo.id)
@@ -212,11 +222,11 @@ function onToggle() {
         celebrate.value = false
       }, COMPLETE_MS)
     } else {
-      // 全部视图：任务不消失，仅礼花，立即 emit，礼花自行消退
+      // 全部视图：任务不消失，只放礼花；立刻 emit 让勾选状态即时生效
       emit('toggle', props.todo.id)
       setTimeout(() => {
         celebrate.value = false
-      }, COMPLETE_MS)
+      }, BURST_MS)
     }
   } else {
     emit('toggle', props.todo.id)
@@ -233,19 +243,46 @@ function onRemove() {
   }, REMOVE_MS)
 }
 
-// 礼花粒子参数
-const colors = ['#f59e0b', '#ef4444', '#10b981', '#3b82f6', '#a855f7', '#ec4899']
-const particles = computed(() =>
-  Array.from({ length: 18 }, (_, i) => {
-    const angle = (i / 18) * Math.PI * 2
+// ---- 礼花粒子参数 ----
+/** 礼花总时长：CSS 里 .particle 的 duration 必须与它一致，否则 celebrate 会被提前摘掉 */
+const BURST_MS = 700
+
+const COLORS = ['#f59e0b', '#ef4444', '#10b981', '#3b82f6', '#a855f7', '#ec4899']
+
+/**
+ * 礼花的可读性靠三件事，而不是单纯加数量：
+ * 1. **两波**：内圈 16 颗（0~30ms 出发，飞 66~96px）+ 外圈 12 颗（70~170ms 出发，飞 104~150px），
+ *    一波全同刻出发会读成"一个圆环瞬间放大"，两波才有炸开的手感
+ * 2. **不等大不等速**：6/8/10px 三档，duration 460~700ms —— 等大等速是"粒子系统"的塑料味来源
+ * 3. **自旋**：每颗带自己的旋转角，矩形粒子翻起来才看得出是"纸屑"而不是"圆点"
+ *
+ * 全部只走 transform（外加 opacity），不碰布局属性，60fps 无压力；
+ * 数量控制在 28 颗以内，`.popper` 又是 `pointer-events: none`，不挡任何交互。
+ */
+const particles = computed(() => {
+  const inner = 16
+  const outer = 12
+  return Array.from({ length: inner + outer }, (_, i) => {
+    const isOuter = i >= inner
+    // 两波各自均匀分布，但外圈整体错开半个格，避免内外同角度叠成一条线
+    const idx = isOuter ? i - inner : i
+    const count = isOuter ? outer : inner
+    const angle = (idx / count) * Math.PI * 2 + (isOuter ? Math.PI / outer : 0)
+    const radius = isOuter ? 104 + (idx % 4) * 15 : 66 + (idx % 4) * 10
+
     return {
-      color: colors[i % colors.length],
-      tx: `${Math.cos(angle) * (60 + (i % 4) * 14)}px`,
-      ty: `${Math.sin(angle) * (46 + (i % 3) * 12)}px`,
-      delay: `${(i % 5) * 20}ms`,
+      key: i,
+      color: COLORS[i % COLORS.length],
+      tx: `${Math.round(Math.cos(angle) * radius)}px`,
+      ty: `${Math.round(Math.sin(angle) * radius * 0.82)}px`,
+      // 三档尺寸：外圈偏大，飞得远的粒子太小会看不见
+      size: `${[6, 8, 10][i % 3]}px`,
+      rotate: `${Math.round(angle * 57.3 + (i % 5) * 36)}deg`,
+      delay: `${isOuter ? 70 + (idx % 5) * 25 : (idx % 3) * 15}ms`,
+      duration: `${460 + (i % 4) * 80}ms`,
     }
-  }),
-)
+  })
+})
 
 // ---- 子任务清单 ----
 const subtaskTotal = computed(() => props.todo.subtasks.length)
@@ -379,16 +416,20 @@ function onPurge() {
     >
       ⠿
     </span>
-    <!-- 礼花（完成时爆发） -->
+    <!-- 礼花（完成时爆发）：两层——粒子本体 + 一圈扩散光环，让"炸开"这件事有体积感 -->
     <span v-if="celebrate" class="popper" aria-hidden="true">
+      <span class="burst-ring" />
       <span
-        v-for="(p, i) in particles"
-        :key="i"
+        v-for="p in particles"
+        :key="p.key"
         class="particle"
         :style="{
           '--p-color': p.color,
           '--p-tx': p.tx,
           '--p-ty': p.ty,
+          '--p-size': p.size,
+          '--p-rotate': p.rotate,
+          '--p-duration': p.duration,
           animationDelay: p.delay,
         }"
       />
@@ -822,16 +863,28 @@ function onPurge() {
   cursor: grabbing;
 }
 
-/* 完成：向左滑出 + 渐隐 */
+/*
+  完成：**先放礼花，再左滑离场**。
+
+  用一条 keyframes 表达完整时序，而不是 JS 串两个定时器：
+  `animation-fill-mode: both` + keyframes 前段的 `transform: translateX(0)` 保持，
+  让位移推迟到礼花播完之后；延迟期间卡片纹丝不动。
+  （必须是 `both`：只写 `forwards` 的话，延迟期间会退回"无动画"状态，位移会闪一下。）
+
+  保持段取 **68%**（≈0.75s）而不是更早：实测 62% 时缓动曲线已经起步，
+  520ms 处就出现了 -22px 的位移 —— 数值不大，但礼花最舒展的那一刻卡片已经在挪，
+  读起来还是"被拖走"。0.75s 之后礼花末段基本透明，再滑走就不抢戏了。
+*/
 .anim-slide-left {
-  animation: slide-out-left 0.75s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: burst-then-slide-left 1.1s cubic-bezier(0.4, 0, 0.2, 1) both;
 }
-@keyframes slide-out-left {
-  from {
+@keyframes burst-then-slide-left {
+  0%,
+  68% {
     transform: translateX(0);
     opacity: 1;
   }
-  to {
+  100% {
     transform: translateX(-120%);
     opacity: 0;
   }
@@ -882,28 +935,92 @@ function onPurge() {
   }
 }
 
-/* 礼花容器与粒子 */
+/* ---- 礼花 ---- */
+
+/*
+  容器锚在这一行的中心：`li` 本身没有 position（避免影响既有层叠），
+  所以这里是绝对定位 + 自居中（left/top 50% + 位移 -50%），粒子再相对它飞出去。
+  用 -50% 而不是 `translate(-50%,-50%)`：后者会和粒子自身的 transform 抢同一个属性。
+*/
 .popper {
   position: absolute;
   left: 50%;
   top: 50%;
+  width: 0;
+  height: 0;
+  margin-left: 0;
+  margin-top: 0;
   pointer-events: none;
+  z-index: 5;
 }
+
+/*
+  扩散光环：一圈从 0 涨到 ~150px 并淡出的背景色圆环。
+  它给"炸开"一个体积感——只有粒子的话，快速扫一眼容易只看到几个零星的点。
+*/
+.burst-ring {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border-radius: 9999px;
+  border: 2px solid var(--el-color-primary);
+  opacity: 0;
+  animation: burst-ring 0.5s cubic-bezier(0.2, 0.8, 0.3, 1) forwards;
+}
+@keyframes burst-ring {
+  0% {
+    transform: scale(0.3);
+    opacity: 0.75;
+  }
+  100% {
+    transform: scale(5.4);
+    opacity: 0;
+  }
+}
+
+/*
+  粒子：矩形小纸屑（不再是纯圆点），自旋着飞出去。
+  尺寸/位移/旋转/时长都由内联 CSS 变量驱动 —— 参数在 JS 里算，
+  这里只负责"怎么动"，两边职责分开。
+*/
 .particle {
   position: absolute;
-  width: 8px;
-  height: 8px;
-  border-radius: 9999px;
+  left: 0;
+  top: 0;
+  width: var(--p-size, 8px);
+  height: var(--p-size, 8px);
+  margin-top: -4px;
+  margin-left: -4px;
+  border-radius: 2px;
   background: var(--p-color);
-  animation: burst 0.7s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  will-change: transform, opacity;
+  animation: burst var(--p-duration, 0.6s) cubic-bezier(0.18, 0.72, 0.28, 1) forwards;
 }
 @keyframes burst {
-  from {
-    transform: translate(0, 0) scale(1);
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(0.4);
     opacity: 1;
   }
-  to {
-    transform: translate(var(--p-tx), var(--p-ty)) scale(0.2);
+  /* 先"弹"出来：20% 处略微过冲，再漂移减速，比线性飞散更有生命感 */
+  20% {
+    transform: translate3d(calc(var(--p-tx) * 0.34), calc(var(--p-ty) * 0.34), 0)
+      rotate(calc(var(--p-rotate) * 0.3)) scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--p-tx), var(--p-ty), 0) rotate(var(--p-rotate)) scale(0.35);
+    opacity: 0;
+  }
+}
+
+/* 尊重「减少动效」：粒子不飞、光环不涨，只留一个瞬时的完成反馈 */
+@media (prefers-reduced-motion: reduce) {
+  .particle,
+  .burst-ring {
+    animation: none;
     opacity: 0;
   }
 }

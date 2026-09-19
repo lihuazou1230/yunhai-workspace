@@ -43,15 +43,17 @@ describe('TodoItem', () => {
     expect(wrapper.find('.particle').exists()).toBe(true)
   })
 
-  it('completeSlide=true 时（进行中视图）完成按钮左滑后发射 toggle', async () => {
+  it('completeSlide=true 时（进行中视图）先放礼花再左滑，滑完才发射 toggle', async () => {
     const todo = makeTodo({ id: '1', title: '写周报', priority: 'high' })
     const wrapper = mount(TodoItem, { props: { todo, completeSlide: true } })
 
     await wrapper.find('button[aria-label="标记为已完成"]').trigger('click')
+    // 礼花与滑出同时挂上，但滑出被 keyframes 推迟到 62% 之后（见 .anim-slide-left）
     expect(wrapper.find('li').classes()).toContain('anim-slide-left')
+    expect(wrapper.find('.particle').exists()).toBe(true)
     expect(wrapper.emitted('toggle')).toBeUndefined()
 
-    vi.advanceTimersByTime(800)
+    vi.advanceTimersByTime(1200)
     expect(wrapper.emitted('toggle')?.[0]).toEqual(['1'])
   })
 
