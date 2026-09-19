@@ -740,6 +740,10 @@ pnpm dev
 ```
 
 AI 助手页侧栏可改后端基地址（默认 `http://127.0.0.1:8000`，存在本机，不进账号同步）。
+**默认值可以在构建期改写**：`VITE_AGENT_ENDPOINT`（见 `src/types/agent.ts`）。
+自有服务器那份部署包就靠它把默认值指到 `http://124.220.159.58/yhai`——
+因为部署页里的 `127.0.0.1` 指的是**访问者自己的电脑**，而且浏览器对"公网页面 → 回环地址"
+有 Local Network Access 限制（HTTP 页面连申请权限的资格都没有），本机 agent 那条路走不通。
 **未配 LLM Key 也能用**：上传、检索、引用、拒答四条链路都不需要 Key，
 只有"自由生成答案"需要（后端 `.env` 的 `LLM_API_KEY`）——页面会明说缺什么。
 
@@ -866,19 +870,24 @@ GitHub 的已知问题（[actions/deploy-pages#22](https://github.com/actions/de
 | 部署方式 | **RDP 3389 + 一键部署包**                           | 445/5985/135 全关、不装 SSH → 没有命令行通道；RDP 剪贴板原生支持文件复制                                                                                                                                         |
 | 访问地址 | **`http://124.220.159.58/workspace/`**（80 子应用） | 用户不愿动腾讯云控制台 → 复用已开放的 80，与主站二维码工具共存互不影响                                                                                                                                           |
 | 前端产物 | **`BASE_PATH=/workspace/` 构建**                    | 子路径部署必须让 assets 引用带前缀，否则白屏（`vite.config.ts` 已支持该变量）                                                                                                                                    |
+| AI 助手基地址 | **`VITE_AGENT_ENDPOINT=http://124.220.159.58/yhai`** | 部署页连不到访问者本机的 `127.0.0.1:8000`（而且浏览器对"公网页面 → 回环地址"有 Local Network Access 限制，HTTP 页面连申请权限的资格都没有）→ agent 改为跑在服务器上、由 IIS 反代成同源子路径；构建期把这个默认值内联进产物，打开页面就默认连对（用户仍可在侧栏改，值存本地） |
 | 缓存策略 | **入口 HTML `no-cache`，`assets/` 长缓存一年**      | IIS 默认不发 `Cache-Control`，浏览器按启发式猜新鲜度、明文 HTTP 上代理还会自行缓存 → 会出现「同一个链接、两台设备两个版本」的幽灵旧版（旧 index.html 配旧 assets 永远自洽）。见 `deploy/web.config` 末尾两处配置 |
 | HTTPS    | 本期不做（纯 HTTP + IP）                            | 无域名无证书；限制见下方「已知限制」，绑域名后可随时升级                                                                                                                                                         |
 
 **本机打包**（一条命令，产物已 gitignore）：
 
 ```powershell
-pnpm deploy:package        # = BASE_PATH=/workspace/ pnpm build + 组装 + 校验 + 打 zip
+pnpm deploy:package        # = BASE_PATH=/workspace/ + VITE_AGENT_ENDPOINT=http://124.220.159.58/yhai 构建 + 组装 + 校验 + 打 zip
 # 产物：deploy-package.zip
-#   ├── dist/           按 /workspace/ 构建的前端产物
+#   ├── dist/           按 /workspace/ 构建的前端产物（默认 agent 基地址已内联为 /yhai）
 #   ├── web.config      子目录版：SPA fallback + MIME 补登记 + 安全响应头 + 缓存策略
 #   ├── install.ps1     幂等部署脚本（管理员 PowerShell 跑一次）
 #   └── 部署说明.txt     服务器侧操作与排障说明
 ```
+
+> agent 基地址可用 `-AgentEndpoint` 覆盖（传空字符串则回退 `http://127.0.0.1:8000`，即本地开发形态）；
+> 打包脚本会校验产物里**真的带上了**这个地址，避免又发一份"打开就报连不上"的包。
+> 服务器侧要先把 agent 部署好：见 `yunhai-agent/deploy/部署说明.md`（IIS 同源子应用 `/yhai`）。
 
 **服务器侧**（约 1 分钟）：RDP 登录 3389 → 把 zip 粘进远程会话 → 解压 → 右键 `install.ps1`「使用 PowerShell 运行」。
 `install.ps1` 做四件事，全部幂等（改完代码重新打包、再拖进去覆盖即更新）：

@@ -15,6 +15,15 @@ interface ImportMetaEnv {
    * 留空 = 不启用验证码（注册照常，不拦）。
    */
   readonly VITE_TURNSTILE_SITE_KEY?: string
+  /**
+   * AI 助手页的**默认**后端基地址（不填 = http://127.0.0.1:8000，本地开发用）。
+   *
+   * 只有构建部署包时才需要设：自有服务器上的页面连不到访问者本机的回环地址
+   * （浏览器对"公网页面 → 127.0.0.1"有 Local Network Access 限制），
+   * 所以服务器形态把它指到服务器上的同源地址，如 `http://124.220.159.58/yhai`。
+   * 用户仍可在 AI 助手页侧栏改，值存在各自浏览器本地。
+   */
+  readonly VITE_AGENT_ENDPOINT?: string
 }
 
 interface ImportMeta {

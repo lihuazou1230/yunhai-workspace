@@ -17,12 +17,15 @@
 
   参数：
       -BasePath '/workspace/'   子路径前缀（与服务器子应用名一致，改动需同步 install.ps1 -AppName）
+      -AgentEndpoint '...'      构建进前端的**默认** agent 基地址（默认 http://124.220.159.58/yhai，
+                                即服务器上 IIS 同源反代的那个子路径；传空字符串可还原成 127.0.0.1:8000）
       -SkipBuild                复用当前 dist/（只重新打包，不重新构建）
       -SkipVerify               跳过对产物 base 前缀的校验（不建议）
 #>
 [CmdletBinding()]
 param(
     [string]$BasePath = '/workspace/',
+    [string]$AgentEndpoint = 'http://124.220.159.58/yhai',
     [switch]$SkipBuild,
     [switch]$SkipVerify
 )
@@ -50,6 +53,12 @@ if ($SkipBuild) {
 } else {
     $env:BASE_PATH = $BasePath
     Write-Host "    `$env:BASE_PATH = $BasePath"
+    # 默认 agent 基地址：部署页在服务器上跑，连不到访问者本机的 127.0.0.1，
+    # 必须指向服务器上的同源地址（见 deploy\部署说明.txt 的「AI 助手基地址」一节）
+    $env:VITE_AGENT_ENDPOINT = $AgentEndpoint
+    $shownEndpoint = $AgentEndpoint
+    if (-not $shownEndpoint) { $shownEndpoint = '(空 → 回退 127.0.0.1:8000)' }
+    Write-Host "    `$env:VITE_AGENT_ENDPOINT = $shownEndpoint"
     # 注意：不要用 2>&1 把 stderr 并进成功流，Windows PowerShell 会把原生命令的
     # stderr 当成 NativeCommandError 抛出来，明明构建成功也会被判失败
     Push-Location $repoRoot
@@ -76,6 +85,24 @@ if ($SkipVerify) {
   常见原因：dist/ 被别的构建覆盖过 —— 桌面版构建、或不带 BASE_PATH 的 pnpm build 都会写成 base=/。
   处理：去掉 -SkipBuild 重新跑一次本脚本（它会带上正确的 BASE_PATH 重新构建）。
 "@
+}
+
+# 默认 agent 基地址也得真的进了产物：没进去的话，部署页打开仍默认连 127.0.0.1:8000，
+# 用户看到的就是「连不上 Agent 后端」——而那个地址在服务器页面上永远连不通。
+if ($AgentEndpoint) {
+    $hit = Get-ChildItem -Path (Join-Path $distDir 'assets') -Filter '*.js' -Recurse -ErrorAction SilentlyContinue |
+        Select-String -SimpleMatch -Pattern $AgentEndpoint -List | Select-Object -First 1
+    if ($hit) {
+        Write-Ok "产物里已带 agent 基地址 $AgentEndpoint"
+    } elseif ($SkipVerify) {
+        Write-Ok '已指定 -SkipVerify，跳过 agent 基地址校验'
+    } else {
+        Fail @"
+产物里找不到 agent 基地址 $AgentEndpoint。
+  常见原因：dist/ 是加这个变量之前构建的（比如用了 -SkipBuild）。
+  处理：去掉 -SkipBuild 重新构建；或显式传 -AgentEndpoint。
+"@
+    }
 }
 
 Write-Step '3/5 组装暂存目录'
@@ -153,4 +180,5 @@ Write-Host " 交付物 : $zipPath"
 Write-Host ' 下一步 : RDP 登录 124.220.159.58 → 把 zip 粘进远程会话 → 解压'
 Write-Host '          → 右键 install.ps1「使用 PowerShell 运行」'
 Write-Host " 验证   : http://124.220.159.58$BasePath"
+Write-Host "          AI 助手页应默认连 $AgentEndpoint（服务器上的同源反代；未部署 agent 时该页会报连不上，属正常）"
 Write-Host ''

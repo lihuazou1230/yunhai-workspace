@@ -234,8 +234,17 @@ export interface AgentJob {
  */
 export const AGENT_ENDPOINT_KEY = 'smart-workspace:agent-endpoint'
 
-/** 默认连本机后端：开发期 uvicorn 默认端口 */
-export const DEFAULT_AGENT_ENDPOINT = 'http://127.0.0.1:8000'
+/**
+ * 默认基地址：构建期可用 `VITE_AGENT_ENDPOINT` 覆盖。
+ *
+ * 为什么需要这个口子：自有服务器上的部署页（http://124.220.159.58/workspace/）**连不上**
+ * 访问者本机的 127.0.0.1 —— 那是访问者自己的电脑，而且浏览器从公网页面访问回环地址
+ * 还要过 Local Network Access 权限（HTTP 页面连申请资格都没有）。所以部署包构建时把
+ * `VITE_AGENT_ENDPOINT` 指到服务器上的同源反代地址（如 http://124.220.159.58/yhai），
+ * 打开页面就默认连对，用户不用手填。本地开发不设它，仍是本机 uvicorn 默认端口。
+ */
+export const DEFAULT_AGENT_ENDPOINT =
+  (import.meta.env.VITE_AGENT_ENDPOINT ?? '').trim() || 'http://127.0.0.1:8000'
 
 /** 检索策略的中文标签（对比实验时展示） */
 export const AGENT_MODE_LABELS: Record<AgentRetrievalMode, string> = {
