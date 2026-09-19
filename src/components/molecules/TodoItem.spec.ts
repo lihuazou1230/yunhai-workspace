@@ -4,7 +4,45 @@ import { mount } from '@vue/test-utils'
 
 import type { Todo } from '@/types/todo'
 import { addDays, todayKey } from '@/utils/dateFormatter'
+import todoItemSource from './TodoItem.vue?raw'
+import uiIconSource from '@/components/atoms/UiIcon.vue?raw'
 import TodoItem from './TodoItem.vue'
+
+/**
+ * 结构守卫：图标按钮的内边距与不可压缩性。
+ *
+ * 为什么要用源码断言而不是行为断言：这两个都是**纯 CSS 层**的坑，
+ * happy-dom 不做布局、量不出宽高，行为断言根本发现不了。
+ *
+ * 1. `p-0` 在 `BaseButton` 上**静默无效** —— Tailwind 把 `padding` 的规则排在
+ *    `padding-left/right` 之后，同一个元素上 `p-0` 打不过组件自带的 `px-2.5 py-1`。
+ *    后果是按钮里残留 10px 内边距、可用宽度只剩 16px，把 24px 的图标**压扁成 16×24**
+ *    （形变比尺寸偏小更难看）。必须写 `!p-0`。
+ * 2. `svg` 必须 `shrink-0`：flex 子项默认 `flex-shrink: 1`，
+ *    一旦容器空间不足就会把图标压扁，加 `shrink-0` 才能保证它始终是正方形。
+ */
+describe('TodoItem · 图标按钮的 CSS 结构守卫', () => {
+  it('删除按钮用 !p-0（普通 p-0 打不过 BaseButton 的 px-2.5 py-1）', () => {
+    // 只取删除按钮自己的开标签，避免误抓到紧随其后的菜单容器（它有 class="relative"）
+    const tag =
+      todoItemSource.match(/<BaseButton[\s\S]*?data-testid="todo-remove"[\s\S]*?>/)?.[0] ?? ''
+    expect(tag).toContain('data-testid="todo-remove"')
+    expect(tag).toContain('!p-0')
+    // 只要出现孤立（未被 ! 修饰）的 p-0，就说明又踩回去了
+    expect(/(^|\s)p-0(\s|$)/.test(tag)).toBe(false)
+  })
+
+  it('UiIcon 的 svg 带 shrink-0（否则会被 flex 压扁成非正方形）', () => {
+    expect(uiIconSource).toMatch(/:class="\['shrink-0', size\]"/)
+  })
+
+  it('删除图标比另外两个大一号（24px vs 20px）', () => {
+    // 垃圾桶是纯轮廓线条，视觉重量比实心图钉轻，等大时看起来偏小
+    expect(todoItemSource).toMatch(/name="trash" size="h-6 w-6"/)
+    expect(todoItemSource).toMatch(/name="pin"[\s\S]{0,60}size="h-5 w-5"/)
+    expect(todoItemSource).toMatch(/name="more" size="h-5 w-5"/)
+  })
+})
 
 function makeTodo(partial: Partial<Todo> & { id: string; title: string }): Todo {
   return {

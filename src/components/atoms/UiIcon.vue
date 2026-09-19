@@ -46,7 +46,7 @@ withDefaults(
 
 <template>
   <svg
-    :class="size"
+    :class="['shrink-0', size]"
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"

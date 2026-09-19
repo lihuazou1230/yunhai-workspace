@@ -691,7 +691,8 @@ function onPurge() {
       右：操作区。
       - 图标从 16px 提到 20px（按钮 32px）：16px 在 1.6px 描边下细节糊成一团，
         而这一列是高频操作区，值得占这点宽度
-      - 三个图标共用 UiIcon 的同一套笔触；置顶另有实心态（见下）
+      - 三个图标共用 UiIcon 的同一套笔触；置顶另有实心态（见下）；
+        删除是纯轮廓线条、视觉重量最轻，单独再大一档（24px），见该按钮的注释
     -->
     <div
       class="flex shrink-0 items-center gap-1 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100"
@@ -719,16 +720,26 @@ function onPurge() {
         <UiIcon name="pin" :filled="todo.pinned" size="h-5 w-5" />
       </button>
 
+      <!--
+        删除按钮：图标 **24px**，比置顶/更多那两个（20px）大一号。
+        垃圾桶是纯轮廓线条，同样的外框尺寸下视觉重量明显比实心的图钉轻 ——
+        等到一样大的框里，它看起来还是偏小，所以这里单独放大一档补偿。
+
+        ⚠️ 必须写 `!p-0` 而不是 `p-0`：Tailwind 把 `padding` 的规则排在
+        `padding-left/right` 之后，同一个元素上 `p-0` **打不过** BaseButton 的
+        `px-2.5 py-1`。之前就是因此残留了 10px 内边距，可用宽度只剩 16px，
+        把 24px 的图标压成了 16×24（形变，比尺寸偏小更难看）。
+      -->
       <BaseButton
         variant="ghost"
         size="sm"
-        class="h-8 w-8 p-0"
+        class="h-9 w-9 !p-0"
         aria-label="删除任务"
         title="删除任务（1 分钟内可撤销）"
         data-testid="todo-remove"
         @click="onRemove"
       >
-        <UiIcon name="trash" size="h-5 w-5" />
+        <UiIcon name="trash" size="h-6 w-6" />
       </BaseButton>
 
       <!-- 更多：归档 / 推后（主列表）、恢复 / 彻底删除（归档视图） -->
