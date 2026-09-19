@@ -122,10 +122,20 @@ export const useTodoStore = defineStore('todo', () => {
     return manualOrder.value ? base : sortTodos(base)
   })
 
-  /** 今日聚焦（My Day）：置顶 或 今日到期的任务 */
+  /**
+   * 今日聚焦（My Day）：置顶 或 今日到期的任务。
+   *
+   * **置顶项排在前面** —— 这是"置顶"这个动作的意义所在。
+   * 之前直接沿用 visibleTodos 的顺序（按优先级/到期日），于是点了置顶之后
+   * 卡片里什么都没变，用户以为没生效（`pinned` 其实已经落库了）。
+   * 两组内部各自保持原有排序（优先级高→低、到期早→晚）。
+   */
   const myDayTodos = computed<Todo[]>(() => {
     const current = today.value
-    return visibleTodos.value.filter((t) => t.pinned || (t.dueDate && t.dueDate === current))
+    const inMyDay = visibleTodos.value.filter(
+      (t) => t.pinned || (t.dueDate && t.dueDate === current),
+    )
+    return [...inMyDay.filter((t) => t.pinned), ...inMyDay.filter((t) => !t.pinned)]
   })
 
   const totalCount = computed(() => visibleTodos.value.length)

@@ -526,6 +526,28 @@ describe('todoStore · 阶段4扩展', () => {
     expect(store.myDayTodos.map((x) => x.id)).toContain(t.id)
   })
 
+  /**
+   * 回归：「置顶」必须**看得见**。
+   *
+   * 之前 myDayTodos 直接沿用 visibleTodos 的顺序（按优先级/到期日），
+   * 于是点了置顶之后今日聚焦里什么都没变 —— 用户以为没生效（pinned 其实已落库）。
+   * 用一个优先级最低、也没到期的任务来钉这条：它本来排在最后，置顶后必须跑到最前。
+   */
+  it('置顶项排到今日聚焦最前面（不是只改个字段）', () => {
+    const store = useTodoStore()
+    // 两条今天到期（都会进今日聚焦），其中一条优先级最低 → 默认排序里它在后面
+    const high = store.addTodo({ title: '高', priority: 'high', dueDate: todayKey() })
+    const low = store.addTodo({ title: '低', priority: 'low', dueDate: todayKey() })
+    expect(store.myDayTodos.map((x) => x.id)).toEqual([high.id, low.id])
+
+    store.togglePinned(low.id)
+
+    expect(store.myDayTodos[0].id).toBe(low.id)
+    // 取消置顶后回到原顺序
+    store.togglePinned(low.id)
+    expect(store.myDayTodos.map((x) => x.id)).toEqual([high.id, low.id])
+  })
+
   it('今日聚焦：今日到期任务进入', () => {
     const store = useTodoStore()
     const t = store.addTodo({ title: '今天到期', priority: 'medium', dueDate: todayKey() })

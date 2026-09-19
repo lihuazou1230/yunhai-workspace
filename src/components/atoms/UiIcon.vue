@@ -27,10 +27,20 @@ withDefaults(
       | 'chevron-left'
       | 'chevron-right'
       | 'pencil'
+      | 'pin'
+      | 'trash'
+      | 'more'
     /** 尺寸类（默认 20px） */
     size?: string
+    /**
+     * 实心版本（目前只有 pin 有）。
+     * 用于激活态：轮廓 vs 实心的差别比"换颜色"更远距离可辨 ——
+     * 也顺便绕开了 emoji 无法被 `currentColor` 染色的问题
+     * （📌 本色就是红的，给它加 text-amber-500 几乎看不出区别）。
+     */
+    filled?: boolean
   }>(),
-  { size: 'h-5 w-5' },
+  { size: 'h-5 w-5', filled: false },
 )
 </script>
 
@@ -113,6 +123,34 @@ withDefaults(
     </template>
     <template v-else-if="name === 'chevron-right'">
       <path d="M10 6l6 6-6 6" />
+    </template>
+
+    <!--
+      置顶：图钉。
+      「未置顶 = 轮廓 / 已置顶 = 实心」这个差别比换颜色明显得多，
+      而且图钉的针是斜的，读起来就是"扎在某处"而不是一个抽象符号。
+    -->
+    <template v-else-if="name === 'pin'">
+      <path
+        d="M8.6 3.2h6.8c.5 0 .9.4.9.9v.6c0 .9-.4 1.7-1.1 2.3l-.7.6v3.1l1.7 2.1c.4.5 0 1.3-.7 1.3H8.5c-.7 0-1.1-.8-.7-1.3l1.7-2.1V7.6l-.7-.6A3.1 3.1 0 0 1 7.7 4.7v-.6c0-.5.4-.9.9-.9Z"
+        :fill="filled ? 'currentColor' : 'none'"
+      />
+      <path d="M12 14.1V21" />
+    </template>
+
+    <!-- 删除：垃圾桶（带盖与两条桶身线，20px 下仍能读出是桶） -->
+    <template v-else-if="name === 'trash'">
+      <path d="M4.5 6.5h15" />
+      <path d="M9.5 6.5V4.8c0-.7.6-1.3 1.3-1.3h2.4c.7 0 1.3.6 1.3 1.3v1.7" />
+      <path d="M6.5 6.5 7.4 19a1.6 1.6 0 0 0 1.6 1.5h6a1.6 1.6 0 0 0 1.6-1.5l.9-12.5" />
+      <path d="M10.3 10v7M13.7 10v7" />
+    </template>
+
+    <!-- 更多：三个点（实心圆，比省略号字符更稳） -->
+    <template v-else-if="name === 'more'">
+      <circle cx="5.5" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="18.5" cy="12" r="1.5" fill="currentColor" stroke="none" />
     </template>
 
     <!-- 编辑布局：铅笔 -->

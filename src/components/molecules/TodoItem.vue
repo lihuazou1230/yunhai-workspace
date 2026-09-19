@@ -29,6 +29,7 @@ import { priorityLabel } from '@/utils/priorityHelper'
 import { formatReminderTime } from '@/utils/reminderSchedule'
 import { POSTPONE_OPTIONS } from '@/utils/tagHelper'
 import BaseButton from '@/components/atoms/BaseButton.vue'
+import UiIcon from '@/components/atoms/UiIcon.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -686,48 +687,62 @@ function onPurge() {
       </div>
     </div>
 
-    <!-- 右：操作区（28px 图标钮；桌面 hover 渐现，移动端常显） -->
+    <!--
+      右：操作区。
+      - 图标从 16px 提到 20px（按钮 32px）：16px 在 1.6px 描边下细节糊成一团，
+        而这一列是高频操作区，值得占这点宽度
+      - 三个图标共用 UiIcon 的同一套笔触；置顶另有实心态（见下）
+    -->
     <div
-      class="flex shrink-0 items-center gap-0.5 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100"
+      class="flex shrink-0 items-center gap-1 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100"
     >
+      <!--
+        置顶按钮：**激活态同时改「形状 + 底色 + 颜色」三样**。
+        之前只把 📌 的 color 从浅灰换成 amber，而 emoji 本色就是红的，
+        几乎看不出变化 —— 用户点了以为没生效（实际 pinned 已落库）。
+        现在：轮廓图钉 → 实心图钉 + 琥珀底 chip，远距离也能一眼分辨。
+      -->
       <button
         type="button"
-        class="flex h-7 w-7 items-center justify-center rounded-lg text-base leading-none transition-colors hover:bg-slate-100 dark:hover:bg-slate-700"
+        class="flex h-8 w-8 items-center justify-center rounded-lg transition-colors"
         :class="
-          todo.pinned ? 'text-amber-500' : 'text-slate-300 hover:text-amber-500 dark:text-slate-600'
+          todo.pinned
+            ? 'bg-amber-100 text-amber-600 hover:bg-amber-200 dark:bg-amber-500/20 dark:text-amber-400'
+            : 'text-slate-400 hover:bg-slate-100 hover:text-amber-500 dark:text-slate-500 dark:hover:bg-slate-700'
         "
         :aria-label="todo.pinned ? '取消置顶' : '置顶到今日聚焦'"
+        :aria-pressed="todo.pinned"
+        :title="todo.pinned ? '已置顶到今日聚焦（点一下取消）' : '置顶到今日聚焦'"
+        data-testid="todo-pin"
         @click="emit('toggle-pin', todo.id)"
       >
-        📌
+        <UiIcon name="pin" :filled="todo.pinned" size="h-5 w-5" />
       </button>
 
       <BaseButton
         variant="ghost"
         size="sm"
-        class="h-7 w-7 p-0"
+        class="h-8 w-8 p-0"
         aria-label="删除任务"
+        title="删除任务（1 分钟内可撤销）"
+        data-testid="todo-remove"
         @click="onRemove"
       >
-        <svg class="h-4 w-4" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-          <path
-            d="M6 1.75h4a.25.25 0 0 1 .25.25v1h-4.5V2a.25.25 0 0 1 .25-.25zM4.25 3v-.75A1.75 1.75 0 0 1 6 .5h4a1.75 1.75 0 0 1 1.75 1.75V3h2.75a.75.75 0 0 1 0 1.5h-.583L13.4 13a1.75 1.75 0 0 1-1.744 1.6H4.344A1.75 1.75 0 0 1 2.6 13L2.333 4.5h-.583a.75.75 0 0 1 0-1.5h2.5zm.836 1.5-.292 8.5a.25.25 0 0 0 .25.266h6.312a.25.25 0 0 0 .25-.266l-.292-8.5H5.086z"
-          />
-        </svg>
+        <UiIcon name="trash" size="h-5 w-5" />
       </BaseButton>
 
       <!-- 更多：归档 / 推后（主列表）、恢复 / 彻底删除（归档视图） -->
       <div ref="menuRef" class="relative">
         <button
           type="button"
-          class="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+          class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:text-slate-500 dark:hover:text-slate-200"
           :aria-label="menuOpen ? '收起更多操作' : '更多操作'"
           aria-haspopup="menu"
           :aria-expanded="menuOpen"
           data-testid="todo-more"
           @click="toggleMenu"
         >
-          ⋯
+          <UiIcon name="more" size="h-5 w-5" />
         </button>
 
         <div
