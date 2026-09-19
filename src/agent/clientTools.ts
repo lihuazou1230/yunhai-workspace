@@ -247,6 +247,22 @@ function runList(call: ClientToolCall, args: Record<string, unknown>): ClientToo
   return ok(call, `${head}\n${lines.join('\n')}`, { count: rows.length, ids })
 }
 
+/**
+ * 拆解出的步骤：清洗成非空字符串列表。
+ *
+ * 上限 12 条是防"模型抽风灌 50 条"的兜底——拆解本来就要求 3~6 条，
+ * 超了截断并在摘要里说清截了几条，而不是静默丢掉。
+ */
+const MAX_SUBTASKS = 12
+
+function toSubtasks(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const cleaned = value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter((text) => text !== '')
+  return cleaned.slice(0, MAX_SUBTASKS)
+}
+
 function runCreate(call: ClientToolCall, args: Record<string, unknown>): ClientToolResult {
   const todo = useTodoStore()
   const title = typeof args.title === 'string' ? args.title.trim() : ''
@@ -258,12 +274,20 @@ function runCreate(call: ClientToolCall, args: Record<string, unknown>): ClientT
   const { priority, note } = toPriority(args.priority)
   const created = todo.addTodo({ title, priority, dueDate: due.dueDate })
 
+  // 拆解（第十一阶段起由 agent 承担）：目标建成任务、步骤作为子任务落进工作台
+  const subtasks = toSubtasks(args.subtasks)
+  subtasks.forEach((text) => todo.addSubtask(created.id, text))
+
   const bits = [`id=${created.id}`]
   if (created.dueDate) bits.push(`截止 ${created.dueDate}`)
   bits.push(`优先级 ${PRIORITY_LABEL[created.priority]}${note}`)
-  return ok(call, `已创建任务「${created.title}」（${bits.join('，')}）`, {
+  const steps = subtasks.length
+    ? `\n拆成 ${subtasks.length} 个步骤：\n${subtasks.map((text, index) => `  ${index + 1}. ${text}`).join('\n')}`
+    : ''
+  return ok(call, `已创建任务「${created.title}」（${bits.join('，')}）${steps}`, {
     id: created.id,
     title: created.title,
+    subtasks,
   })
 }
 
@@ -291,13 +315,31 @@ function runUpdate(call: ClientToolCall, args: Record<string, unknown>): ClientT
     patch.priority = priority
     changes.push(`优先级改为 ${PRIORITY_LABEL[priority]}${note}`)
   }
+
+  // 往已有任务上加/换步骤（"把这条拆一下"走的就是这条路）
+  const subtasks = toSubtasks(args.subtasks)
+  const replace = args.subtasks_mode === 'replace'
+  if (subtasks.length && replace) {
+    const existing = [...target.subtasks]
+    existing.forEach((item) => todo.removeSubtask(target.id, item.id))
+    changes.push(`子任务整体替换为 ${subtasks.length} 条`)
+  }
+  if (subtasks.length) {
+    subtasks.forEach((text) => todo.addSubtask(target.id, text))
+    if (!replace) changes.push(`追加 ${subtasks.length} 条子任务`)
+  }
+
   if (changes.length === 0) {
-    return fail(call, '没有要改的字段：title / due_date / priority 至少要给一个')
+    return fail(call, '没有要改的字段：title / due_date / priority / subtasks 至少要给一个')
   }
 
   todo.updateTodo(target.id, patch)
-  return ok(call, `已更新任务「${patch.title ?? target.title}」：${changes.join('，')}`, {
+  const steps = subtasks.length
+    ? `\n当前步骤：\n${subtasks.map((text, index) => `  ${index + 1}. ${text}`).join('\n')}`
+    : ''
+  return ok(call, `已更新任务「${patch.title ?? target.title}」：${changes.join('，')}${steps}`, {
     id: target.id,
+    subtasks,
   })
 }
 

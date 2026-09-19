@@ -27,11 +27,11 @@ const listRef = ref<HTMLElement | null>(null)
 const MODES: AgentRetrievalMode[] = ['semantic', 'lexical']
 const FALLBACKS: AgentFallback[] = ['refuse', 'bare', 'web']
 
-/** 示例问题直接取自评测集：能答的题就该一眼看得出来 */
+/** 示例问题覆盖三类能力：查知识库、拆解建任务、查工作台数据 */
 const EXAMPLES = [
   '分块默认的块长和重叠是多少？',
-  '跟账号走的偏好一共多少项？',
-  'BM25 的 k1 和 b 取值是多少？',
+  '帮我把「准备前端面试」拆成可执行的步骤',
+  '今天还剩哪些活？',
 ]
 
 const remaining = computed(() => AGENT_LIMITS.maxQuestionLength - draft.value.length)

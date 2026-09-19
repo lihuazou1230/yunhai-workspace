@@ -340,6 +340,86 @@ describe('task_crud / update · complete · uncomplete · delete · archive', ()
   })
 })
 
+describe('task_crud 的拆解（subtasks）', () => {
+  it('create 带 subtasks：目标建成任务、步骤作为子任务真的落进工作台', async () => {
+    seed([])
+    const result = await runClientTool(
+      call('task_crud', {
+        action: 'create',
+        title: '准备前端面试',
+        subtasks: ['整理项目经历', '刷算法题', '复习浏览器原理'],
+      }),
+    )
+
+    expect(result.ok).toBe(true)
+    const created = store().todos[0]
+    expect(created.title).toBe('准备前端面试')
+    expect(created.subtasks.map((item) => item.title)).toEqual([
+      '整理项目经历',
+      '刷算法题',
+      '复习浏览器原理',
+    ])
+    // 摘要要给模型和用户同一份说法
+    expect(result.summary).toContain('拆成 3 个步骤')
+    expect(result.summary).toContain('1. 整理项目经历')
+  })
+
+  it('子任务为空的字符串会被丢掉，不会建出空步骤', async () => {
+    seed([])
+    await runClientTool(
+      call('task_crud', { action: 'create', title: '目标', subtasks: ['第一步', '   ', ''] }),
+    )
+    expect(store().todos[0].subtasks.map((item) => item.title)).toEqual(['第一步'])
+  })
+
+  it('建太多步骤会被截断到 12 条（防模型灌一屏），且摘要里说清条数', async () => {
+    seed([])
+    const many = Array.from({ length: 20 }, (_, i) => `步骤 ${i + 1}`)
+    const result = await runClientTool(
+      call('task_crud', { action: 'create', title: '大目标', subtasks: many }),
+    )
+    expect(store().todos[0].subtasks).toHaveLength(12)
+    expect(result.summary).toContain('拆成 12 个步骤')
+  })
+
+  it('update 默认追加步骤；subtasks_mode=replace 则整体替换', async () => {
+    seed([
+      todo({
+        id: 'a',
+        title: '准备面试',
+        subtasks: [{ id: 's1', title: '旧步骤', completed: false }],
+      }),
+    ])
+
+    const appended = await runClientTool(
+      call('task_crud', { action: 'update', ids: ['a'], subtasks: ['新步骤'] }),
+    )
+    expect(appended.ok).toBe(true)
+    expect(store().todos[0].subtasks.map((item) => item.title)).toEqual(['旧步骤', '新步骤'])
+
+    const replaced = await runClientTool(
+      call('task_crud', {
+        action: 'update',
+        ids: ['a'],
+        subtasks: ['换掉的第一步', '换掉的第二步'],
+        subtasks_mode: 'replace',
+      }),
+    )
+    expect(replaced.ok).toBe(true)
+    expect(store().todos[0].subtasks.map((item) => item.title)).toEqual([
+      '换掉的第一步',
+      '换掉的第二步',
+    ])
+  })
+
+  it('update 什么字段都没给时给出可操作的错误', async () => {
+    seed([todo({ id: 'a', title: '准备面试' })])
+    const result = await runClientTool(call('task_crud', { action: 'update', ids: ['a'] }))
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('subtasks')
+  })
+})
+
 describe('get_weather', () => {
   it('没有缓存 → ok:false 并指路「先去仪表板刷新天气」', async () => {
     const result = await runClientTool(call('get_weather'))
