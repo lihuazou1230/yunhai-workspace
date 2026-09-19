@@ -22,13 +22,11 @@ import { checkSupabaseConnection } from '@/api/supabase'
 import type { ConnectionCheck } from '@/api/supabase'
 import { TAG_COLOR_DOT, TAG_COLOR_LABEL, TAG_COLOR_PALETTE } from '@/types/tag'
 import type { TagColor } from '@/types/tag'
-import { AI_PRESETS, AI_PROVIDERS } from '@/types/ai'
 import { useAvatar } from '@/composables/useAvatar'
 import { useReminder } from '@/composables/useReminder'
 import { useSettingsSync } from '@/composables/useSyncedStorage'
 import { sendWxPusherViaProxy } from '@/api/notify'
 import { WXPUSHER_APP_URL } from '@/utils/wxpusher'
-import { useAiStore } from '@/stores/aiStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useTagStore } from '@/stores/tagStore'
 import { useTodoStore } from '@/stores/todoStore'
@@ -36,7 +34,6 @@ import { useTodoStore } from '@/stores/todoStore'
 const authStore = useAuthStore()
 const todoStore = useTodoStore()
 const tagStore = useTagStore()
-const aiStore = useAiStore()
 const avatarOpen = ref(false)
 
 // ---- 提醒渠道（第六阶段 6.5） ----
@@ -516,97 +513,6 @@ async function testConnection() {
           </BaseButton>
         </template>
       </el-dialog>
-    </section>
-
-    <!-- AI 助手（第六阶段 6.3）：BYOK，Key 只存在本地浏览器 -->
-    <section class="card p-5" aria-label="AI 助手">
-      <h2 class="mb-1 text-sm font-semibold text-slate-500 dark:text-slate-400">AI 助手</h2>
-      <p class="mb-4 text-xs text-slate-400 dark:text-slate-500">
-        用自己的 API Key（BYOK）：Key 只保存在本机 localStorage，不会上传到任何服务端。
-        配置后「任务」页会出现自然语言添加入口；目标拆解、查任务、问文档这些交给「知识库」页的助手，
-        由后端仓库 yunhai-agent 统一保管 Key。
-      </p>
-
-      <div class="space-y-3">
-        <!-- 厂商切换 -->
-        <div class="flex flex-wrap items-center gap-2">
-          <span class="text-xs text-slate-500 dark:text-slate-400">厂商</span>
-          <div class="flex gap-1" role="group" aria-label="AI 厂商">
-            <BaseButton
-              v-for="p in AI_PROVIDERS"
-              :key="p"
-              size="sm"
-              :variant="aiStore.config.provider === p ? 'primary' : 'secondary'"
-              :data-testid="`ai-provider-${p}`"
-              @click="aiStore.setProvider(p)"
-            >
-              {{ AI_PRESETS[p].label }}
-            </BaseButton>
-          </div>
-          <BaseBadge :tone="aiStore.configured ? 'success' : 'info'" size="sm">
-            {{ aiStore.configured ? '已启用' : '未启用' }}
-          </BaseBadge>
-        </div>
-
-        <div class="grid gap-3 sm:grid-cols-2">
-          <label class="block">
-            <span class="mb-1 block text-xs text-slate-500 dark:text-slate-400">API Key</span>
-            <input
-              :value="aiStore.config.apiKey"
-              type="password"
-              placeholder="sk-…"
-              autocomplete="off"
-              aria-label="AI API Key"
-              data-testid="ai-api-key"
-              class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-[var(--el-color-primary)] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-              @change="aiStore.setApiKey(($event.target as HTMLInputElement).value)"
-            />
-          </label>
-          <label class="block">
-            <span class="mb-1 block text-xs text-slate-500 dark:text-slate-400">模型</span>
-            <input
-              :value="aiStore.config.model"
-              type="text"
-              placeholder="deepseek-chat / glm-4-flash"
-              aria-label="AI 模型名"
-              data-testid="ai-model"
-              class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-[var(--el-color-primary)] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-              @change="aiStore.setModel(($event.target as HTMLInputElement).value)"
-            />
-          </label>
-        </div>
-
-        <label class="block">
-          <span class="mb-1 block text-xs text-slate-500 dark:text-slate-400">
-            接口根地址（不含 /chat/completions）
-          </span>
-          <input
-            :value="aiStore.config.baseUrl"
-            type="text"
-            placeholder="https://api.deepseek.com/v1"
-            aria-label="AI 接口根地址"
-            data-testid="ai-base-url"
-            class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-[var(--el-color-primary)] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-            @change="aiStore.setBaseUrl(($event.target as HTMLInputElement).value)"
-          />
-        </label>
-
-        <div class="flex flex-wrap items-center gap-2">
-          <span class="text-xs text-slate-400 dark:text-slate-500">{{ aiStore.preset.hint }}</span>
-          <span class="ml-auto flex gap-2">
-            <BaseButton
-              v-if="aiStore.config.apiKey"
-              size="sm"
-              variant="danger"
-              data-testid="ai-clear-key"
-              @click="aiStore.clearApiKey()"
-            >
-              移除 Key
-            </BaseButton>
-            <BaseButton size="sm" variant="secondary" @click="aiStore.reset()">恢复默认</BaseButton>
-          </span>
-        </div>
-      </div>
     </section>
 
     <!-- 提醒渠道（第六阶段 6.5）：三层通道各管一段，用户按需要开 -->

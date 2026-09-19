@@ -1,5 +1,5 @@
 /**
- * Agent 后端调用（原生 fetch，不引 axios —— 与 httpClient / api/ai.ts 同一条约定）。
+ * Agent 后端调用（原生 fetch，不引 axios —— 与 httpClient 同一条约定）。
  *
  * 两件必须自己写的事：
  * 1. **手写 SSE 解析**：`response.body.getReader()` + TextDecoder 增量解码，

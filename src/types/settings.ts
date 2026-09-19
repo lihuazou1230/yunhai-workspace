@@ -61,11 +61,6 @@ export const SYNCED_KEY_LABELS: Readonly<Record<string, string>> = Object.fromEn
  */
 export const LOCAL_ONLY_KEYS: readonly { key: string; label: string; reason: string }[] = [
   {
-    key: 'smart-workspace:ai',
-    label: 'AI Key（BYOK）',
-    reason: '用户级凭证，进云端数据库等于多一份泄露面；换设备重填一次即可',
-  },
-  {
     key: 'smart-workspace:wxpusher-uid',
     label: '微信推送 UID',
     reason: '同上（应用 token 本就在 Supabase Edge Function 的 Secrets 里）',

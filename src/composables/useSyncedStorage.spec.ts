@@ -381,10 +381,9 @@ describe('同步清单自检', () => {
     expect(syncedKeys.filter((key) => LOCAL_ONLY_KEYS.some((item) => item.key === key))).toEqual([])
   })
 
-  it('凭证与设备相关项明确留在本机（AI Key / 微信 UID / 已通知标记 / 天气 / 定位）', () => {
+  it('凭证与设备相关项明确留在本机（微信 UID / 已通知标记 / 天气 / 定位）', () => {
     const localKeys = LOCAL_ONLY_KEYS.map((item) => item.key)
     for (const key of [
-      'smart-workspace:ai',
       'smart-workspace:wxpusher-uid',
       'smart-workspace:reminder-notified',
       'smart-workspace:weather-cache',

@@ -12,7 +12,6 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     AggregateSearch: typeof import('./components/molecules/AggregateSearch.vue')['default']
-    AiTodoInput: typeof import('./components/organisms/AiTodoInput.vue')['default']
     AvatarUpload: typeof import('./components/organisms/AvatarUpload.vue')['default']
     BaseBadge: typeof import('./components/atoms/BaseBadge.vue')['default']
     BaseButton: typeof import('./components/atoms/BaseButton.vue')['default']

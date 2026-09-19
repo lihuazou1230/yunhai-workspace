@@ -81,7 +81,6 @@ describe('设置页 · 偏好设置同步（第九阶段）', () => {
     await wrapper.get('[data-testid="settings-prefs-local-only-toggle"]').trigger('click')
 
     const list = wrapper.get('[data-testid="settings-prefs-local-only"]')
-    expect(list.text()).toContain('AI Key')
     expect(list.text()).toContain('微信推送 UID')
     expect(list.text()).toContain('已通知标记')
     // 每一项都要有人话解释
