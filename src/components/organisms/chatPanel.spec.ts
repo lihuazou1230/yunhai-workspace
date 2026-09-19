@@ -9,18 +9,13 @@ import { flushPromises, mount } from '@vue/test-utils'
 import ChatPanel from './ChatPanel.vue'
 import { listSessions, streamAsk } from '@/api/agent'
 import { useAgentStore } from '@/stores/agentStore'
+import { doneEvent, streamOf } from '@/test/agentFixtures'
 import type { AgentEvent } from '@/types/agent'
 
 vi.mock('@/api/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/agent')>()
   return { ...actual, streamAsk: vi.fn(), listSessions: vi.fn() }
 })
-
-function streamOf(events: AgentEvent[]) {
-  return async function* () {
-    for (const event of events) yield event
-  }
-}
 
 async function setup() {
   const pinia = createPinia()
@@ -72,10 +67,7 @@ describe('ChatPanel', () => {
           },
         },
         { type: 'token', text: '分块默认 500 字符。[1]' },
-        {
-          type: 'done',
-          sessionId: 's1',
-          messageId: 'm1',
+        doneEvent({
           citations: [
             {
               index: 1,
@@ -89,9 +81,10 @@ describe('ChatPanel', () => {
             },
           ],
           fallback: 'kb',
+          kind: 'kb',
           hitCount: 1,
           latencyMs: 700,
-        },
+        }),
       ]) as never,
     )
 
@@ -113,15 +106,7 @@ describe('ChatPanel', () => {
     vi.mocked(streamAsk).mockImplementation(
       streamOf([
         { type: 'token', text: '知识库里没有检索到与该问题相关的内容，因此不作答。' },
-        {
-          type: 'done',
-          sessionId: 's1',
-          messageId: 'm1',
-          citations: [],
-          fallback: 'refuse',
-          hitCount: 0,
-          latencyMs: 20,
-        },
+        doneEvent({ fallback: 'refuse', kind: 'chat', latencyMs: 20 }),
       ]) as never,
     )
     const { wrapper } = await setup()
@@ -163,17 +148,7 @@ describe('ChatPanel', () => {
 
   it('Ctrl + Enter 也能发送', async () => {
     vi.mocked(streamAsk).mockImplementation(
-      streamOf([
-        {
-          type: 'done',
-          sessionId: 's',
-          messageId: 'm',
-          citations: [],
-          fallback: 'refuse',
-          hitCount: 0,
-          latencyMs: 1,
-        },
-      ]) as never,
+      streamOf([doneEvent({ sessionId: 's', messageId: 'm', latencyMs: 1 })]) as never,
     )
     const { wrapper } = await setup()
     const input = wrapper.find('[data-testid="chat-input"]')

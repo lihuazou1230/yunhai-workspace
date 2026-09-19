@@ -28,6 +28,7 @@
 - ☁️ **多设备同步**：任务写进云端 Postgres（行级安全 RLS），离线改动进队列、联网自动补发，旧 localStorage 数据登录后**一次性迁移**
 - 🔄 **账号级数据一致性（第九阶段）**：不只任务——**主题外观、壁纸、标签、快捷导航、倒计时、仪表板布局与周目标、赚钱秒表配置、投入时长日志、提醒设置、默认搜索引擎**统统跟账号走，任一设备登录即是同一套；换账号登录会先清本地再拉新账号的（同一台电脑换人用不串数据）；凭证（AI Key / 微信 UID）与设备相关项（天气缓存 / 定位记忆 / 已通知标记）**刻意留在本机**，设置页可展开查看完整清单与理由
 - 📚 **知识库问答（第十阶段）**：文档上传（pdf/md/txt/jsonl，≤10MB，超 2MB 异步入库）→ 递归分块 → 向量入库 → **SSE 流式问答并带引用来源**；库外问题**直接拒答不编造**，回答下方常显「基于知识库 / 不基于知识库 / 拒答」与命中的来源块。模型与 Key 全在独立后端仓库 [`yunhai-agent`](https://github.com/lihuazou1230/yunhai-agent)，前端只拿一个基地址
+- 🧠 **会思考的助手（第十一阶段）**：知识库降级成 agent 的一个工具——问"分块默认多大"它自己去查并给引用；说"帮我加个明天交周报的任务"它调 `task_crud` 在**你自己的工作台数据上真的落库**（"明天"会先问日期工具换算成绝对日期）；问几点/天气秒回；闲聊不调用工具、也不进任务上下文。消息流里能看见它**调了什么工具、参数是什么、返回什么**
 - 🖼️ **头像上传**：本地选图 → 圆形裁剪（cropperjs）→ 压成 256×256 WebP → 已登录传云端 Storage，未登录存 IndexedDB
 - 📋 **任务管理闭环**：增删改查、状态筛选、优先级多选、关键字搜索、localStorage 持久化
 - ↩️ **撤销删除**：软删除 + 1 分钟窗口内可撤销（Toast 倒计时）
@@ -90,13 +91,14 @@ src/
 ├── components/
 │   ├── atoms/        # BaseButton / BaseInput / BaseBadge / BaseCheckbox / DigitRoll / TrendBadge /
 │   │                 # PasswordStrengthMeter 密码强度条 / TurnstileCaptcha 人机验证（第五阶段）/
-│   │                 # BaseChatBubble 聊天气泡 / BaseCitationChip 引用块（第十阶段）
+│   │                 # BaseChatBubble 聊天气泡 / BaseCitationChip 引用块 / BaseToolTag 工具标签（第十/十一阶段）
 │   ├── molecules/    # TodoItem / SearchBar / ThemeToggle / RollingAmount / ChartEmpty / StatsRangeTabs /
-│   │                 # BaseMessageGroup 一条消息的完整装配（第十阶段）
+│   │                 # BaseMessageGroup 一条消息的完整装配（第十/十一阶段）
 │   └── organisms/    # TodoList / TodoForm / MyDay / DailyGreeting / EarningsClock / TodayProgressCard /
 │                     # WeatherWidget / SettingsPanel / SidebarNav / AvatarUpload / MobileBottomNav /
 │                     # StatsTrendChart / StatsHourHeatmap / StatsTagDonut / StatsScatterChart（第八阶段）/
 │                     # ChatPanel 知识库对话 / KnowledgeSidebar 文档管理（第十阶段）
+├── agent/            # clientTools.ts：客户端工具执行器（task_crud / get_weather，第十一阶段）
 ├── composables/      # useTheme / useWeather / useEarnings / useECharts / useChartTheme / useStatistics /
 │                     # useWorkLog / useSyncedStorage（账号级设置同步）/ useTurnstile（人机验证状态机）/
 │                     # useAvatar / useIndexedDb
@@ -105,7 +107,7 @@ src/
 ├── pages/            # Dashboard / Todos / Stats / AnnualReport / Knowledge（第十阶段）/ Settings / Login / ResetPassword
 ├── router/           # 路由表 + authGuard（登录守卫与回跳校验）
 ├── stores/           # todoStore（含云同步）/ themeStore / authStore / tagStore / linkStore / wallpaperStore /
-│                     # agentStore（第十阶段：会话、消息、文档、流式状态）
+│                     # agentStore（第十/十一阶段：会话、消息、文档、流式状态、工具回环）
 ├── types/            # todo / weather / statistics / earnings / auth / settings（同步清单）/ agent（SSE 事件）类型定义
 └── utils/            # 日期、优先级、表单校验、密码强度（auth）、主题色、统计聚合（stats/workLog/annualCard）、
                       # 赚钱换算、每日格言、金额拆位、头像工具、同步差异
@@ -712,6 +714,23 @@ AI 能力全部落在独立仓库 **`yunhai-agent`**（FastAPI + Chroma + bge-sm
 4. **停止生成是真的取消**：`AbortController` 断开 fetch，后端随之停止生成；
    而不是前端把字藏起来继续收（那样用户以为停了，额度还在烧）。
 
+### 第十一阶段：前端这一侧多出来的东西
+
+后端从"固定检索直答"变成了 **ReAct 循环 + 工具**，前端相应多了三块：
+
+| 位置 | 内容 |
+| --- | --- |
+| `agent/clientTools.ts` | **客户端工具执行器**：`task_crud`（在工作台的任务数据上真的增删查改）与 `get_weather`（只读本机天气缓存）。永不抛异常——失败一律变成给模型的观察结果 |
+| `agentStore.ask()` | **回环驱动**：一条流结束在 `status=awaiting_client` 时，执行 `pending` 里的客户端工具，再 `POST /api/ask/resume` 把结果送回去继续同一轮（有 5 次上限，避免死循环） |
+| `atoms/BaseToolTag.vue` | 消息流里的工具标签：调了什么、参数是什么、跑成没跑成、返回了什么（可展开） |
+
+为什么任务操作要绕一圈回前端执行：**任务数据只存在于工作台里**（localStorage + Supabase + Tauri 数据目录），
+后端没有也不该复制一份真相。所以后端只负责"想"（发 `tool_call(executor=client)` 并把这一轮状态存起来），
+执行发生在数据所在地；两段用的是**同一条 SSE 协议**，前端还是一套解析器。
+
+好处是"帮我加个明天交周报的任务"这句话，最终改动的是你**真实的任务列表**，
+而不是后端数据库里的一份影子副本；坏处是多一次往返（本机实测 1~2 秒量级）。
+
 ### 本机怎么跑起来
 
 ```powershell
@@ -726,8 +745,9 @@ pnpm dev
 **未配 LLM Key 也能用**：上传、检索、引用、拒答四条链路都不需要 Key，
 只有"自由生成答案"需要（后端 `.env` 的 `LLM_API_KEY`）——页面会明说缺什么。
 
-> 检索质量的实测数据（语义 vs 字面 BM25 的 recall/MRR 与阈值校准、以及端到端答案验收）在
-> `yunhai-agent/eval/report.md` 与 `eval/answer_report.md`。结论如实记录：这份 30 块的小语料上
+> 检索质量的实测数据（语义 vs 字面 BM25 的 recall/MRR 与阈值校准、端到端答案验收、
+> 以及第十一阶段的工具轨迹与护栏验收）分别在 `yunhai-agent/eval/report.md`、
+> `eval/answer_report.md`、`eval/agent_report.md`。结论如实记录：这份 30 块的小语料上
 > 两者 recall@1 打平、BM25 在 recall@4 上更满；而**分块粒度**（把 Markdown 小节硬断）才是
 > 把语义 recall@1 从 0.562 拉到 0.750 的那一步——调参之前先看数据。
 

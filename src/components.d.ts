@@ -22,6 +22,7 @@ declare module 'vue' {
     BaseCitationChip: typeof import('./components/atoms/BaseCitationChip.vue')['default']
     BaseInput: typeof import('./components/atoms/BaseInput.vue')['default']
     BaseMessageGroup: typeof import('./components/molecules/BaseMessageGroup.vue')['default']
+    BaseToolTag: typeof import('./components/atoms/BaseToolTag.vue')['default']
     ChartEmpty: typeof import('./components/molecules/ChartEmpty.vue')['default']
     ChatPanel: typeof import('./components/organisms/ChatPanel.vue')['default']
     CountdownCard: typeof import('./components/organisms/CountdownCard.vue')['default']

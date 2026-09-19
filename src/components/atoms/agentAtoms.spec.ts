@@ -123,15 +123,46 @@ describe('BaseMessageGroup', () => {
     expect(wrapper.text()).not.toContain('命中')
   })
 
-  it('工具调用以标签形式展示（第十一阶段的数据位）', () => {
+  it('工具调用以 BaseToolTag 展示（中文标签 + 结果摘要）', () => {
     const wrapper = mount(BaseMessageGroup, {
-      props: { message: message({ tools: [{ name: 'search_knowledge' }] }) },
+      props: {
+        message: message({
+          tools: [
+            {
+              id: 'c1',
+              name: 'search_knowledge',
+              status: 'ok',
+              summary: '命中 2 块',
+              arguments: { query: '分块' },
+            },
+          ],
+        }),
+      },
     })
-    expect(wrapper.text()).toContain('search_knowledge')
+    const tag = wrapper.find('[data-testid="tool-tag"]')
+    expect(tag.exists()).toBe(true)
+    expect(tag.text()).toContain('查知识库')
+    expect(tag.text()).toContain('命中 2 块')
+    // 原始工具名不该直接摆在用户面前
+    expect(tag.text()).not.toContain('search_knowledge')
+    expect(tag.attributes('data-tool')).toBe('search_knowledge')
   })
 
   it('裸答模式标黄提醒「不基于知识库」', () => {
     const wrapper = mount(BaseMessageGroup, { props: { message: message({ fallback: 'bare' }) } })
     expect(wrapper.text()).toContain('不基于知识库')
+  })
+
+  it('第十一阶段新增的依据标签（工具结果 / 轻量对话 / 收口）也渲染', () => {
+    const tool = mount(BaseMessageGroup, { props: { message: message({ fallback: 'tool' }) } })
+    expect(tool.text()).toContain('基于工具结果')
+
+    const chat = mount(BaseMessageGroup, { props: { message: message({ fallback: 'chat' }) } })
+    expect(chat.text()).toContain('轻量对话')
+
+    const guardrail = mount(BaseMessageGroup, {
+      props: { message: message({ fallback: 'guardrail' }) },
+    })
+    expect(guardrail.text()).toContain('已收口（达到上限）')
   })
 })

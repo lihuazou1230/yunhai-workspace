@@ -1,4 +1,4 @@
-﻿/**
+/**
  * agentStore（第十阶段 10.4）。
  *
  * 网络层整个被 mock：这里要验证的是**状态机**——
@@ -20,11 +20,13 @@ import {
   listSessions,
   pollJob,
   resetKnowledge,
+  resumeAsk,
   streamAsk,
   uploadDocument,
   warmupEmbedder,
 } from '@/api/agent'
 import { useAgentStore } from './agentStore'
+import { doneEvent, streamOf } from '@/test/agentFixtures'
 import { AGENT_ENDPOINT_KEY, DEFAULT_AGENT_ENDPOINT } from '@/types/agent'
 import type { AgentEvent, AgentHealth } from '@/types/agent'
 
@@ -43,6 +45,7 @@ vi.mock('@/api/agent', async (importOriginal) => {
     deleteSession: vi.fn(),
     pollJob: vi.fn(),
     streamAsk: vi.fn(),
+    resumeAsk: vi.fn(),
   }
 })
 
@@ -73,12 +76,6 @@ const DOC = {
   uploaded_at: '2026-09-17T10:00:00',
   chunks: 12,
   pages: null,
-}
-
-function streamOf(events: AgentEvent[]) {
-  return async function* () {
-    for (const event of events) yield event
-  }
 }
 
 function store() {
@@ -424,15 +421,13 @@ describe('问答', () => {
         { type: 'citation', citation },
         { type: 'token', text: '分块默认 ' },
         { type: 'token', text: '500 字符。[1]' },
-        {
-          type: 'done',
-          sessionId: 's1',
+        doneEvent({
           messageId: 'm2',
           citations: [citation],
           fallback: 'kb',
           hitCount: 3,
           latencyMs: 640,
-        },
+        }),
       ]) as never,
     )
 
@@ -451,21 +446,13 @@ describe('问答', () => {
     expect(answer.id).toBe('m2')
     expect(agent.activeSessionId).toBe('s1')
     expect(agent.streaming).toBe(false)
+    // 正常收口（status: 'ok'）不需要前端执行任何工具，也就不会续跑
+    expect(resumeAsk).not.toHaveBeenCalled()
   })
 
   it('把当前会话、策略、兜底模式带给后端', async () => {
     vi.mocked(streamAsk).mockImplementation(
-      streamOf([
-        {
-          type: 'done',
-          sessionId: 's1',
-          messageId: 'm',
-          citations: [],
-          fallback: 'refuse',
-          hitCount: 0,
-          latencyMs: 5,
-        },
-      ]) as never,
+      streamOf([doneEvent({ messageId: 'm', fallback: 'refuse', latencyMs: 5 })]) as never,
     )
     const agent = store()
     agent.activeSessionId = 's9'
@@ -478,6 +465,8 @@ describe('问答', () => {
       session_id: 's9',
       mode: 'lexical',
       fallback_mode: 'bare',
+      // strategy / tools_enabled 由 api/agent 这一层补默认值（agent 链路 + 开工具），
+      // 这里 streamAsk 被 mock 掉了，所以它的默认值在 api/agent.spec.ts 里断言
     })
   })
 

@@ -9,6 +9,7 @@
 import BaseBadge from '@/components/atoms/BaseBadge.vue'
 import BaseChatBubble from '@/components/atoms/BaseChatBubble.vue'
 import BaseCitationChip from '@/components/atoms/BaseCitationChip.vue'
+import BaseToolTag from '@/components/atoms/BaseToolTag.vue'
 import { AGENT_FALLBACK_LABELS } from '@/types/agent'
 import type { AgentChatMessage } from '@/types/agent'
 
@@ -16,9 +17,13 @@ const props = defineProps<{ message: AgentChatMessage }>()
 
 const fallbackTone: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 'info'> = {
   kb: 'success',
+  // 工具结果也算"有依据"，但用主题色和知识库区分开：来源不同，可信度的含义也不同
+  tool: 'primary',
+  chat: 'info',
   refuse: 'info',
   bare: 'warning',
   web: 'warning',
+  guardrail: 'warning',
 }
 
 /** 引用块只在助手消息上出现；空态也画，用来说清"这次没有来源" */
@@ -34,11 +39,13 @@ const showCitations = () => props.message.role === 'assistant' && !props.message
       :error="message.error"
     />
 
-    <!-- 程序化展示的工具调用（第十一阶段）：现在就把渲染位留好 -->
+    <!-- 工具调用过程：谁在查什么、成没成，都摆出来（第十一阶段） -->
     <div v-if="message.tools?.length" class="flex flex-wrap gap-1.5 pl-1">
-      <BaseBadge v-for="tool in message.tools" :key="tool.name" tone="info" size="xs">
-        🛠 {{ tool.name }}
-      </BaseBadge>
+      <BaseToolTag
+        v-for="(tool, index) in message.tools"
+        :key="tool.id ?? `${tool.name}-${index}`"
+        :tool="tool"
+      />
     </div>
 
     <div v-if="showCitations()" class="flex flex-wrap items-center gap-1.5 pl-1">

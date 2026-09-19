@@ -11,6 +11,7 @@
 import type {
   AgentCitation,
   AgentDocument,
+  AgentDoneStatus,
   AgentEvent,
   AgentFallback,
   AgentHealth,
@@ -52,10 +53,35 @@ interface AskPayload {
   mode?: AgentRetrievalMode
   fallback_mode?: AgentFallback
   top_k?: number
+  threshold?: number
+  /**
+   * 走哪条链路：`agent`（ReAct 循环 + 工具，后端默认）或 `rag`（第十阶段的固定检索直答）。
+   * 第十一阶段起前端默认发 `agent`，否则 client 工具的回环永远不会触发。
+   */
+  strategy?: 'agent' | 'rag'
+  /** 临时关掉工具（排障 / 让纯对话可验证），后端默认 true */
+  tools_enabled?: boolean
 }
 
 export interface AskOptions {
   signal?: AbortSignal
+}
+
+/** 前端执行完一个 client 工具后回传给 `/api/ask/resume` 的观察结果 */
+export interface AgentToolResultPayload {
+  tool_call_id: string
+  name: string
+  ok: boolean
+  /** 给模型看的文本观察结果（也是界面上那一行摘要） */
+  summary: string
+  result?: unknown
+  error?: string
+}
+
+export interface ResumeAskPayload {
+  /** 上一轮 done 事件里的 run_id（后端靠它取回这轮的 messages） */
+  runId: string
+  results: AgentToolResultPayload[]
 }
 
 // ---------------- 流式问答 ----------------
@@ -73,7 +99,7 @@ export async function* streamAsk(
   options: AskOptions = {},
 ): AsyncGenerator<AgentEvent> {
   const base = normalizeAgentEndpoint(baseUrl)
-  const response = await safeFetch(`${base}/api/ask`, {
+  yield* readEventStream(`${base}/api/ask`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -82,9 +108,44 @@ export async function* streamAsk(
       mode: payload.mode ?? 'semantic',
       fallback_mode: payload.fallback_mode ?? null,
       top_k: payload.top_k ?? null,
+      threshold: payload.threshold ?? null,
+      // 显式写死成后端的默认值：这一层是"前端现在就走 agent 链路"的声明，
+      // 将来要加「关掉工具」的开关也只改这里
+      strategy: payload.strategy ?? 'agent',
+      tools_enabled: payload.tools_enabled ?? true,
     }),
     signal: options.signal,
   })
+}
+
+/**
+ * 前端跑完 client 工具后回来续跑同一轮（同一个 SSE 协议，同一套解析）。
+ *
+ * 与 `/api/ask` 的唯一区别是它带 `run_id`：后端把这轮的 messages 存在服务端，
+ * 我们只回传"工具干了什么"。run 过期时后端返回 404 JSON，走的是同一条错误映射。
+ */
+export async function* resumeAsk(
+  baseUrl: string,
+  payload: ResumeAskPayload,
+  options: AskOptions = {},
+): AsyncGenerator<AgentEvent> {
+  const base = normalizeAgentEndpoint(baseUrl)
+  yield* readEventStream(`${base}/api/ask/resume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ run_id: payload.runId, results: payload.results }),
+    signal: options.signal,
+  })
+}
+
+/**
+ * SSE 读取循环（`/api/ask` 与 `/api/ask/resume` 共用）。
+ *
+ * 为什么单独抽出来：两条接口的"请求"不同但"读流"完全一样——
+ * 增量解码 + 按 `\n\n` 切帧 + 收尾补一帧。复制第二份等于以后每个解析修复都要改两处。
+ */
+async function* readEventStream(url: string, init: RequestInit): AsyncGenerator<AgentEvent> {
+  const response = await safeFetch(url, init)
 
   if (!response.ok) throw await toAgentError(response)
   if (!response.body) throw new AgentError('后端没有返回流式响应体（SSE 需要 HTTP/1.1 分块）')
@@ -141,12 +202,15 @@ export function parseFrame(frame: string): AgentEvent | null {
     case 'citation':
       return { type: 'citation', citation: data as unknown as AgentCitation }
     case 'tool_call':
-      return { type: 'tool_call', call: data as unknown as AgentToolCall }
+      return { type: 'tool_call', call: toToolCall(data) }
     case 'tool_result':
+      // 新协议把 id/name/ok/summary/error 平铺在 data 上；老协议曾把它们裹在 `call` 里，
+      // 两种都认（`call` 存在时以它为准），历史事件才不会解析成空壳
       return {
         type: 'tool_result',
-        call: (data.call ?? data) as unknown as AgentToolCall,
-        result: data.result ?? null,
+        call: toToolResultCall(isRecord(data.call) ? data.call : data),
+        // 后端没有 result 字段——结构化结果在 `meta` 里（见 app/sse.py 的 tool_result_event）
+        result: data.result ?? data.meta ?? null,
       }
     case 'proposal':
       return { type: 'proposal', proposal: data as unknown as AgentProposal }
@@ -154,11 +218,18 @@ export function parseFrame(frame: string): AgentEvent | null {
       return {
         type: 'done',
         sessionId: String(data.session_id ?? ''),
+        runId: String(data.run_id ?? ''),
         messageId: String(data.message_id ?? ''),
         citations: (data.citations ?? []) as AgentCitation[],
         fallback: (data.fallback ?? 'kb') as AgentFallback,
+        kind: String(data.kind ?? ''),
         hitCount: Number(data.hit_count ?? 0),
         latencyMs: Number(data.latency_ms ?? 0),
+        status: (data.status ?? 'ok') as AgentDoneStatus,
+        rounds: Number(data.rounds ?? 0),
+        tokens: Number(data.tokens ?? 0),
+        tools: toToolList(data.tools),
+        pending: toToolList(data.pending),
       }
     case 'error':
       return {
@@ -170,6 +241,38 @@ export function parseFrame(frame: string): AgentEvent | null {
       // 后端将来加了新事件：老前端忽略即可，不该让整条流解析失败
       return null
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** 事件里的工具对象 -> 领域对象；缺字段就留空，渲染层自己兜底 */
+function toToolCall(data: Record<string, unknown>): AgentToolCall {
+  const call: AgentToolCall = { name: String(data.name ?? '') }
+  if (data.id !== undefined && data.id !== null) call.id = String(data.id)
+  if (isRecord(data.arguments)) call.arguments = data.arguments
+  if (data.executor === 'server' || data.executor === 'client') call.executor = data.executor
+  if (data.status) call.status = data.status as AgentToolCall['status']
+  if (data.summary) call.summary = String(data.summary)
+  if (data.error) call.error = String(data.error)
+  return call
+}
+
+/** `tool_result` 的 ok 布尔要翻译成调用状态，其余字段照收 */
+function toToolResultCall(data: Record<string, unknown>): AgentToolCall {
+  const call = toToolCall(data)
+  if (typeof data.ok === 'boolean') call.status = data.ok ? 'ok' : 'error'
+  return call
+}
+
+/**
+ * `done.tools` / `done.pending` 里的条目。
+ * pending 只有 id/name/arguments/executor，tools 多一个 ok（要翻成 status）——同一个解析器吃两种。
+ */
+function toToolList(value: unknown): AgentToolCall[] {
+  if (!Array.isArray(value)) return []
+  return value.filter(isRecord).map(toToolResultCall)
 }
 
 // ---------------- 非流式接口 ----------------

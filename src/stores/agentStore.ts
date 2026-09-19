@@ -26,10 +26,13 @@ import {
   listSessions,
   pollJob,
   resetKnowledge,
+  resumeAsk,
   streamAsk,
   uploadDocument,
   warmupEmbedder,
 } from '@/api/agent'
+import type { AgentToolResultPayload } from '@/api/agent'
+import { runClientTool } from '@/agent/clientTools'
 import { useLocalStorage } from '@/composables/useLocalStorage'
 import {
   AGENT_ENDPOINT_KEY,
@@ -46,10 +49,27 @@ import type {
   AgentHealth,
   AgentRetrievalMode,
   AgentSession,
+  AgentToolCall,
 } from '@/types/agent'
 
 export const AGENT_MODE_KEY = 'smart-workspace:agent-mode'
 export const AGENT_FALLBACK_KEY = 'smart-workspace:agent-fallback'
+
+/**
+ * 前端工具回环的安全上限（轮）。
+ *
+ * 后端自己有轮数护栏，但那是"模型又调了一次工具"的次数；这里限制的是
+ * **resume 往返次数**——万一后端状态、run_id 或 pending 出了什么岔子，
+ * 前端必须能自己收口，而不是无限地"执行工具 → 续跑"把页面卡死。
+ */
+const MAX_RESUME_ROUNDS = 5
+
+/**
+ * 待续跑的 run_id：**模块内、不持久化**。
+ * 它只在一次 ask() 的生命周期里有意义（页面一刷新，后端那边的 run 也过期了），
+ * 存进 localStorage 只会留下一份永远用不上的脏数据。
+ */
+let pendingRunId: string | null = null
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -268,7 +288,21 @@ export const useAgentStore = defineStore('agent', () => {
 
   // ---------- 问答 ----------
 
-  /** 发一问：先把用户消息与助手占位推上去，再逐事件填充 */
+  /**
+   * 发一问并驱动**完整的 client 工具回环**。
+   *
+   * 一轮问答可能不止一条流：后端跑到 client 工具（task_crud / get_weather）时会发
+   * `done.status = 'awaiting_client'` 停下来，把要执行的调用放在 `pending` 里。
+   * 前端执行完这些工具，带 run_id 调 `/api/ask/resume` 让它接着想——
+   * 如此往复，直到收到 `ok`（正常答完）或 `guardrail`（撞上限后的诚实收尾）。
+   *
+   * 三条要点：
+   * 1. 所有事件都落到**同一条**助手消息上：用户看到的是一个连续的回答，
+   *    而不是"每续跑一次就多一个气泡"；
+   * 2. 工具结果同时写进 `message.tools`，界面上的 BaseToolTag 立刻能看到执行结果
+   *    （后端不会为 client 工具再发 tool_result 事件，它只把结果记进 done.tools）；
+   * 3. 第一段流与后续每段 resume 共用同一个 AbortController，所以「停止」随时管用。
+   */
   async function ask(question: string): Promise<void> {
     const text = question.trim()
     if (!text || streaming.value) return
@@ -304,8 +338,11 @@ export const useAgentStore = defineStore('agent', () => {
 
     streaming.value = true
     controller = new AbortController()
+    const signal = controller.signal
+    pendingRunId = null
+
     try {
-      const stream = streamAsk(
+      let stream = streamAsk(
         endpoint.value,
         {
           question: text,
@@ -313,10 +350,47 @@ export const useAgentStore = defineStore('agent', () => {
           mode: mode.value,
           fallback_mode: fallbackMode.value,
         },
-        { signal: controller.signal },
+        { signal },
       )
-      for await (const event of stream) {
-        applyEvent(assistant, event)
+
+      for (let round = 0; ; round += 1) {
+        // done 只会出现在一条流的末尾；只有 awaiting_client 那条才算"还没答完、要前端接活"
+        let pending: AgentToolCall[] = []
+        for await (const event of stream) {
+          applyEvent(assistant, event)
+          if (event.type === 'done' && event.status === 'awaiting_client') {
+            pending = event.pending ?? []
+          }
+        }
+
+        if (assistant.status !== 'awaiting_client' || pending.length === 0) break
+
+        if (round >= MAX_RESUME_ROUNDS) {
+          assistant.error = `工具调用往返超过 ${MAX_RESUME_ROUNDS} 轮仍未收口，已停下：可以把问题拆小一点再问`
+          assistant.errorCode = 'tool_round_limit'
+          break
+        }
+
+        const results: AgentToolResultPayload[] = []
+        for (const call of pending) {
+          const result = await runClientTool({
+            id: call.id ?? '',
+            name: call.name,
+            arguments: call.arguments,
+          })
+          results.push(result)
+          recordToolResult(assistant, result)
+        }
+
+        // 用户在"前端跑工具"这段时间里点了停止：别再发 resume 了
+        if (signal.aborted) break
+        if (!pendingRunId) {
+          assistant.error = '后端没有返回 run_id，无法把工具结果送回去续跑'
+          assistant.errorCode = 'missing_run_id'
+          break
+        }
+
+        stream = resumeAsk(endpoint.value, { runId: pendingRunId, results }, { signal })
       }
     } catch (error) {
       if (isAbortError(error)) {
@@ -329,6 +403,7 @@ export const useAgentStore = defineStore('agent', () => {
       assistant.streaming = false
       streaming.value = false
       controller = null
+      pendingRunId = null
       void loadSessions()
     }
   }
@@ -343,14 +418,13 @@ export const useAgentStore = defineStore('agent', () => {
         message.citations.push(event.citation)
         break
       case 'tool_call':
-        message.tools = [...(message.tools ?? []), event.call]
+        // 同一轮里工具是"先发 tool_call 再发 tool_result"，按 id 并回去才不会出现两个标签
+        upsertTool(message, event.call)
         break
       case 'tool_result': {
-        const tools = [...(message.tools ?? [])]
-        const index = tools.findIndex((tool) => tool.name === event.call.name)
-        if (index >= 0) tools[index] = { ...tools[index], ...event.call }
-        else tools.push(event.call)
-        message.tools = tools
+        const existing = (message.tools ?? []).find((tool) => sameTool(tool, event.call))
+        // `result` 单独带在事件上（后端把结构化结果放在 meta 里），合并时别把它冲掉
+        upsertTool(message, { ...existing, ...event.call, result: event.result })
         break
       }
       case 'proposal':
@@ -359,11 +433,19 @@ export const useAgentStore = defineStore('agent', () => {
       case 'done':
         message.citations = event.citations.length ? event.citations : message.citations
         message.fallback = event.fallback
+        message.kind = event.kind
+        message.status = event.status
         message.hitCount = event.hitCount
         message.latencyMs = event.latencyMs
+        message.rounds = event.rounds
+        message.tokens = event.tokens
+        // done.tools 是这一轮的权威清单（含前端跑完的 client 工具），按 id 并进来补齐
+        for (const tool of event.tools ?? []) upsertTool(message, tool)
         if (event.sessionId) activeSessionId.value = event.sessionId
         if (event.messageId) message.id = event.messageId
-        message.streaming = false
+        pendingRunId = event.runId || null
+        // awaiting_client 不是终点：工具还要在本地跑、还要续跑，光标继续闪
+        message.streaming = event.status === 'awaiting_client'
         break
       case 'error':
         message.error = event.message
@@ -374,6 +456,51 @@ export const useAgentStore = defineStore('agent', () => {
         }
         break
     }
+  }
+
+  /** 把前端执行 client 工具的结果落到消息上（后端不会再为它发 tool_result 事件） */
+  function recordToolResult(
+    message: AgentChatMessage,
+    result: {
+      tool_call_id: string
+      name: string
+      ok: boolean
+      summary: string
+      result?: unknown
+      error?: string
+    },
+  ) {
+    const existing = (message.tools ?? []).find(
+      (tool) =>
+        (result.tool_call_id && tool.id === result.tool_call_id) || tool.name === result.name,
+    )
+    upsertTool(message, {
+      ...existing,
+      id: result.tool_call_id || existing?.id,
+      name: result.name,
+      status: result.ok ? 'ok' : 'error',
+      summary: result.summary,
+      error: result.error,
+      result: result.result,
+    })
+  }
+
+  /** 同一个工具调用的判定：有 id 认 id，没有就退回名字（老事件没有 id） */
+  function sameTool(a: AgentToolCall, b: AgentToolCall): boolean {
+    if (a.id && b.id) return a.id === b.id
+    return !!a.name && a.name === b.name
+  }
+
+  /**
+   * 按 id（其次按名字）合并一条工具调用，**顺序保持不变**。
+   * 顺序稳定很重要：用户读的是"先查知识库、再记了条任务"这个故事，乱序就等于说谎。
+   */
+  function upsertTool(message: AgentChatMessage, tool: AgentToolCall) {
+    const tools = [...(message.tools ?? [])]
+    const index = tools.findIndex((item) => sameTool(item, tool))
+    if (index >= 0) tools[index] = { ...tools[index], ...tool }
+    else tools.push(tool)
+    message.tools = tools
   }
 
   /** 停止生成：中断 fetch，后端也会随之停止（连接断掉即取消） */

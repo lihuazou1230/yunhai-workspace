@@ -4,9 +4,10 @@
  * 分工：**后端 yunhai-agent 保管 Key、跑模型、管向量库；前端只做消费**。
  * 前端拿得到的只有三样东西：一个基地址、一条 SSE 事件流、一份自检信息。
  *
- * 事件协议一次定死七种事件（见后端 app/sse.py）：第十阶段只用到 token / citation / done / error，
- * 但 tool_call / tool_result / proposal 现在就进类型，
- * 这样第十一阶段的工具调用、第十三阶段的文件提案都不用再改前端的解析与渲染骨架。
+ * 事件协议一次定死七种事件（见后端 app/sse.py）。第十一阶段的 ReAct 循环真正用上了
+ * tool_call / tool_result：后端把工具分成 server（它自己跑）与 client（**前端**在工作台数据上跑），
+ * 撞上 client 工具时发一条 `status: awaiting_client` 的 done 停下来，
+ * 前端执行完带 run_id 调 `/api/ask/resume` 续跑（见 stores/agentStore 的 ask）。
  */
 
 /** SSE 事件名（与后端 sse.py 常量一一对应） */
@@ -28,17 +29,52 @@ export interface AgentCitation {
   snippet: string
 }
 
-/** 本轮回答的依据类型 */
-export type AgentFallback = 'kb' | 'refuse' | 'bare' | 'web'
+/**
+ * 本轮回答的依据类型。
+ *
+ * 后三个是第十一阶段 ReAct 循环新增的：后端按"这轮回答靠什么立起来"分类
+ * （app/agent/react.py 的 `_classify` / `_fallback_of`），
+ * 前端只负责如实展示——`chat` 是没查任何资料的轻量对话，`tool` 是靠工具结果答的，
+ * `guardrail` 是撞上轮数/token 上限后的收尾。混在「不基于知识库」里看不出来区别。
+ */
+export type AgentFallback = 'kb' | 'refuse' | 'bare' | 'web' | 'chat' | 'tool' | 'guardrail'
 
 /** 检索策略（语义 / 字面，用于对比实验） */
 export type AgentRetrievalMode = 'semantic' | 'lexical'
 
-/** 工具调用过程（第十一阶段启用，类型先备好） */
+/** 工具由谁执行：后端自己跑 / 工作台前端跑（任务与天气缓存的真相只在前端） */
+export type AgentToolExecutor = 'server' | 'client'
+
+/**
+ * 工具调用状态。
+ * `running` = 后端正在跑；`awaiting_client` = 停在这里等前端执行完回传；
+ * `ok` / `error` 是执行结果。
+ */
+export type AgentToolStatus = 'running' | 'ok' | 'error' | 'awaiting_client'
+
+/**
+ * 一次工具调用（`tool_call` 事件开始、`tool_result` 事件收口）。
+ *
+ * 除了 `name` 全部可选：`tool_call` 只带 id/name/arguments/executor/status，
+ * 结果要等 `tool_result`（或前端自己跑完 client 工具）才补齐；
+ * 老会话里没有这些字段，渲染层必须照样能画出标签。
+ */
 export interface AgentToolCall {
+  /** 后端给的工具调用 id（同一轮里唯一，用来把结果并回发起的那一条） */
+  id?: string
   name: string
-  args?: unknown
+  arguments?: Record<string, unknown>
+  executor?: AgentToolExecutor
+  status?: AgentToolStatus
+  /** 结果的短摘要（`tool_result.summary`，前端跑 client 工具时也自己写一条） */
+  summary?: string
+  error?: string
+  /** 结构化结果（后端放 `meta`，client 工具放执行器自己的返回值） */
+  result?: unknown
 }
+
+/** 本轮收口状态：ok 正常答完 / awaiting_client 等前端执行工具 / guardrail 达到上限 */
+export type AgentDoneStatus = 'ok' | 'awaiting_client' | 'guardrail'
 
 /** 文件变更提案（第十三阶段启用） */
 export interface AgentProposal {
@@ -57,11 +93,27 @@ export type AgentEvent =
   | {
       type: 'done'
       sessionId: string
+      /**
+       * 本轮 run 的 id：`status === 'awaiting_client'` 时要带着它调 `/api/ask/resume`
+       * 才能接着跑（后端把这轮的 messages 存在服务端，靠它取回）。
+       */
+      runId: string
       messageId: string
       citations: AgentCitation[]
       fallback: AgentFallback
+      /** 回答的类型：kb / tool / chat / guardrail（后端 `_classify`） */
+      kind: string
       hitCount: number
       latencyMs: number
+      status: AgentDoneStatus
+      /** ReAct 轮数（模型又调了一次工具算一轮） */
+      rounds: number
+      /** 本轮累计 token（后端 usage 缺失时按字符估算） */
+      tokens: number
+      /** 这一轮跑过的全部工具（含前端执行后回传的 client 工具） */
+      tools: AgentToolCall[]
+      /** 还在等前端执行、需要 resume 的 client 工具 */
+      pending: AgentToolCall[]
     }
   | { type: 'error'; code: string; message: string }
 
@@ -85,6 +137,14 @@ export interface AgentChatMessage {
    * 第十一阶段的 `BaseToolTag` 直接渲染这份数据，不用回头改 store。
    */
   tools?: AgentToolCall[]
+  /** 本轮回答的类型（done.kind）：kb / tool / chat / guardrail */
+  kind?: string
+  /** 本轮收口状态（done.status）：awaiting_client 表示工具还没跑完 */
+  status?: AgentDoneStatus
+  /** ReAct 轮数（设置页/调试展示用） */
+  rounds?: number
+  /** 本轮消耗的 token 数 */
+  tokens?: number
   /** 文件变更提案（第十三阶段渲染 BaseDiffCard） */
   proposals?: AgentProposal[]
   createdAt: string
@@ -189,6 +249,27 @@ export const AGENT_FALLBACK_LABELS: Record<AgentFallback, string> = {
   refuse: '知识库无相关内容',
   bare: '不基于知识库',
   web: '联网搜索（未接入）',
+  chat: '轻量对话',
+  tool: '基于工具结果',
+  guardrail: '已收口（达到上限）',
+}
+
+/**
+ * 工具名的中文标签。
+ *
+ * 为什么要有它：工具名是给模型看的标识符（`task_crud`），直接摆在用户面前
+ * 等于把实现细节漏出去；标签只负责"这一步在干什么"。
+ */
+export const AGENT_TOOL_LABELS: Record<string, string> = {
+  search_knowledge: '查知识库',
+  task_crud: '任务操作',
+  get_date: '日期时间',
+  get_weather: '天气',
+}
+
+/** 取工具的中文标签；没登记的（后端新加的工具）原样显示名字，总比显示空白强 */
+export function agentToolLabel(name: string): string {
+  return AGENT_TOOL_LABELS[name] ?? name
 }
 
 /** 与后端 config.py 对齐的上限，前端提前拦一次，避免白传 10MB */

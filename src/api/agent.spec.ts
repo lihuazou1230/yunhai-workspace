@@ -22,6 +22,7 @@ import {
   parseFrame,
   pollJob,
   resetKnowledge,
+  resumeAsk,
   streamAsk,
   uploadDocument,
   warmupEmbedder,
@@ -91,16 +92,31 @@ describe('parseFrame', () => {
     }
 
     const done = parseFrame(
-      'event: done\ndata: {"session_id":"s1","message_id":"m1","citations":[],"fallback":"kb","hit_count":2,"latency_ms":900}',
+      'event: done\ndata: {"session_id":"s1","run_id":"r1","message_id":"m1","citations":[],"fallback":"kb","kind":"kb","hit_count":2,"latency_ms":900,"status":"ok","rounds":1,"tokens":120,"tools":[{"id":"c1","name":"search_knowledge","ok":true,"executor":"server","arguments":{"query":"分块"}}],"pending":[]}',
     )
     expect(done).toEqual({
       type: 'done',
       sessionId: 's1',
+      runId: 'r1',
       messageId: 'm1',
       citations: [],
       fallback: 'kb',
+      kind: 'kb',
       hitCount: 2,
       latencyMs: 900,
+      status: 'ok',
+      rounds: 1,
+      tokens: 120,
+      tools: [
+        {
+          id: 'c1',
+          name: 'search_knowledge',
+          executor: 'server',
+          arguments: { query: '分块' },
+          status: 'ok',
+        },
+      ],
+      pending: [],
     })
 
     expect(parseFrame('event: error\ndata: {"code":"llm_error","message":"炸了"}')).toEqual({
@@ -110,11 +126,60 @@ describe('parseFrame', () => {
     })
   })
 
+  it('done 缺字段时给安全的默认值（老后端 / 手写事件不该让状态机崩）', () => {
+    expect(parseFrame('event: done\ndata: {"fallback":"refuse"}')).toEqual({
+      type: 'done',
+      sessionId: '',
+      runId: '',
+      messageId: '',
+      citations: [],
+      fallback: 'refuse',
+      kind: '',
+      hitCount: 0,
+      latencyMs: 0,
+      status: 'ok',
+      rounds: 0,
+      tokens: 0,
+      tools: [],
+      pending: [],
+    })
+  })
+
   it('工具调用与文件提案事件也解析（第十一 / 十三阶段先备好）', () => {
+    // 新协议：id / name / arguments / executor / status 平铺在 data 上
+    expect(
+      parseFrame(
+        'event: tool_call\ndata: {"id":"c1","name":"task_crud","arguments":{"action":"create"},"executor":"client","status":"awaiting_client"}',
+      ),
+    ).toEqual({
+      type: 'tool_call',
+      call: {
+        id: 'c1',
+        name: 'task_crud',
+        arguments: { action: 'create' },
+        executor: 'client',
+        status: 'awaiting_client',
+      },
+    })
+
+    // 老协议（只带 name）照样解析，历史事件不会变成空壳
     expect(parseFrame('event: tool_call\ndata: {"name":"search_knowledge"}')).toEqual({
       type: 'tool_call',
       call: { name: 'search_knowledge' },
     })
+
+    // tool_result 的 ok 要翻成调用状态；结构化结果在 meta 里（后端没有 result 字段）
+    expect(
+      parseFrame(
+        'event: tool_result\ndata: {"id":"c1","name":"search_knowledge","ok":false,"summary":"","error":"没有命中","citations":[],"meta":{"hits":0}}',
+      ),
+    ).toEqual({
+      type: 'tool_result',
+      call: { id: 'c1', name: 'search_knowledge', status: 'error', error: '没有命中' },
+      result: { hits: 0 },
+    })
+
+    // 老协议把 id/name 裹在 call 子对象里
     expect(
       parseFrame(
         'event: tool_result\ndata: {"call":{"name":"get_date"},"result":{"today":"2026-09-17"}}',
@@ -124,6 +189,7 @@ describe('parseFrame', () => {
       call: { name: 'get_date' },
       result: { today: '2026-09-17' },
     })
+
     const proposal = parseFrame('event: proposal\ndata: {"path":"a.md","diff":"+1"}')
     expect(proposal).toMatchObject({ type: 'proposal' })
   })
@@ -191,6 +257,27 @@ describe('streamAsk', () => {
       mode: 'semantic',
       fallback_mode: 'bare',
       top_k: 3,
+      threshold: null,
+      // 默认走 agent 链路并开工具：client 工具的回环要它才会发生
+      strategy: 'agent',
+      tools_enabled: true,
+    })
+  })
+
+  it('可以显式选回 rag 链路或临时关掉工具', async () => {
+    const spy = mockFetch(() => fakeStreamResponse(['event: done\ndata: {}\n\n']))
+    await collect(
+      streamAsk('http://h', {
+        question: 'q',
+        strategy: 'rag',
+        tools_enabled: false,
+        threshold: 0.4,
+      }),
+    )
+    expect(JSON.parse(String(spy.mock.calls[0][1]?.body))).toMatchObject({
+      strategy: 'rag',
+      tools_enabled: false,
+      threshold: 0.4,
     })
   })
 
@@ -247,6 +334,74 @@ describe('streamAsk', () => {
     })
     try {
       await collect(streamAsk('http://x', { question: 'q' }))
+      expect.unreachable('应当抛出')
+    } catch (error) {
+      expect(isAbortError(error)).toBe(true)
+    }
+  })
+})
+
+describe('resumeAsk', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('把前端执行结果按 run_id 送回去，复用同一套流解析', async () => {
+    const spy = mockFetch(() =>
+      fakeStreamResponse([
+        'event: token\ndata: {"text":"已经记下了。"}\n\n',
+        'event: done\ndata: {"session_id":"s1","run_id":"r1","message_id":"m2","status":"ok","fallback":"tool","kind":"tool","rounds":1,"tokens":80,"tools":[],"pending":[]}\n\n',
+      ]),
+    )
+
+    const events = await collect(
+      resumeAsk('http://127.0.0.1:8000/', {
+        runId: 'r1',
+        results: [
+          {
+            tool_call_id: 'c1',
+            name: 'task_crud',
+            ok: true,
+            summary: '已创建任务「交周报」（id=t1）',
+            result: { id: 't1' },
+          },
+        ],
+      }),
+    )
+
+    expect(events.map((event) => event.type)).toEqual(['token', 'done'])
+    const [url, init] = spy.mock.calls[0]
+    expect(url).toBe('http://127.0.0.1:8000/api/ask/resume')
+    expect(JSON.parse(String(init?.body))).toEqual({
+      run_id: 'r1',
+      results: [
+        {
+          tool_call_id: 'c1',
+          name: 'task_crud',
+          ok: true,
+          summary: '已创建任务「交周报」（id=t1）',
+          result: { id: 't1' },
+        },
+      ],
+    })
+  })
+
+  it('run 过期（404 JSON）走同一条错误映射', async () => {
+    mockFetch(() => fakeJsonResponse({ code: 'run_not_found', message: '这一轮已经过期了' }, 404))
+    await expect(
+      collect(resumeAsk('http://h', { runId: 'r0', results: [] })),
+    ).rejects.toMatchObject({
+      code: 'run_not_found',
+      status: 404,
+    })
+  })
+
+  it('取消时原样抛 AbortError（不被包装成"连不上"）', async () => {
+    mockFetch(() => {
+      throw new DOMException('aborted', 'AbortError')
+    })
+    try {
+      await collect(resumeAsk('http://h', { runId: 'r1', results: [] }))
       expect.unreachable('应当抛出')
     } catch (error) {
       expect(isAbortError(error)).toBe(true)
