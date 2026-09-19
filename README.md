@@ -23,7 +23,7 @@
 
 ## 核心功能
 
-- 👤 **用户系统**：邮箱密码注册/登录（含忘记密码邮件重置）+ **GitHub OAuth**（按钮按服务端实际开启的 Provider 渲染），刷新页面会话自动恢复（不闪跳登录页），未登录访问受保护页自动重定向并带原目标回跳
+- 👤 **用户系统**：邮箱密码注册/登录（含忘记密码邮件重置），刷新页面会话自动恢复（不闪跳登录页），未登录访问受保护页自动重定向并带原目标回跳
 - 🛡️ **注册安全（两道闸，都卡在"发确认邮件之前"）**：**密码复杂度**（≥8 位 + 大小写 + 数字 + 弱密码黑名单，实时强度条列出"缺什么"，未达标按钮置灰）+ **Cloudflare Turnstile** 人机验证（token 由 Cloudflare 签发、**Supabase 服务端核验**，前端伪造无效；managed 模式正常用户无感通过；**登录 / 注册 / 忘记密码 / 重发验证邮件四条链路都带 token**——Supabase 的 Captcha 是全局开关）
 - ☁️ **多设备同步**：任务写进云端 Postgres（行级安全 RLS），离线改动进队列、联网自动补发，旧 localStorage 数据登录后**一次性迁移**
 - 🔄 **账号级数据一致性（第九阶段）**：不只任务——**主题外观、壁纸、标签、快捷导航、倒计时、仪表板布局与周目标、赚钱秒表配置、投入时长日志、提醒设置、默认搜索引擎**统统跟账号走，任一设备登录即是同一套；换账号登录会先清本地再拉新账号的（同一台电脑换人用不串数据）；凭证（AI Key / 微信 UID）与设备相关项（天气缓存 / 定位记忆 / 已通知标记）**刻意留在本机**，设置页可展开查看完整清单与理由
@@ -429,7 +429,7 @@ VITE_AMAP_KEY=你的Key
 
 1. <https://supabase.com> 新建项目 → Project Settings → API 复制 **Project URL** 与 **anon public key**
 2. 控制台 → SQL Editor → 粘贴执行 `supabase/schema.sql`（脚本幂等，可重复执行）
-3. Authentication → Providers：打开 **Email**；想要 GitHub 登录再打开 **GitHub**（需先建 GitHub OAuth App，回调地址填 Supabase 给的 Callback URL）——登录页会按服务端实际开启的 Provider 决定是否渲染 GitHub 按钮
+3. Authentication → Providers：打开 **Email**（当前登录页只有邮箱密码一种方式）
 4. Authentication → Settings：把 **最小密码长度调到 8**（与前端 `utils/auth.ts` 的规则对齐；这是绕过前端直接调 API 时的服务端兜底）
 5. 项目根 `.env.local` 写入：
 

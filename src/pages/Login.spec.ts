@@ -78,18 +78,11 @@ describe('Login 页', () => {
     // 本文件默认按「已配置 Supabase」测；下面的用例再按需切回未配置
     configureSupabase(true)
     localStorage.clear()
-    // 登录页挂载时会问一次「服务端开了哪些登录方式」，默认按 GitHub 已开启返回
-    vi.stubGlobal('fetch', vi.fn(settingsResponse({ email: true, github: true })))
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
   })
-
-  /** `/auth/v1/settings` 的响应桩 */
-  function settingsResponse(external: Record<string, boolean>) {
-    return async () => ({ ok: true, json: async () => ({ external }) })
-  }
 
   describe('表单校验（纯函数驱动，不消耗一次网络请求）', () => {
     it('邮箱为空：提示且不调用登录接口', async () => {
@@ -380,9 +373,8 @@ describe('Login 页', () => {
 
       expect(wrapper.text()).toContain('忘记密码')
       expect(wrapper.find('[data-testid="login-email"]').exists()).toBe(true)
-      // 重置模式不需要密码/确认密码/GitHub 入口
+      // 重置模式不需要密码/确认密码入口
       expect(wrapper.find('[data-testid="login-password"]').exists()).toBe(false)
-      expect(wrapper.find('[data-testid="login-github"]').exists()).toBe(false)
       expect(wrapper.find('[data-testid="login-tab-signup"]').exists()).toBe(false)
       // 也不需要输入密码就能提交
       expect(wrapper.find('[data-testid="login-submit"]').text()).toContain('发送重置邮件')
@@ -448,46 +440,6 @@ describe('Login 页', () => {
       const { wrapper } = await mountLogin()
 
       expect(wrapper.find('[data-testid="login-forgot-password"]').exists()).toBe(false)
-    })
-  })
-
-  describe('GitHub OAuth', () => {
-    it('服务端开启了 GitHub 时按钮可见', async () => {
-      const { wrapper } = await mountLogin()
-      await flushPromises()
-      expect(wrapper.find('[data-testid="login-github"]').exists()).toBe(true)
-    })
-
-    it('服务端没开 GitHub：不渲染按钮，也不留任何提示文案（避免点了报 provider is not enabled）', async () => {
-      vi.stubGlobal('fetch', vi.fn(settingsResponse({ email: true, github: false })))
-      const { wrapper } = await mountLogin()
-      await flushPromises()
-
-      expect(wrapper.find('[data-testid="login-github"]').exists()).toBe(false)
-      // 登录页只留给"用户该做什么"的东西：没开 GitHub 就什么都不显示
-      expect(wrapper.text()).not.toContain('GitHub')
-    })
-
-    it('问不到服务端配置时按钮照常显示（不能因一次网络抖动把功能藏起来）', async () => {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async () => {
-          throw new TypeError('Failed to fetch')
-        }),
-      )
-      const { wrapper } = await mountLogin()
-      await flushPromises()
-
-      expect(wrapper.find('[data-testid="login-github"]').exists()).toBe(true)
-    })
-    it('点击后调用 OAuth 并带当前地址做回跳', async () => {
-      const { wrapper } = await mountLogin()
-
-      await wrapper.find('[data-testid="login-github"]').trigger('click')
-      await flushPromises()
-
-      expect(authApiStub.signInWithGitHub).toHaveBeenCalledWith(window.location.href)
-      expect(wrapper.find('[data-testid="login-feedback"]').text()).toContain('GitHub')
     })
   })
 

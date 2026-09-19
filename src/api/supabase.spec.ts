@@ -4,7 +4,6 @@ import {
   SUPABASE_SETUP_HINT,
   SupabaseUnavailableError,
   checkSupabaseConnection,
-  fetchAuthProviders,
   getSupabaseClient,
   isSupabaseConfigured,
   readSupabaseEnv,
@@ -194,64 +193,6 @@ describe('连接自检 checkSupabaseConnection', () => {
   })
 })
 
-describe('读取服务端开启的登录方式 fetchAuthProviders', () => {
-  beforeEach(() => {
-    vi.stubEnv('VITE_SUPABASE_URL', 'https://demo.supabase.co')
-    vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key')
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-  })
-
-  it('按 /auth/v1/settings 的 external 字段返回', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({
-        ok: true,
-        json: async () => ({ external: { email: true, github: false } }),
-      })),
-    )
-
-    expect(await fetchAuthProviders()).toEqual({ email: true, github: false })
-  })
-
-  it('github 开启时返回 true；external 里没写 email 时按开启处理（它是主流程）', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({ ok: true, json: async () => ({ external: { github: true } }) })),
-    )
-
-    expect(await fetchAuthProviders()).toEqual({ email: true, github: true })
-  })
-
-  it('请求失败 / 抛错都返回 null（调用方按「未知」处理，按钮照常显示）', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({ ok: false, status: 500 })),
-    )
-    expect(await fetchAuthProviders()).toBeNull()
-
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => {
-        throw new TypeError('Failed to fetch')
-      }),
-    )
-    expect(await fetchAuthProviders()).toBeNull()
-  })
-
-  it('未配置 Supabase 时不发请求', async () => {
-    vi.stubEnv('VITE_SUPABASE_URL', '')
-    vi.stubEnv('VITE_SUPABASE_ANON_KEY', '')
-    const fetchMock = vi.fn()
-    vi.stubGlobal('fetch', fetchMock)
-
-    expect(await fetchAuthProviders()).toBeNull()
-    expect(fetchMock).not.toHaveBeenCalled()
-  })
-})
-
 describe('配置读取与超时保护的边界情况', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_SUPABASE_URL', 'https://demo.supabase.co')
@@ -298,17 +239,6 @@ describe('配置读取与超时保护的边界情况', () => {
     }
   })
 
-  it('探测登录方式超时（8 秒）时返回 null，不能让设置页一直转圈', async () => {
-    vi.useFakeTimers()
-    vi.stubGlobal('fetch', hangingFetch())
-
-    const pending = fetchAuthProviders(8000)
-    await vi.advanceTimersByTimeAsync(8000)
-
-    // 「问不到」按「未知」处理：按钮照常显示，比永远 loading 好
-    await expect(pending).resolves.toBeNull()
-  })
-
   it('连接自检超时时明确提示「请求超时」，而不是含糊地说地址抄错了', async () => {
     vi.useFakeTimers()
     vi.stubGlobal('fetch', hangingFetch())
@@ -320,15 +250,5 @@ describe('配置读取与超时保护的边界情况', () => {
     expect(result.ok).toBe(false)
     expect(result.message).toContain('超时')
     expect(result.detail).toContain('/auth/v1/health')
-  })
-
-  it('/auth/v1/settings 没有 external 字段时按「邮箱可用、GitHub 未开」处理', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) })),
-    )
-
-    // 老版本 Supabase 不返回 external：此时判定成「邮箱不可用」会让登录页没有任何登录方式
-    expect(await fetchAuthProviders()).toEqual({ email: true, github: false })
   })
 })

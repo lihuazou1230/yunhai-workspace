@@ -28,7 +28,6 @@ import {
   getCurrentSessionUser,
   resendConfirmEmail,
   sendPasswordReset,
-  signInWithGitHub,
   signInWithPassword,
   signOutUser,
   signUpWithPassword,
@@ -43,10 +42,6 @@ function fakeClient(overrides: Record<string, unknown> = {}) {
   const auth = {
     signUp: vi.fn(async () => ({ data: { session: null }, error: null as unknown })),
     signInWithPassword: vi.fn(async () => ({ data: { session: {} }, error: null as unknown })),
-    signInWithOAuth: vi.fn(async () => ({
-      data: { url: 'https://github.com/login' },
-      error: null as unknown,
-    })),
     signOut: vi.fn(async () => ({ data: {}, error: null as unknown })),
     resend: vi.fn(async () => ({ data: {}, error: null as unknown })),
     resetPasswordForEmail: vi.fn(async () => ({ data: {}, error: null as unknown })),
@@ -226,7 +221,6 @@ describe('认证动作（未配置 Supabase 时不抛错，只返回失败结果
     const results = await Promise.all([
       signInWithPassword('a@b.com', '123456'),
       signUpWithPassword({ email: 'a@b.com', password: '123456', displayName: '张三' }),
-      signInWithGitHub(),
       signOutUser(),
       updateAvatarMetadata('https://x/a.webp'),
     ])
@@ -323,39 +317,6 @@ describe('认证动作（已配置）', () => {
     expect(await signInWithPassword('a@b.com', 'bad')).toEqual({
       ok: false,
       message: '邮箱或密码不正确',
-    })
-  })
-
-  it('GitHub OAuth：带 redirectTo 时透传给 supabase', async () => {
-    const result = await signInWithGitHub('https://app.example.com/login')
-    expect(result.ok).toBe(true)
-    const client = holder.client as ReturnType<typeof fakeClient>
-    expect(client.auth.signInWithOAuth).toHaveBeenCalledWith({
-      provider: 'github',
-      options: { redirectTo: 'https://app.example.com/login' },
-    })
-  })
-
-  it('不传 redirectTo 时默认回跳当前页面（location.href）', async () => {
-    const result = await signInWithGitHub()
-
-    expect(result.ok).toBe(true)
-    const client = holder.client as ReturnType<typeof fakeClient>
-    // 用 location.href 而不是 origin：GitHub Pages 部署在 /<repo>/ 子路径下也能回到原页面
-    expect(client.auth.signInWithOAuth).toHaveBeenCalledWith({
-      provider: 'github',
-      options: { redirectTo: location.href },
-    })
-  })
-
-  it('GitHub OAuth 返回错误（provider 没开后端、或网络不通）时返回失败结果而不是抛错', async () => {
-    holder.client = fakeClient({
-      signInWithOAuth: vi.fn(async () => ({ data: {}, error: { message: 'Failed to fetch' } })),
-    })
-
-    expect(await signInWithGitHub()).toEqual({
-      ok: false,
-      message: '网络不可用，请检查网络后重试',
     })
   })
 

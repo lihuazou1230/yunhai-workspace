@@ -5,7 +5,6 @@
  * 一页双 Tab：
  * - 登录：邮箱 + 密码
  * - 注册：昵称（可空）+ 邮箱 + 密码 + 确认密码
- * - GitHub OAuth：一键跳转授权，回跳后由 supabase-js 自动换会话
  *
  * 三个设计决策：
  * 1. **校验全用纯函数**（utils/validation 管形状、utils/auth 管密码强度）：逻辑可单测，组件只负责把错误显示出来
@@ -24,7 +23,7 @@ import BaseInput from '@/components/atoms/BaseInput.vue'
 import PasswordStrengthMeter from '@/components/atoms/PasswordStrengthMeter.vue'
 import TurnstileCaptcha from '@/components/atoms/TurnstileCaptcha.vue'
 import { useAuthStore } from '@/stores/authStore'
-import { SUPABASE_SETUP_HINT, fetchAuthProviders } from '@/api/supabase'
+import { SUPABASE_SETUP_HINT } from '@/api/supabase'
 import { isTurnstileEnabled } from '@/composables/useTurnstile'
 import type { TurnstileStatus } from '@/composables/useTurnstile'
 import { validateLoginPassword, validatePassword } from '@/utils/auth'
@@ -252,25 +251,10 @@ async function submit() {
   }
 }
 
-async function signInWithGithub() {
-  feedback.value = null
-  submitting.value = true
-  try {
-    const result = await authStore.signInWithGithub(window.location.href)
-    feedback.value = { ok: result.ok, message: result.message }
-  } finally {
-    submitting.value = false
-  }
-}
-
 /** 本地模式：直接进应用（没有云配置时不该把用户挡在门外） */
 function enterLocalMode() {
   void router.push(redirectTarget.value)
 }
-
-// ---- 按服务端实际开启的登录方式来渲染按钮 ----
-/** null = 还没问到（保持按钮可见，不因一次网络抖动把功能藏起来） */
-const githubEnabled = ref<boolean | null>(null)
 
 /**
  * 已经登录还落在登录页 → 直接送进应用。
@@ -291,16 +275,15 @@ onMounted(async () => {
   /**
    * 先恢复会话（守卫通常已经调过；这里兜底，直接打开 /login 时也拿得到状态）。
    * **必须在取 redirectNotice 之前 await**：邮件链接的落地结果是在 init() 里产生的。
+   *
+   * 顺带说明：这里也必须**真的调一次 init()**——原来挂载时探测服务端 Provider 的那次
+   * 请求兼着「触发 store 初始化」的作用，删掉后全靠这一句把状态从 loading 推到 authed/guest。
    */
   await authStore.init()
 
   // 邮件链接落地结果（验证成功 / 链接过期）展示一次
   const notice = authStore.takeRedirectNotice()
   if (notice) feedback.value = { ok: notice.ok, message: notice.message }
-
-  if (isLocalMode.value) return
-  const providers = await fetchAuthProviders()
-  if (providers) githubEnabled.value = providers.github
 })
 </script>
 
@@ -530,29 +513,11 @@ onMounted(async () => {
           >，点邮件里的链接即可设置新密码（有效期约 1 小时，过期可再发一次）。
         </div>
 
-        <!-- GitHub OAuth：只在服务端确实开启时才渲染（否则点了只会报 provider is not enabled） -->
-        <template v-if="tab !== 'reset' && githubEnabled !== false">
-          <div class="my-5 flex items-center gap-3">
-            <span class="h-px flex-1 bg-slate-200 dark:bg-slate-700"></span>
-            <span class="text-xs text-slate-400">或</span>
-            <span class="h-px flex-1 bg-slate-200 dark:bg-slate-700"></span>
-          </div>
-          <BaseButton
-            data-testid="login-github"
-            variant="secondary"
-            block
-            :disabled="submitting"
-            @click="signInWithGithub"
-          >
-            <span class="mr-2">🐙</span>使用 GitHub 登录
-          </BaseButton>
-        </template>
-
         <!-- 反馈 -->
         <p
           v-if="feedback"
           data-testid="login-feedback"
-          class="mt-4 text-center text-xs"
+          class="mt-5 text-center text-xs"
           :class="feedback.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'"
           role="status"
         >

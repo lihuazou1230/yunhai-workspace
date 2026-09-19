@@ -12,7 +12,6 @@ const api = vi.hoisted(() => ({
     vi.fn<(email: string, redirectTo?: string, captchaToken?: string) => Promise<AuthResult>>(),
   sendPasswordReset:
     vi.fn<(email: string, redirectTo?: string, captchaToken?: string) => Promise<AuthResult>>(),
-  signInWithGitHub: vi.fn<(redirectTo?: string) => Promise<AuthResult>>(),
   signInWithPassword:
     vi.fn<(email: string, password: string, captchaToken?: string) => Promise<AuthResult>>(),
   signOutUser: vi.fn<() => Promise<AuthResult>>(),
@@ -62,7 +61,6 @@ describe('authStore', () => {
     })
     api.subscribeAuthChanges.mockReturnValue(vi.fn())
     api.signInWithPassword.mockResolvedValue({ ok: true, message: '登录成功' })
-    api.signInWithGitHub.mockResolvedValue({ ok: true, message: '正在跳转 GitHub 授权…' })
     api.signOutUser.mockResolvedValue({ ok: true, message: '已退出登录' })
     api.signUpWithPassword.mockResolvedValue({ ok: true, message: '注册成功，已自动登录' })
     api.updateAvatarMetadata.mockResolvedValue({ ok: true, message: '头像已更新' })
@@ -244,28 +242,6 @@ describe('authStore', () => {
       password: 'pw123456',
       displayName: '李四',
     })
-    expect(store.isAuthed).toBe(false)
-  })
-
-  it('GitHub 登录透传 redirectTo', async () => {
-    const store = useAuthStore()
-    await store.init()
-
-    await store.signInWithGithub('https://app.example.com/login?redirect=/todos')
-    expect(api.signInWithGitHub).toHaveBeenCalledWith(
-      'https://app.example.com/login?redirect=/todos',
-    )
-  })
-
-  it('GitHub 登录失败（provider 未开启 / 网络不通）：记录文案，状态保持未登录', async () => {
-    api.signInWithGitHub.mockResolvedValue({ ok: false, message: 'Provider is not enabled' })
-    const store = useAuthStore()
-    await store.init()
-
-    const result = await store.signInWithGithub()
-
-    expect(result.ok).toBe(false)
-    expect(store.lastError).toBe('Provider is not enabled')
     expect(store.isAuthed).toBe(false)
   })
 

@@ -8,7 +8,6 @@ import {
   getCurrentSessionUser,
   resendConfirmEmail,
   sendPasswordReset,
-  signInWithGitHub,
   signInWithPassword,
   signOutUser,
   signUpWithPassword,
@@ -155,13 +154,6 @@ export const useAuthStore = defineStore('auth', () => {
     return result
   }
 
-  /** GitHub OAuth 登录（成功后浏览器会跳回 redirectTo） */
-  async function signInWithGithub(redirectTo?: string): Promise<AuthResult> {
-    const result = await signInWithGitHub(redirectTo)
-    if (!result.ok) lastError.value = result.message
-    return result
-  }
-
   /** 重新发送注册验证邮件（开启邮箱验证时用；开了 Captcha 时也要带 token） */
   async function resendConfirm(email: string, captchaToken?: string): Promise<AuthResult> {
     const result = await resendConfirmEmail(email.trim(), undefined, captchaToken)
@@ -249,7 +241,6 @@ export const useAuthStore = defineStore('auth', () => {
     takeRedirectNotice,
     signIn,
     signUp,
-    signInWithGithub,
     resendConfirm,
     sendResetEmail,
     changePassword,

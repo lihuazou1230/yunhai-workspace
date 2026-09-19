@@ -21,7 +21,6 @@ export const authApiStub = {
     vi.fn<(email: string, redirectTo?: string, captchaToken?: string) => Promise<AuthResult>>(),
   sendPasswordReset:
     vi.fn<(email: string, redirectTo?: string, captchaToken?: string) => Promise<AuthResult>>(),
-  signInWithGitHub: vi.fn<(redirectTo?: string) => Promise<AuthResult>>(),
   signInWithPassword:
     vi.fn<(email: string, password: string, captchaToken?: string) => Promise<AuthResult>>(),
   signOutUser: vi.fn<() => Promise<AuthResult>>(),
@@ -49,7 +48,6 @@ export function resetAuthApiStub() {
     ok: true,
     message: '密码已更新，可以用新密码登录了',
   })
-  authApiStub.signInWithGitHub.mockResolvedValue({ ok: true, message: '正在跳转 GitHub 授权…' })
   authApiStub.signInWithPassword.mockResolvedValue({ ok: true, message: '登录成功' })
   authApiStub.signOutUser.mockResolvedValue({ ok: true, message: '已退出登录' })
   authApiStub.signUpWithPassword.mockResolvedValue({ ok: true, message: '注册成功，已自动登录' })

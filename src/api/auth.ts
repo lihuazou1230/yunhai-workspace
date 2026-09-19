@@ -201,24 +201,6 @@ export async function signInWithPassword(
   }
 }
 
-/** GitHub OAuth 登录（会跳转到 GitHub 授权页，回来时由 detectSessionInUrl 自动换会话） */ export async function signInWithGitHub(
-  redirectTo?: string,
-): Promise<AuthResult> {
-  try {
-    const client = requireSupabaseClient()
-    const { error } = await client.auth.signInWithOAuth({
-      provider: 'github',
-      options: {
-        redirectTo: redirectTo ?? (typeof location !== 'undefined' ? location.href : undefined),
-      },
-    })
-    if (error) return failure(error)
-    return { ok: true, message: '正在跳转 GitHub 授权…' }
-  } catch (error) {
-    return failure(error)
-  }
-}
-
 /**
  * 重新发送注册验证邮件。
  *

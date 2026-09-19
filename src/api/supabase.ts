@@ -7,7 +7,7 @@
  * 2. **每次读 env**：配置在模块加载时读死会让测试无法切换「已配置 / 未配置」两条路径，
  *    所以统一走 `readSupabaseEnv()`，配置变化时重建客户端（缓存 key 比对）。
  * 3. **会话持久化交给 supabase-js**：`persistSession` + `autoRefreshToken` +
- *    `detectSessionInUrl`（GitHub OAuth 回调地址里带的 token 由它自动换会话）。
+ *    `detectSessionInUrl`（邮件里的验证 / 重置链接带回来的 token 由它自动换会话）。
  */
 
 import { createClient } from '@supabase/supabase-js'
@@ -97,50 +97,6 @@ export function requireSupabaseClient(): SupabaseClient {
 export function resetSupabaseClient(): void {
   client = null
   clientFingerprint = ''
-}
-
-/** 服务端实际开启的登录方式 */
-export interface AuthProviders {
-  email: boolean
-  github: boolean
-}
-
-/**
- * 读取服务端真实开启的登录方式（`/auth/v1/settings`，公开接口）。
- *
- * 为什么需要：GitHub 没在 Supabase 后台开启时，按钮点了只会得到一个
- * `provider is not enabled` 的英文报错，用户完全不知道为什么。
- * 拿到配置就能直接不渲染那个按钮。
- *
- * 失败时返回 null（调用方按「未知」处理：按钮照常显示）——
- * 不能因为一次网络抖动把功能藏起来。
- */
-export async function fetchAuthProviders(timeoutMs = 8000): Promise<AuthProviders | null> {
-  const { url, anonKey } = readSupabaseEnv()
-  if (!isSupabaseConfigured()) return null
-
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-
-  try {
-    const response = await fetch(`${url}/auth/v1/settings`, {
-      headers: { apikey: anonKey },
-      signal: controller.signal,
-    })
-    if (!response.ok) return null
-
-    const data = (await response.json()) as { external?: Record<string, boolean> }
-    const external = data.external ?? {}
-    return {
-      // email 默认视为开启：它是主流程，判定成 false 会导致登录页没有登录方式
-      email: external.email !== false,
-      github: external.github === true,
-    }
-  } catch {
-    return null
-  } finally {
-    clearTimeout(timer)
-  }
 }
 
 /** 连接自检结果 */
