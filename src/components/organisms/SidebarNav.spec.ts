@@ -176,7 +176,7 @@ describe('SidebarNav', () => {
     expect(wrapper.text()).toContain('使用帮助')
   })
 
-  it('折叠成 icon rail：只留图标与折叠按钮，品牌文案隐藏', async () => {
+  it('折叠成 icon rail：只留导航图标与折叠按钮，品牌整行收起', async () => {
     const { wrapper } = await mountSidebar({ collapsed: true })
 
     expect(wrapper.find('[data-testid="sidebar"]').classes()).toContain('w-16')

@@ -75,18 +75,10 @@ async function handleSignOut() {
     class="sticky top-0 hidden h-screen shrink-0 flex-col border-r border-slate-200 bg-white/80 backdrop-blur-md transition-[width] lg:flex dark:border-slate-800 dark:bg-slate-900/80"
     :class="collapsed ? 'w-16' : 'w-60'"
   >
-    <!-- 品牌（折叠时只留图标） -->
-    <div class="flex items-center gap-2.5 px-3 pt-4">
-      <span
-        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--el-color-primary)] text-[15px] leading-none text-white"
-        aria-hidden="true"
-      >
-        🧭
-      </span>
-      <span
-        v-if="!collapsed"
-        class="truncate text-sm font-bold tracking-tight text-slate-800 dark:text-slate-100"
-      >
+    <!-- 品牌：只有站名（左侧那个圆形图标按需求去掉了）；折叠时整行收起，
+         免得 rail 里剩一段空白——折叠态的视觉锚点是下面的头像 -->
+    <div v-if="!collapsed" class="flex items-center px-3 pt-4">
+      <span class="truncate text-sm font-bold tracking-tight text-slate-800 dark:text-slate-100">
         云海工作台
       </span>
     </div>
