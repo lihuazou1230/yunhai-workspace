@@ -294,7 +294,7 @@ onMounted(async () => {
     <div class="w-full max-w-md">
       <header class="mb-6 text-center">
         <h1 class="text-2xl font-bold tracking-tight text-slate-800 dark:text-slate-100">
-          🧭 云海工作台
+          云海工作台
         </h1>
         <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
           登录后任务数据多设备同步；不登录也能先用本地模式

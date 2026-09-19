@@ -65,11 +65,8 @@ onUnmounted(() => unlisten?.())
     class="flex h-10 shrink-0 select-none items-center border-b border-slate-200 bg-white/80 pl-3 backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/80"
     data-testid="title-bar"
   >
-    <!-- 左：应用图标 + 名称 -->
-    <span
-      class="flex shrink-0 items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200"
-    >
-      <span aria-hidden="true">🧭</span>
+    <!-- 左：应用名称（图标已按需求去掉，与侧边栏品牌保持一致：只留站名） -->
+    <span class="shrink-0 text-sm font-semibold text-slate-700 dark:text-slate-200">
       云海工作台
     </span>
 
