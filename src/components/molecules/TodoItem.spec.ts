@@ -99,6 +99,43 @@ describe('TodoItem', () => {
     expect(wrapper.text()).not.toContain('232233')
   })
 
+  it('减少动效（prefers-reduced-motion）：改用淡出替代左滑、不放礼花，且不留白等', async () => {
+    const original = window.matchMedia
+    // @vueuse 的 usePreferredReducedMotion 走 matchMedia，直接把它钉成 reduce
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('reduced-motion'),
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }))
+
+    try {
+      const todo = makeTodo({ id: '1', title: '写周报' })
+      const wrapper = mount(TodoItem, { props: { todo, completeSlide: true } })
+      await nextTick()
+
+      await wrapper.find('button[aria-label="标记为已完成"]').trigger('click')
+
+      // 只淡出，不位移
+      expect(wrapper.find('li').classes()).toContain('anim-fade-out')
+      expect(wrapper.find('li').classes()).not.toContain('anim-slide-left')
+      // 粒子飞散本身就是要避免的"大幅位移"，所以不发礼花
+      expect(wrapper.find('.particle').exists()).toBe(false)
+      expect(wrapper.emitted('toggle')).toBeUndefined()
+
+      // 等的是淡出时长（260ms），而不是完整礼花+滑动那 1.1s
+      vi.advanceTimersByTime(300)
+      expect(wrapper.emitted('toggle')?.[0]).toEqual(['1'])
+    } finally {
+      vi.unstubAllGlobals()
+      window.matchMedia = original
+    }
+  })
+
   it('点击删除按钮先右滑后发射 remove', async () => {
     const todo = makeTodo({ id: '1', title: '写周报' })
     const wrapper = mount(TodoItem, { props: { todo } })

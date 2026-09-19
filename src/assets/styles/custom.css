@@ -71,17 +71,56 @@ body {
   }
 
   /*
-    全局兜底：规划明确要求「减少动效」时降级，而此前只有秒表数字做了处理 ——
-    任务行的滑出/滑入、礼花 burst、animate-pulse 骨架、各种 transition-colors 照播。
-    这里统一压到几乎瞬时（0.01ms 而不是 0：留着过渡事件，避免依赖 transitionend 的逻辑被跳过），
-    并只播一次，避免 infinite 动画变成高频闪烁。
+    减少动效的降级策略（按**动效类型**分档，不是一刀切）。
+
+    前庭敏感的用户受不了的是**位移、缩放、旋转、视差**这一类"身体会跟着动"的效果；
+    颜色、透明度的渐变不会引起不适，反而承担着"刚才那下操作生效了没有"的反馈。
+
+    所以这里分两档：
+      ① 大幅位移/缩放的动画 —— 关掉（白名单逐个列名）
+      ② 无限动画 —— 压成"只播一次 + 0.01ms"，避免骨架屏/礼花退化成高频闪烁
+      ③ 只改透明度的动画 —— **恢复**到正常时长（见下面 .anim-fade-out 的例外）
+      ④ transition 一律不碰：颜色过渡照常，位移类过渡本来就不多
+
+    之前用的是 `* { animation/transition-duration: 0.01ms !important }`：
+    位移确实被压住了，但透明度过渡也一起没了 ——
+    结果是"点完成之后什么都没发生"，这本身也是可用性问题。
+
+    代价：这份白名单要跟着动画一起维护，新增位移动画时记得把类名加进来。
+  */
+  .anim-slide-left,
+  .anim-slide-right,
+  .anim-reveal-right,
+  .anim-enter-left,
+  /* 礼花：粒子飞散 + 光环扩散，都是大幅位移/缩放 */
+  .particle,
+  .burst-ring {
+    animation: none !important;
+  }
+
+  /*
+    ② 无限动画仍需收口：`animate-pulse` / `animate-spin` 这类在减少动效下要停下来。
+    用 0.01ms 而不是 `none`：保留动画事件，依赖 animationend 的逻辑不会被跳过；
+    配合 `iteration-count: 1`，不会退化成高频闪烁（那比原动画更糟）。
+    通配符只影响 animation，不牵动 transition。
   */
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+  }
+
+  /*
+    ③ 例外：只改 opacity 的完成淡出**恢复**成正常时长。
+    必须放在上面那条通配符之后，才能把 0.01ms 抵消掉 —— 否则"淡出"会变成"瞬间消失"。
+  */
+  .anim-fade-out {
+    animation: fade-out 0.25s ease-out forwards !important;
+  }
+
+  /* 平滑滚动属于"位移动效"，关掉 */
+  html {
     scroll-behavior: auto !important;
   }
 }

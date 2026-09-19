@@ -18,7 +18,7 @@
 
 import { computed, onMounted, ref, watch } from 'vue'
 
-import { onClickOutside } from '@vueuse/core'
+import { onClickOutside, usePreferredReducedMotion } from '@vueuse/core'
 
 import type { Todo, TodoListView } from '@/types/todo'
 import type { Tag } from '@/types/tag'
@@ -198,20 +198,43 @@ watch(
  * 完成：**礼花先放完，再左滑离场**。
  *
  * 时序写在 CSS 里（`.anim-slide-left` 的 keyframes），不靠 JS 串定时器：
- * `animation-delay` + `animation-fill-mode: both` 就能表达「先播礼花、保持住、再滑走」，
- * 少一处 JS/动画时长不同步就会出现的错位。
+ * 用 keyframes 前段的保持 + `fill-mode: both` 就能表达「先播礼花、保持住、再滑走」，
+ * 少一处 JS 与动画时长不同步就会出现的错位。
  *
  * 为什么不是"礼花和滑动同时开始"：两者叠在一起时，卡片在礼花刚炸开的那一刻就在位移，
  * 视觉上礼花像是被"拖走"了，开心的一下变得很仓促。
+ *
+ * ⚠️ 减少动效（prefers-reduced-motion）下改用**淡出**替代滑动：
+ * 位移是前庭敏感用户真正受不了的那一类效果，而"点完没有任何反馈"同样糟。
+ * 全局样式会关掉 `.anim-slide-left` 的动画，所以这里要换一个只改 opacity 的类，
+ * 并同步把等待时长降下来 —— 否则会白等 1.1s（动画没了，定时器还在跑）。
  */
 const COMPLETE_MS = 1100
+const FADE_MS = 260
 const REMOVE_MS = 600
+
+/** 用户是否要求减少动效（跟随系统设置，运行时会变） */
+const reducedMotion = usePreferredReducedMotion()
 
 /** 完成动画触发后延迟 emit toggle（让礼花与滑出都播完再移除该项） */
 function onToggle() {
   if (anim.value !== 'none') return
   // 只有 未完成 -> 完成 才触发礼花；已完成取消勾选直接恢复
   if (!isDone.value) {
+    // 减少动效下不放礼花：粒子飞散本身就是"大幅位移"，正是要避免的那类效果
+    if (reducedMotion.value === 'reduce') {
+      if (props.completeSlide) {
+        anim.value = 'complete'
+        setTimeout(() => {
+          emit('toggle', props.todo.id)
+          anim.value = 'none'
+        }, FADE_MS)
+      } else {
+        emit('toggle', props.todo.id)
+      }
+      return
+    }
+
     celebrate.value = true
     if (props.completeSlide) {
       // 进行中视图：这一行要给「完成」一个痛快的高光时刻，所以先爆炸再退场
@@ -400,7 +423,7 @@ function onPurge() {
       highlighted
         ? 'border-[var(--el-color-primary)] ring-2 ring-[var(--el-color-primary)] ring-offset-1 dark:ring-offset-slate-900'
         : '',
-      anim === 'complete' ? 'anim-slide-left' : '',
+      anim === 'complete' ? (reducedMotion === 'reduce' ? 'anim-fade-out' : 'anim-slide-left') : '',
       anim === 'remove' ? 'anim-slide-right' : '',
       revealing ? 'anim-reveal-right' : '',
       entering ? 'anim-enter-left' : '',
@@ -886,6 +909,25 @@ function onPurge() {
   }
   100% {
     transform: translateX(-120%);
+    opacity: 0;
+  }
+}
+
+/*
+  减少动效下的完成反馈：**只淡出，不位移**。
+  它替代 `.anim-slide-left`（全局 reduced-motion 规则会关掉滑动的动画），
+  让「这条完成了」有可见的收尾。全局样式会把动画压到 0.01ms，
+  所以 custom.css 里对 `.anim-fade-out` 有一条把它恢复成 0.25s 的例外
+  —— 只改 opacity 的动画本来就不属于"要避免的位移类效果"。
+*/
+.anim-fade-out {
+  animation: fade-out 0.25s ease-out forwards;
+}
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
     opacity: 0;
   }
 }
