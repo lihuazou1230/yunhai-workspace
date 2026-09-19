@@ -311,8 +311,28 @@ export const useTodoStore = defineStore('todo', () => {
   }
 
   // ---- 置顶（今日聚焦/My Day） ----
+  /**
+   * 切换置顶。
+   *
+   * 除了翻转 `pinned`，**置顶时还要保证它排在列表最前** —— 分两种情况：
+   * 1. 自动排序（默认）：`sortTodos` 已经把置顶项排到最前，这里不用动数组；
+   * 2. **手动排序**（用户拖拽过，`manualOrder === true`）：此时 `sortTodos` 不再执行，
+   *    只翻字段的话那一行原地不动 —— 用户看到的就是"点了置顶没反应"。
+   *    所以这种情况下直接把该条移到数组首位。
+   *
+   * 只在**置顶**时前移；取消置顶不回挪（数组里没有"原位置"的记录，
+   * 猜一个位置反而会让顺序莫名跳动）。
+   */
   function togglePinned(id: string) {
-    todos.value = todos.value.map((t) => (t.id === id ? { ...t, pinned: !t.pinned } : t))
+    const current = todos.value.find((t) => t.id === id)
+    if (!current) return
+    const willPin = current.pinned !== true
+
+    if (willPin && manualOrder.value) {
+      todos.value = [{ ...current, pinned: true }, ...todos.value.filter((t) => t.id !== id)]
+      return
+    }
+    todos.value = todos.value.map((t) => (t.id === id ? { ...t, pinned: willPin } : t))
   }
 
   // ---- 多选批量 ----

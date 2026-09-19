@@ -120,6 +120,50 @@ describe('useTodoFilter', () => {
     expect(ids).toEqual(['active-high', 'active-low', 'done-high', 'done-low'])
   })
 
+  /**
+   * 回归：置顶必须**立刻看得见**。
+   *
+   * 此前 sortTodos 完全不看 `pinned`，于是用户在任务页点「置顶到今日聚焦」后
+   * 那一行原地不动 —— 加上"该任务本来就已逾期、已在今日聚焦里"，
+   * 整个动作在任何界面都没有可见变化，用户只能判断为"没生效"。
+   */
+  it('sortTodos 置顶项排在最前（跨优先级与截止日期）', () => {
+    const mixed: Todo[] = [
+      makeTodo({ id: 'a-high-early', title: '高-早', priority: 'high', dueDate: '2026-09-05' }),
+      makeTodo({ id: 'b-low-nodue', title: '低-无日期', priority: 'low' }),
+      makeTodo({ id: 'c-med', title: '中', priority: 'medium', dueDate: '2026-09-20' }),
+    ]
+    // 默认顺序：高-早 → 中 → 低-无日期
+    expect(sortTodos(mixed).map((t) => t.id)).toEqual(['a-high-early', 'c-med', 'b-low-nodue'])
+
+    // 把最不起眼的那条置顶 → 它必须直接到最前
+    const pinned = mixed.map((t) => (t.id === 'b-low-nodue' ? { ...t, pinned: true } : t))
+    expect(sortTodos(pinned).map((t) => t.id)).toEqual(['b-low-nodue', 'a-high-early', 'c-med'])
+  })
+
+  it('sortTodos 置顶压过"未完成在上"：已完成的置顶项也在最前', () => {
+    const mixed: Todo[] = [
+      makeTodo({ id: 'active-high', title: '未完成-高', priority: 'high' }),
+      makeTodo({
+        id: 'done-pinned',
+        title: '已完成-置顶',
+        priority: 'low',
+        status: 'completed',
+        pinned: true,
+      }),
+    ]
+    // 置顶是用户的显式意图（"我要盯着它"），应当压过完成状态这一层
+    expect(sortTodos(mixed).map((t) => t.id)).toEqual(['done-pinned', 'active-high'])
+  })
+
+  it('sortTodos 置顶状态相同时保持原有排序（不破坏稳定性）', () => {
+    const same = [
+      makeTodo({ id: 'x', title: 'x', priority: 'medium', dueDate: '2026-09-12' }),
+      makeTodo({ id: 'y', title: 'y', priority: 'medium', dueDate: '2026-09-12' }),
+    ]
+    expect(sortTodos(same).map((t) => t.id)).toEqual(['x', 'y'])
+  })
+
   it('sortTodos 不修改原数组', () => {
     const input = [
       makeTodo({ id: 'a', title: 'a', priority: 'low' }),

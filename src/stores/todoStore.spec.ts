@@ -554,6 +554,27 @@ describe('todoStore · 阶段4扩展', () => {
     expect(store.myDayTodos.map((x) => x.id)).toContain(t.id)
   })
 
+  /**
+   * 手动排序（拖拽过）时，`sortTodos` 不再执行 —— 只翻 `pinned` 字段的话
+   * 那一行原地不动，用户看到的就是"点了置顶没反应"。所以这条路径要单独钉：
+   * 手动排序下置顶必须把它挪到数组首位。
+   */
+  it('手动排序下置顶：直接把该条移到列表最前', () => {
+    const store = useTodoStore()
+    const a = store.addTodo({ title: 'a', priority: 'high', dueDate: todayKey() })
+    const b = store.addTodo({ title: 'b', priority: 'low', dueDate: todayKey() })
+
+    // 拖拽一次 → 进入手动排序模式
+    store.moveTodo(b.id, a.id)
+    expect(store.manualOrder).toBe(true)
+    expect(store.filteredTodos.map((t) => t.id)).toEqual([b.id, a.id])
+
+    // 把排在后面的 a 置顶 → 必须到最前（不是只翻字段）
+    store.togglePinned(a.id)
+    expect(store.todos.find((t) => t.id === a.id)?.pinned).toBe(true)
+    expect(store.filteredTodos.map((t) => t.id)).toEqual([a.id, b.id])
+  })
+
   it('多选与批量：完成/恢复/改优先级/删除', () => {
     const store = useTodoStore()
     const a = store.addTodo({ title: 'a', priority: 'medium' })

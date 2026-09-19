@@ -77,13 +77,25 @@ export function filterTodos(todos: Todo[], query: TodoFilterQuery): Todo[] {
 
 /**
  * 任务排序：
- * 1. 状态：未完成(active) 在上，已完成(completed) 在下；
- * 2. 优先级：高 → 低；
- * 3. 截止日期：早 → 晚；无截止日期排在最后。
+ * 1. **置顶在前**（pinned）—— 置顶是用户的显式意图，应该立刻看得见；
+ *    它同时也能解释「点了置顶之后这一行为什么跑到最上面」
+ * 2. 状态：未完成(active) 在上，已完成(completed) 在下；
+ * 3. 优先级：高 → 低；
+ * 4. 截止日期：早 → 晚；无截止日期排在最后。
  * 返回新数组，不修改入参。
+ *
+ * ⚠️ 置顶必须排在**状态之前**：否则一条已完成的置顶任务会被"未完成在上"顶下去，
+ * 用户会觉得置顶失效。置顶的语义是"我要盯着它"，压过完成状态是合理的。
+ *
+ * 用 `truncate` 归一成 -1/0/1：只有置顶状态真的不同时才改变顺序，
+ * 相同则返回 0 交给后续规则（否则 `pinned ? -1 : 1` 会让两者永远不相等，
+ * 破坏排序的稳定性）。
  */
 export function sortTodos(todos: Todo[]): Todo[] {
   return [...todos].sort((a, b) => {
+    // 置顶优先
+    const pin = (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)
+    if (pin !== 0) return pin
     // 状态：未完成在上，已完成在下
     if (a.status !== b.status) return a.status === 'active' ? -1 : 1
     // 优先级：权重高者在前
