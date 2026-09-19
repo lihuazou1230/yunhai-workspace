@@ -573,7 +573,7 @@ describe('todoStore · 云同步', () => {
       vi.unstubAllGlobals()
     })
 
-    it('只改标签 / 归档 / snooze 时不会推送：差异指纹里没有这几个字段', async () => {
+    it('只改标签 / 归档 / 到期日 时也能推送（差异指纹里带这些字段）', async () => {
       const store = useTodoStore()
       await store.activateCloud('u1')
       const created = store.addTodo({ title: '要归档的任务', priority: 'medium' })

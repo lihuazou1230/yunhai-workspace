@@ -52,11 +52,10 @@ function tagsOf(todo: { tags: string[] }) {
   return tagStore.getTags(todo.tags)
 }
 
-/** 视图切换项（主列表 / 已归档 / 已隐藏） */
+/** 视图切换项（主列表 / 已归档） */
 const viewTabs = computed<Array<{ key: TodoListView; label: string }>>(() => [
   { key: 'main', label: '任务' },
   { key: 'archived', label: `已归档 ${store.archivedCount}` },
-  { key: 'snoozed', label: `已隐藏 ${store.snoozedCount}` },
 ])
 
 const FILTER_TABS: Array<{ key: TodoFilter; label: string }> = [
@@ -156,7 +155,7 @@ function onToggleSelect(id: string) {
 
 const selectedCount = computed(() => store.selectedIds.length)
 
-// ---- 标签 / 归档 / Snooze（第六阶段 6.1） ----
+// ---- 标签 / 归档 / 推后（第六阶段 6.1） ----
 
 /** 归档一条任务 */
 function onArchive(id: string) {
@@ -168,14 +167,9 @@ function onUnarchive(id: string) {
   store.unarchive(id)
 }
 
-/** 稍后再做 */
-function onSnooze(id: string, until: string) {
-  store.snooze(id, until)
-}
-
-/** 立即召回 */
-function onUnsnooze(id: string) {
-  store.unsnooze(id)
+/** 推后到期日（天数由子组件给出，日期规则在 store 的纯函数里） */
+function onPostpone(id: string, days: number) {
+  store.postpone(id, days)
 }
 
 /** 彻底删除（复用软删除 + 撤销保护） */
@@ -248,9 +242,9 @@ function batchArchive() {
   store.bulkArchive(store.selectedIds)
 }
 
-/** 批量召回（已隐藏视图） */
-function batchUnsnooze() {
-  store.bulkUnsnooze(store.selectedIds)
+/** 批量推后到期日 1 天（多选场景下最常用的粒度） */
+function batchPostpone() {
+  store.bulkPostpone(store.selectedIds, 1)
 }
 
 /** 一键归档所有已完成任务（归档视图与主列表都用得上） */
@@ -370,7 +364,7 @@ watch(
   <section class="space-y-4">
     <!--
       工具栏分三层，按「用户此刻在回答哪个问题」排：
-      1. 看哪个列表（任务 / 已归档 / 已隐藏）——切换视图，属于导航级
+      1. 看哪个列表（任务 / 已归档）——切换视图，属于导航级
       2. 看哪些状态的（全部 / 进行中 / 已完成 / 今日 / 本周）——主筛选，最常用
       3. 更细的收窄（优先级 / 标签）+ 搜索与多选——次要，视觉上压一级
 
@@ -434,7 +428,7 @@ watch(
       </div>
     </div>
 
-    <!-- 完成状态筛选只在主列表有意义（归档/已隐藏视图看的是生命周期状态） -->
+    <!-- 完成状态筛选只在主列表有意义（归档视图看的是生命周期状态） -->
     <div
       v-if="store.listView === 'main'"
       class="flex flex-wrap items-center gap-1"
@@ -451,9 +445,7 @@ watch(
         {{ tab.label }}
       </BaseButton>
     </div>
-    <p v-else class="text-[13px] font-medium text-slate-600 dark:text-slate-300">
-      {{ store.listView === 'archived' ? '已归档任务' : '已隐藏任务（稍后再做）' }}
-    </p>
+    <p v-else class="text-[13px] font-medium text-slate-600 dark:text-slate-300">已归档任务</p>
 
     <!--
       细分筛选：标签文字用 --app-label-w 固定宽度，
@@ -525,7 +517,7 @@ watch(
           >中</BaseButton
         >
         <BaseButton size="sm" variant="secondary" @click="batchSetPriority('low')">低</BaseButton>
-        <!-- 视图相关批量动作：主列表批量归档，已隐藏视图批量召回 -->
+        <!-- 视图相关批量动作：主列表才有（归档视图看的是生命周期，不提供批量改期） -->
         <BaseButton
           v-if="store.listView === 'main'"
           size="sm"
@@ -536,13 +528,13 @@ watch(
           归档
         </BaseButton>
         <BaseButton
-          v-else-if="store.listView === 'snoozed'"
+          v-if="store.listView === 'main'"
           size="sm"
           variant="secondary"
-          data-testid="batch-unsnooze"
-          @click="batchUnsnooze"
+          data-testid="batch-postpone"
+          @click="batchPostpone"
         >
-          召回
+          推后 1 天
         </BaseButton>
       </div>
       <BaseButton size="sm" variant="ghost" class="ml-auto" @click="store.toggleSelectionMode()">
@@ -599,8 +591,7 @@ watch(
         @toggle-select="onToggleSelect"
         @archive="onArchive"
         @unarchive="onUnarchive"
-        @snooze="onSnooze"
-        @unsnooze="onUnsnooze"
+        @postpone="onPostpone"
         @purge="onPurge"
         @ai-breakdown="onAiBreakdown"
       />
@@ -613,7 +604,6 @@ watch(
       data-testid="todos-empty"
     >
       <template v-if="store.listView === 'archived'">📦 归档区是空的</template>
-      <template v-else-if="store.listView === 'snoozed'">💤 没有被藏起来的任务</template>
       <template v-else-if="hasFilterCriteria">🔍 没有符合当前条件的任务</template>
       <template v-else>🎉 暂无任务，添加一个开始吧</template>
     </div>

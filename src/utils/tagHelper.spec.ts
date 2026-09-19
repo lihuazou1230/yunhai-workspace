@@ -2,22 +2,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Todo } from '@/types/todo'
 import {
+  POSTPONE_OPTIONS,
   archiveTodo,
   createTag,
   filterByTag,
   findTag,
   isArchived,
-  isSnoozeDue,
-  isSnoozed,
   isTagNameTaken,
   isValidTagName,
+  postponeTodo,
   pruneTagRefs,
   safeTagColor,
-  snoozeOptions,
-  snoozeTodo,
   stripTagFromTodos,
   unarchiveTodo,
-  unsnoozeTodo,
 } from './tagHelper'
 
 function todo(partial: Partial<Todo> & { id: string }): Todo {
@@ -130,45 +127,63 @@ describe('归档纯函数', () => {
   })
 })
 
-describe('Snooze 纯函数', () => {
+describe('推后到期日（原 Snooze）', () => {
   const today = '2026-09-10'
 
-  it('snoozedUntil 严格晚于今天才算「隐藏中」，到期当天自动回归', () => {
-    expect(isSnoozed(todo({ id: '1', snoozedUntil: '2026-09-11' }), today)).toBe(true)
-    expect(isSnoozed(todo({ id: '2', snoozedUntil: today }), today)).toBe(false)
-    expect(isSnoozed(todo({ id: '3', snoozedUntil: '2026-09-09' }), today)).toBe(false)
-    expect(isSnoozed(todo({ id: '4' }), today)).toBe(false)
-    expect(isSnoozed(todo({ id: '5', snoozedUntil: '' }), today)).toBe(false)
+  it('在当前 dueDate 上叠加，而不是从今天算', () => {
+    const t = todo({ id: '1', dueDate: '2026-09-20' })
+    expect(postponeTodo(t, 1, today).dueDate).toBe('2026-09-21')
+    expect(postponeTodo(t, 7, today).dueDate).toBe('2026-09-27')
+    expect(postponeTodo(t, 30, today).dueDate).toBe('2026-10-20')
   })
 
-  it('isSnoozeDue 标记「今天到期回归」', () => {
-    expect(isSnoozeDue(todo({ id: '1', snoozedUntil: today }), today)).toBe(true)
-    expect(isSnoozeDue(todo({ id: '2', snoozedUntil: '2026-09-11' }), today)).toBe(false)
-    expect(isSnoozeDue(todo({ id: '3' }), today)).toBe(false)
+  it('没有截止日期时以今天为基准设上（不是"推后但仍无日期"）', () => {
+    expect(postponeTodo(todo({ id: '2' }), 1, today).dueDate).toBe('2026-09-11')
+    expect(postponeTodo(todo({ id: '3' }), 7, today).dueDate).toBe('2026-09-17')
   })
 
-  it('snooze / 召回互逆', () => {
-    const snoozed = snoozeTodo(todo({ id: '1' }), '2026-09-15')
-    expect(snoozed.snoozedUntil).toBe('2026-09-15')
+  it('过期的任务也保证"推了就有用"：结果必定落在未来', () => {
+    const overdue = todo({ id: '4', dueDate: '2026-08-10' }) // 逾期约一个月
 
-    const recalled = unsnoozeTodo(snoozed)
-    expect('snoozedUntil' in recalled).toBe(false)
+    // +1 天：叠加值（8/11）仍在过去 → 取「今天 + 1」
+    expect(postponeTodo(overdue, 1, today).dueDate).toBe('2026-09-11')
+
+    // +40 天：叠加值（9/19）已经在未来，但它比「今天 + 40」早，
+    // 仍取较晚的那个 —— 否则"推后 40 天"对逾期任务等于只推了 9 天
+    expect(postponeTodo(overdue, 40, today).dueDate).toBe('2026-10-20')
+
+    // 有日期且未逾期时就是纯粹叠加，不受兜底影响
+    expect(postponeTodo(todo({ id: '4b', dueDate: '2026-09-20' }), 7, today).dueDate).toBe(
+      '2026-09-27',
+    )
   })
 
-  it('快捷选项：明天 / 后天 / 下周一（严格晚于今天）', () => {
-    // 2026-09-10 是周四
-    const options = snoozeOptions(new Date(2026, 8, 10))
-    expect(options.map((o) => [o.key, o.date])).toEqual([
-      ['tomorrow', '2026-09-11'],
-      ['dayAfter', '2026-09-12'],
-      ['nextMonday', '2026-09-14'],
+  it('非法的 dueDate 当成没有日期（以今天为基准）', () => {
+    expect(postponeTodo(todo({ id: '5', dueDate: '不是日期' }), 1, today).dueDate).toBe(
+      '2026-09-11',
+    )
+    expect(postponeTodo(todo({ id: '6', dueDate: '' }), 1, today).dueDate).toBe('2026-09-11')
+  })
+
+  it('天数兜底：0 / 负数 / 小数都收敛成"至少推 1 天"', () => {
+    const t = todo({ id: '7', dueDate: '2026-09-20' })
+    expect(postponeTodo(t, 0, today).dueDate).toBe('2026-09-21')
+    expect(postponeTodo(t, -5, today).dueDate).toBe('2026-09-21')
+    expect(postponeTodo(t, 1.7, today).dueDate).toBe('2026-09-21')
+  })
+
+  it('只改 dueDate，不引入任何"隐藏"字段（旧 snoozedUntil 机制已移除）', () => {
+    const after = postponeTodo(todo({ id: '8', dueDate: '2026-09-20' }), 1, today)
+    expect('snoozedUntil' in after).toBe(false)
+    expect(after.status).toBe('active')
+  })
+
+  it('快捷选项与新建表单的 1天/1周/1月 保持一致', () => {
+    expect(POSTPONE_OPTIONS.map((o) => [o.key, o.days])).toEqual([
+      ['day', 1],
+      ['week', 7],
+      ['month', 30],
     ])
-  })
-
-  it('今天就是周一时，「下周一」给下一周而不是今天', () => {
-    // 2026-09-14 是周一
-    const options = snoozeOptions(new Date(2026, 8, 14))
-    expect(options.find((o) => o.key === 'nextMonday')?.date).toBe('2026-09-21')
   })
 })
 

@@ -23,11 +23,11 @@ import { onClickOutside, usePreferredReducedMotion } from '@vueuse/core'
 import type { Todo, TodoListView } from '@/types/todo'
 import type { Tag } from '@/types/tag'
 import { TAG_COLOR_DOT, TAG_COLOR_TEXT } from '@/types/tag'
-import { formatDueLabel, isOverdue, isToday, todayKey } from '@/utils/dateFormatter'
+import { formatDueLabel, isOverdue, isToday } from '@/utils/dateFormatter'
 import { isValidDateKey } from '@/utils/validation'
 import { priorityLabel } from '@/utils/priorityHelper'
 import { formatReminderTime } from '@/utils/reminderSchedule'
-import { snoozeOptions } from '@/utils/tagHelper'
+import { POSTPONE_OPTIONS } from '@/utils/tagHelper'
 import BaseButton from '@/components/atoms/BaseButton.vue'
 
 const props = withDefaults(
@@ -60,7 +60,7 @@ const props = withDefaults(
      * 分子层不直接碰全局 store，保持「纯展示 + 事件向上」的分层约定。
      */
     todoTags?: Tag[]
-    /** 当前所在视图：决定操作菜单里是「归档 / 恢复 / 召回」哪一组动作 */
+    /** 当前所在视图：决定操作菜单里是「归档 / 恢复」哪一组动作 */
     view?: TodoListView
     /**
      * 是否为「刚从提醒通知跳过来」的那条任务。
@@ -93,8 +93,7 @@ const emit = defineEmits<{
   (e: 'toggle-select', id: string): void
   (e: 'archive', id: string): void
   (e: 'unarchive', id: string): void
-  (e: 'snooze', id: string, until: string): void
-  (e: 'unsnooze', id: string): void
+  (e: 'postpone', id: string, days: number): void
   (e: 'purge', id: string): void
   /** AI 拆解（第六阶段 6.3）：弹窗与调用链路由父级持有 */
   (e: 'ai-breakdown', id: string): void
@@ -337,35 +336,20 @@ function onAddSubtask() {
   newSubtask.value = ''
 }
 
-// ---- 更多操作菜单（归档 / 稍后再做 / 恢复 / 召回 / 彻底删除） ----
+// ---- 更多操作菜单（归档 / 推后 / 恢复 / 彻底删除） ----
 const menuRef = ref<HTMLElement | null>(null)
 const menuOpen = ref(false)
-/** 「稍后再做」子菜单（明天 / 后天 / 下周一 / 自定义） */
-const snoozeOpen = ref(false)
-const customSnoozeDate = ref('')
-const quickSnoozeOptions = ref(snoozeOptions())
-
-/**
- * 展开「稍后再做」时**现算**一次选项。
- *
- * 以前是 `computed(() => snoozeOptions())`：它没有任何响应式依赖，
- * 首帧求值后会被永久缓存 —— 页面开着过了零点再点「明天」，写入的仍是
- * **昨天算出来的"明天"**（也就是今天）。而 `isSnoozed` 要求严格晚于今天，
- * 于是任务不隐藏、计数不变，用户看到的就是「点了没反应」。
- */
-function toggleSnoozeMenu() {
-  snoozeOpen.value = !snoozeOpen.value
-  if (snoozeOpen.value) quickSnoozeOptions.value = snoozeOptions()
-}
+/** 「推后」子菜单（1 天 / 1 周 / 1 月） */
+const postponeOpen = ref(false)
 
 onClickOutside(menuRef, () => {
   menuOpen.value = false
-  snoozeOpen.value = false
+  postponeOpen.value = false
 })
 
 function toggleMenu() {
   menuOpen.value = !menuOpen.value
-  if (!menuOpen.value) snoozeOpen.value = false
+  if (!menuOpen.value) postponeOpen.value = false
 }
 
 function onArchive() {
@@ -378,26 +362,22 @@ function onUnarchive() {
   emit('unarchive', props.todo.id)
 }
 
-function onUnsnooze() {
-  menuOpen.value = false
-  emit('unsnooze', props.todo.id)
-}
-
 /** AI 拆解：弹窗由父级持有，这里只抛意图 */
 function onAiBreakdown() {
   menuOpen.value = false
   emit('ai-breakdown', props.todo.id)
 }
 
-function onSnooze(until: string) {
-  // 必须合法且**严格晚于今天**：`isSnoozed` 用的就是 `> 今天` 的判定，
-  // 选了今天或更早的日期只会「看起来点了没反应」（任务不隐藏、隐藏计数不变），
-  // 而界面上却已经显示「💤 隐藏至 X」，自相矛盾。
-  if (!isValidDateKey(until) || until <= todayKey()) return
+/**
+ * 推后到期日 N 天。
+ *
+ * 日期计算放在 store 的纯函数里（`postponeTodo`），这里只抛「推几天」这个意图 ——
+ * 组件不该知道「基准取当前 dueDate、过期要兜底到今天」这些规则。
+ */
+function onPostpone(days: number) {
   menuOpen.value = false
-  snoozeOpen.value = false
-  customSnoozeDate.value = ''
-  emit('snooze', props.todo.id, until)
+  postponeOpen.value = false
+  emit('postpone', props.todo.id, days)
 }
 
 /**
@@ -534,6 +514,7 @@ function onPurge() {
             class="inline-flex items-center gap-1.5"
             :class="dueClass"
             :title="dueText"
+            data-testid="todo-due"
           >
             <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <rect
@@ -586,7 +567,6 @@ function onPurge() {
             subtaskTotal > 0 ||
             todoTags.length > 0 ||
             view === 'archived' ||
-            todo.snoozedUntil ||
             todo.reminderOff ||
             todo.reminderAt
           "
@@ -620,11 +600,8 @@ function onPurge() {
             {{ tag.name }}
           </span>
 
-          <!-- 归档 / Snooze 状态提示（让用户知道这条为什么不在主列表） -->
+          <!-- 归档状态提示（让用户知道这条为什么不在主列表） -->
           <span v-if="view === 'archived'" class="inline-flex items-center gap-1"> 📦 已归档 </span>
-          <span v-else-if="todo.snoozedUntil" class="inline-flex items-center gap-1">
-            💤 隐藏至 {{ todo.snoozedUntil }}
-          </span>
 
           <!-- 提醒状态：关掉了就明说（否则用户会以为是提醒坏了）；自定义时间才显示具体时刻 -->
           <span
@@ -753,7 +730,7 @@ function onPurge() {
         </svg>
       </BaseButton>
 
-      <!-- 更多：归档 / 稍后再做（主列表）、恢复 / 彻底删除（归档视图）、召回（已隐藏视图） -->
+      <!-- 更多：归档 / 推后（主列表）、恢复 / 彻底删除（归档视图） -->
       <div ref="menuRef" class="relative">
         <button
           type="button"
@@ -793,18 +770,6 @@ function onPurge() {
             </button>
           </template>
 
-          <template v-else-if="view === 'snoozed'">
-            <button
-              type="button"
-              role="menuitem"
-              class="w-full rounded-lg px-2 py-1.5 text-left text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
-              data-testid="todo-unsnooze"
-              @click="onUnsnooze"
-            >
-              ⏰ 立即召回
-            </button>
-          </template>
-
           <template v-else>
             <button
               type="button"
@@ -819,10 +784,10 @@ function onPurge() {
               type="button"
               role="menuitem"
               class="w-full rounded-lg px-2 py-1.5 text-left text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
-              data-testid="todo-snooze"
-              @click="toggleSnoozeMenu"
+              data-testid="todo-postpone"
+              @click="postponeOpen = !postponeOpen"
             >
-              💤 稍后再做
+              ⏩ 推后到期日
             </button>
             <button
               v-if="!hideAiBreakdown"
@@ -835,40 +800,26 @@ function onPurge() {
               ✨ AI 拆解
             </button>
 
-            <!-- 稍后再做子菜单：默认明天，可选后天 / 下周一 / 自定义 -->
+            <!--
+              推后子菜单：1 天 / 1 周 / 1 月，与「新建任务」表单里的快捷键一致。
+              只给天数，具体日期由 store 的 postponeTodo 按「当前 dueDate + N 天」算 ——
+              组件不重复实现日期规则（也不需要在菜单里预告日期，那会引入第二次实现）。
+            -->
             <div
-              v-if="snoozeOpen"
+              v-if="postponeOpen"
               class="mt-0.5 space-y-0.5 border-t border-slate-100 pt-1 dark:border-slate-700"
             >
               <button
-                v-for="opt in quickSnoozeOptions"
+                v-for="opt in POSTPONE_OPTIONS"
                 :key="opt.key"
                 type="button"
                 role="menuitem"
                 class="w-full rounded-lg px-2 py-1 text-left text-slate-500 transition-colors hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
-                :data-testid="`todo-snooze-${opt.key}`"
-                @click="onSnooze(opt.date)"
+                :data-testid="`todo-postpone-${opt.key}`"
+                @click="onPostpone(opt.days)"
               >
-                {{ opt.label }}（{{ opt.date.slice(5) }}）
+                推后 {{ opt.label }}
               </button>
-              <div class="flex items-center gap-1 px-1 pt-0.5">
-                <input
-                  v-model="customSnoozeDate"
-                  type="date"
-                  aria-label="自定义稍后再做日期"
-                  :min="todayKey()"
-                  class="w-full rounded-md border border-slate-200 bg-transparent px-1.5 py-1 text-[11px] outline-none dark:border-slate-600"
-                />
-                <button
-                  type="button"
-                  class="rounded-md px-1.5 py-1 text-[11px] text-[var(--el-color-primary)] disabled:opacity-40"
-                  :disabled="!customSnoozeDate"
-                  data-testid="todo-snooze-custom-confirm"
-                  @click="onSnooze(customSnoozeDate)"
-                >
-                  确定
-                </button>
-              </div>
             </div>
           </template>
         </div>

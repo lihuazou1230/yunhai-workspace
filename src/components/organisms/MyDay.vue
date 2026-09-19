@@ -29,8 +29,9 @@ function onArchive(id: string) {
   store.archive(id)
 }
 
-function onSnooze(id: string, until: string) {
-  store.snooze(id, until)
+/** 推后到期日（天数由 TodoItem 的菜单给出） */
+function onPostpone(id: string, days: number) {
+  store.postpone(id, days)
 }
 
 function onToggleSubtask(todoId: string, subtaskId: string) {
@@ -68,7 +69,7 @@ function onRemoveSubtask(todoId: string, subtaskId: string) {
         @add-subtask="onAddSubtask"
         @remove-subtask="onRemoveSubtask"
         @archive="onArchive"
-        @snooze="onSnooze"
+        @postpone="onPostpone"
       />
     </ul>
 

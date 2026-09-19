@@ -100,7 +100,7 @@ onBeforeUnmount(() => unbindConnectivity())
 useEventListener(window, 'online', retrySettingsSync)
 
 /**
- * 校准「今天」：snooze 到期的任务要能**随日期自己走**地回到列表。
+ * 校准「今天」：跨零点后「今日到期 / 今日聚焦 / 今日完成度」要能自己换天。
  * 页面在后台开一整夜时没有任何任务写入，只靠 computed 是不会重算的，
  * 所以这里每分钟对一次日期、回前台再对一次（跨零点立刻生效）。
  */

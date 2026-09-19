@@ -45,8 +45,9 @@ export function migrationKey(userId: string): string {
  *
  * ⚠️ **新增可同步字段时必须同步加到这里**，否则「只改该字段」的动作算不出差异，
  * 本机不会推送、其它设备也就永远看不到。第六阶段新增的
- * 标签 / 归档 / snooze / 提醒 四个字段就是这么补进来的——它们的共同点是
+ * 标签 / 归档 / 提醒 三个字段就是这么补进来的——它们的共同点是
  * 都不会改动 title/status 等老字段，漏一个就等于那个功能不参与云同步。
+ * （推后到期日走的是 dueDate，本来就在指纹里，不需要额外字段。）
  */
 export function todoSignature(todo: Todo, position: number): string {
   return JSON.stringify([
@@ -58,11 +59,10 @@ export function todoSignature(todo: Todo, position: number): string {
     todo.completedAt ?? '',
     todo.pinned ? 1 : 0,
     todo.subtasks.map((s) => [s.id, s.title, s.completed ? 1 : 0]),
-    // 第六阶段：标签（排序后比较，标签顺序本身没有语义）/ 归档 / snooze / 提醒
+    // 第六阶段：标签（排序后比较，标签顺序本身没有语义）/ 归档 / 提醒
     [...todo.tags].sort(),
     todo.archived ? 1 : 0,
     todo.archivedAt ?? '',
-    todo.snoozedUntil ?? '',
     todo.reminderAt ?? '',
     todo.reminderOff ? 1 : 0,
     position,

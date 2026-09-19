@@ -82,25 +82,23 @@ describe('任务行映射', () => {
         completedAt: null,
         pinned: true,
         subtasks: [{ id: 's1', title: '收集数据', completed: true }],
-        // 第六阶段：标签 / 归档 / snooze / 提醒 一并进 payload
+        // 第六阶段：标签 / 归档 / 提醒 一并进 payload
         tags: [],
         archived: false,
         archivedAt: null,
-        snoozedUntil: null,
         reminderAt: null,
         reminderOff: false,
       },
     })
   })
 
-  it('标签 / 归档 / snooze / 提醒 随 payload 往返（云同步口径一致）', () => {
+  it('标签 / 归档 / 提醒 随 payload 往返（云同步口径一致）', () => {
     // 提醒字段是回归重点：todoSignature 认得它们（改了会触发推送），
     // 但 payload 曾漏掉这两个 key，导致「推送发了、内容却没有」的静默丢失。
     const original = todo({
       tags: ['tag-a', 'tag-b'],
       archived: true,
       archivedAt: '2026-09-11T02:00:00.000Z',
-      snoozedUntil: '2026-09-20',
       reminderAt: '2026-09-12T09:30:00.000Z',
       reminderOff: true,
     })
@@ -109,7 +107,6 @@ describe('任务行映射', () => {
     expect(restored.tags).toEqual(['tag-a', 'tag-b'])
     expect(restored.archived).toBe(true)
     expect(restored.archivedAt).toBe('2026-09-11T02:00:00.000Z')
-    expect(restored.snoozedUntil).toBe('2026-09-20')
     expect(restored.reminderAt).toBe('2026-09-12T09:30:00.000Z')
     expect(restored.reminderOff).toBe(true)
     expect(restored).toEqual(original)
@@ -134,7 +131,6 @@ describe('任务行映射', () => {
     expect(restored.tags).toEqual([])
     expect(restored.archived).toBeUndefined()
     expect(restored.archivedAt).toBeUndefined()
-    expect(restored.snoozedUntil).toBeUndefined()
     expect(restored.reminderAt).toBeUndefined()
     expect(restored.reminderOff).toBeUndefined()
   })

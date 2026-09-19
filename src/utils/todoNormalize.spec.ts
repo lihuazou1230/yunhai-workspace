@@ -89,21 +89,25 @@ describe('normalizeTodo', () => {
 
   it('空白字符串的可选字段视为「没有」而不是空串', () => {
     const todo = normalizeTodo(
-      validTodo({ dueDate: '   ', snoozedUntil: '', reminderAt: null, archivedAt: undefined }),
+      validTodo({ dueDate: '   ', reminderAt: null, archivedAt: undefined }),
     )
 
     expect(todo).not.toHaveProperty('dueDate')
-    expect(todo).not.toHaveProperty('snoozedUntil')
     expect(todo).not.toHaveProperty('reminderAt')
     expect(todo).not.toHaveProperty('archivedAt')
   })
 
-  it('归档 / snooze / 提醒开关按严格 true 还原', () => {
+  it('旧数据里的 snoozedUntil（隐藏机制）在归一化时被丢弃', () => {
+    // 该机制已整体移除：存量任务会因此重新出现在主列表里，而不是继续被藏着
+    const todo = normalizeTodo(validTodo({ snoozedUntil: '2026-09-20' }))
+    expect(todo).not.toHaveProperty('snoozedUntil')
+  })
+
+  it('归档 / 提醒开关按严格 true 还原', () => {
     const todo = normalizeTodo(
       validTodo({
         archived: true,
         archivedAt: '2026-09-11T02:00:00.000Z',
-        snoozedUntil: '2026-09-20',
         reminderAt: '2026-09-12T01:00:00.000Z',
         reminderOff: true,
       }),
@@ -111,7 +115,6 @@ describe('normalizeTodo', () => {
 
     expect(todo?.archived).toBe(true)
     expect(todo?.archivedAt).toBe('2026-09-11T02:00:00.000Z')
-    expect(todo?.snoozedUntil).toBe('2026-09-20')
     expect(todo?.reminderAt).toBe('2026-09-12T01:00:00.000Z')
     expect(todo?.reminderOff).toBe(true)
   })

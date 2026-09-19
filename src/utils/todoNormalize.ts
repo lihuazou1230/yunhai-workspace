@@ -67,7 +67,6 @@ export function normalizeTodo(raw: unknown): Todo | null {
   const dueDate = asNonEmptyString(source.dueDate)
   const completedAt = asNonEmptyString(source.completedAt)
   const archivedAt = asNonEmptyString(source.archivedAt)
-  const snoozedUntil = asNonEmptyString(source.snoozedUntil)
   const reminderAt = asNonEmptyString(source.reminderAt)
 
   const todo: Todo = {
@@ -92,9 +91,15 @@ export function normalizeTodo(raw: unknown): Todo | null {
   if (completedAt) todo.completedAt = completedAt
   if (source.archived === true) todo.archived = true
   if (archivedAt) todo.archivedAt = archivedAt
-  if (snoozedUntil) todo.snoozedUntil = snoozedUntil
   if (reminderAt) todo.reminderAt = reminderAt
   if (source.reminderOff === true) todo.reminderOff = true
+
+  /*
+    旧数据的 `snoozedUntil`（「已隐藏」时代的字段）到这里被**丢弃**：
+    该机制已整体移除，归一化不再还原它。存量任务会因此重新出现在主列表里 ——
+    这正是期望行为（一条被藏起来的任务本来就该被看见并重新安排），
+    比按旧字段继续藏着更容易让用户理解发生了什么。
+  */
 
   return todo
 }

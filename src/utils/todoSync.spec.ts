@@ -53,17 +53,20 @@ describe('todoSignature', () => {
 
   /**
    * 第六阶段新增的字段必须全部参与指纹。
-   * 为什么单列一条：这些字段曾经漏在指纹之外，导致「只归档」「只 snooze」「只改标签」
+   * 为什么单列一条：这些字段曾经漏在指纹之外，导致「只归档」「只改提醒」「只改标签」
    * 在差异检测里看不见 —— 本机永远不推送，A 设备归档的任务在 B 设备还是「进行中」。
    * 这条用例就是那次缺陷的回归保护：谁再把新字段漏掉，这里会立刻红。
+   *
+   * （推后到期日走的是 dueDate，它本来就在指纹里 —— 也正因为如此，
+   *   推后不需要像旧 snooze 那样额外加一个字段才同步得出去。）
    */
-  it('归档 / 标签 / snooze / 提醒相关字段都参与指纹（漏掉就会同步不出去）', () => {
+  it('归档 / 标签 / 到期日 / 提醒相关字段都参与指纹（漏掉就会同步不出去）', () => {
     const base = todoSignature(todo(), 0)
 
     expect(todoSignature(todo({ tags: ['work'] }), 0)).not.toBe(base)
     expect(todoSignature(todo({ archived: true }), 0)).not.toBe(base)
     expect(todoSignature(todo({ archivedAt: '2026-09-10T00:00:00.000Z' }), 0)).not.toBe(base)
-    expect(todoSignature(todo({ snoozedUntil: '2026-09-20' }), 0)).not.toBe(base)
+    expect(todoSignature(todo({ dueDate: '2026-09-20' }), 0)).not.toBe(base)
     expect(todoSignature(todo({ reminderAt: '2026-09-10T09:00:00.000Z' }), 0)).not.toBe(base)
     // 「关掉这条任务的提醒」同样是用户可见的改动，不参与指纹就会在别的设备上继续提醒
     expect(todoSignature(todo({ reminderOff: true }), 0)).not.toBe(base)

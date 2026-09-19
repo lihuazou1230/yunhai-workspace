@@ -1,14 +1,15 @@
 /**
- * 任务组织相关的纯函数（标签 / 归档 / Snooze）。
+ * 任务组织相关的纯函数（标签 / 归档 / 推后）。
  *
- * 抽成纯函数的原因：这三件事都是「可见性与口径」的规则，最容易出现
+ * 抽成纯函数的原因：这几件事都是「可见性与口径」的规则，最容易出现
  * 「列表隐藏了但统计还算」这类不一致，用纯函数钉住并单测比散在组件里可靠。
  */
 
 import type { Tag, TagColor, TagInput } from '@/types/tag'
 import { MAX_TAG_NAME_LENGTH, isTagColor } from '@/types/tag'
 import type { Todo } from '@/types/todo'
-import { addDays, startOfWeek, todayKey } from '@/utils/dateFormatter'
+import { addDays, todayKey } from '@/utils/dateFormatter'
+import { isValidDateKey } from '@/utils/validation'
 
 // ---- 标签 ----
 
@@ -94,49 +95,41 @@ export function unarchiveTodo(todo: Todo): Todo {
   return { ...rest, archived: false }
 }
 
-// ---- Snooze（稍后再做） ----
-
-/** 是否处于 snooze 中：snoozedUntil 严格晚于今天（到期当天自动回归列表） */
-export function isSnoozed(todo: Todo, today: string = todayKey()): boolean {
-  return typeof todo.snoozedUntil === 'string' && todo.snoozedUntil > today
-}
-
-/** 是否今天到期回归（snoozedUntil 恰好是今天或更早，即已回到列表） */
-export function isSnoozeDue(todo: Todo, today: string = todayKey()): boolean {
-  return (
-    typeof todo.snoozedUntil === 'string' && todo.snoozedUntil !== '' && todo.snoozedUntil <= today
-  )
-}
-
-/** 设置 snooze 到某天 */
-export function snoozeTodo(todo: Todo, until: string): Todo {
-  return { ...todo, snoozedUntil: until }
-}
-
-/** 提前召回（清掉 snoozedUntil） */
-export function unsnoozeTodo(todo: Todo): Todo {
-  const { snoozedUntil: _snoozedUntil, ...rest } = todo
-  return rest
-}
-
-/** Snooze 快捷选项 */
-export interface SnoozeOption {
-  key: 'tomorrow' | 'dayAfter' | 'nextMonday'
-  label: string
-  /** 目标日期键 YYYY-MM-DD */
-  date: string
-}
+// ---- 推后（原「稍后再做 / Snooze」） ----
 
 /**
- * Snooze 选项：明天 / 后天 / 下周一（严格晚于今天）。
- * 「下周一」取的是**下一个**周一：今天就是周一时给下周一（+7 天），而不是今天。
+ * 推后 N 天：**只动 dueDate，不引入任何"隐藏"状态**。
+ *
+ * 语义（与旧实现的关键差别）：旧版 snooze 是「藏到某天为止」，任务会从列表消失；
+ * 现在改为「把到期日往后挪」——任务**始终留在列表里**，只是换了一天到期。
+ * 因此不再需要 snoozedUntil 字段、也不需要「已隐藏」视图与「召回」动作。
+ *
+ * 基准取**当前 dueDate**（用户要的是"把这件事往后挪"，不是"重新安排到某天"）；
+ * 没有截止日期的任务以今天为基准，选「1 天」→ 明天。
+ *
+ * 兜底取 `max(dueDate + N, today + N)`：一条**逾期很久**的任务，`dueDate + N` 可能仍落在过去
+ * （逾期一个月 + 推 1 天 = 还是逾期），那就等于没推。取较晚的那个保证「推了就有用」——
+ * 代价是逾期任务执行「推后 1 周」会得到「今天 + 7」而不是「原日期 + 7」，
+ * 而这恰恰是用户点这个动作时想要的语义。
  */
-export function snoozeOptions(now: Date = new Date()): SnoozeOption[] {
-  const today = todayKey(now)
-  const nextMondayBase = addDays(startOfWeek(now), 7)
-  return [
-    { key: 'tomorrow', label: '明天', date: addDays(today, 1) },
-    { key: 'dayAfter', label: '后天', date: addDays(today, 2) },
-    { key: 'nextMonday', label: '下周一', date: nextMondayBase },
-  ]
+export function postponeTodo(todo: Todo, days: number, today: string = todayKey()): Todo {
+  const step = Math.max(1, Math.trunc(days))
+  const base = todo.dueDate && isValidDateKey(todo.dueDate) ? todo.dueDate : today
+  const shifted = addDays(base, step)
+  const floor = addDays(today, step)
+  return { ...todo, dueDate: shifted < floor ? floor : shifted }
 }
+
+/** 推后快捷选项（与「新建任务」表单里的 1天/1周/1月 保持一致，用户不必学两套） */
+export interface PostponeOption {
+  key: 'day' | 'week' | 'month'
+  label: string
+  /** 推后的天数 */
+  days: number
+}
+
+export const POSTPONE_OPTIONS: readonly PostponeOption[] = [
+  { key: 'day', label: '1 天', days: 1 },
+  { key: 'week', label: '1 周', days: 7 },
+  { key: 'month', label: '1 月', days: 30 },
+]

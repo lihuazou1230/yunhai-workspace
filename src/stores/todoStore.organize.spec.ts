@@ -1,15 +1,18 @@
 /**
- * 第六阶段 6.1：任务组织（标签 / 归档 / Snooze）的 store 级验收用例。
+ * 第六阶段 6.1：任务组织（标签 / 归档 / 推后到期日）的 store 级验收用例。
  *
  * 只钉「列表可见性 + 统计口径」这两件事——规划里最容易出错的地方就是
- * 「列表里看不见了但统计还在算」（归档必须排除）与
- * 「只是藏起来却影响了统计」（snooze 必须不影响）。
+ * 「列表里看不见了但统计还在算」（归档必须排除）。
+ *
+ * 注意推后（原 Snooze）的语义已经变了：它不再"藏起来"，而是改 dueDate，
+ * 所以**会**影响按到期日计算的口径（今日聚焦/今日完成度），这与旧实现刻意相反。
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 import { computeStatistics } from '@/composables/useStatistics'
+import { addDays, todayKey } from '@/utils/dateFormatter'
 import { useTagStore } from './tagStore'
 import { useTodoStore } from './todoStore'
 
@@ -236,97 +239,74 @@ describe('todoStore · 任务组织（6.1）', () => {
     expect(store.archivedTodos.map((t) => t.id)).toEqual([a.id])
   })
 
-  // ---- Snooze ----
+  // ---- 推后到期日（原 Snooze） ----
 
-  it('snooze 后主列表与今日聚焦立即隐藏，且不影响任何统计', () => {
-    const { store, a, b } = seed()
-    store.togglePinned(a.id)
-    const before = computeStatistics(store.visibleTodos)
+  it('推后只改到期日：任务不消失，主列表照旧看得见', () => {
+    const { store } = seed()
+    // 明确给一个截止日期：这条用例验的是"在原日期上叠加"
+    const withDue = store.addTodo({
+      title: '要推后的',
+      priority: 'high',
+      dueDate: addDays(todayKey(), 3),
+    })
 
-    const until = '2999-01-01'
-    store.snooze(a.id, until)
+    store.postpone(withDue.id, 1)
 
-    // 主列表隐藏
-    expect(store.filteredTodos.some((t) => t.id === a.id)).toBe(false)
-    // 今日聚焦（置顶的那条）也隐藏
-    expect(store.myDayTodos.some((t) => t.id === a.id)).toBe(false)
-    expect(store.myDayTodos).toEqual([])
-
-    // 统计口径完全不变（snooze 不算完成、不算删除）
-    expect(computeStatistics(store.visibleTodos)).toEqual(before)
-    expect(store.snoozedCount).toBe(1)
-    // 任务本身还在底层数据里
-    expect(store.todos.some((t) => t.id === a.id)).toBe(true)
-    expect(store.filteredTodos.map((t) => t.id)).toEqual([b.id, store.todos[2].id])
+    // 关键语义变化：不再"藏起来"，任务仍在主列表里
+    expect(store.filteredTodos.some((t) => t.id === withDue.id)).toBe(true)
+    const after = store.todos.find((t) => t.id === withDue.id)!
+    expect(after.dueDate).toBe(addDays(todayKey(), 4))
+    // 也没有产生任何隐藏状态
+    expect('snoozedUntil' in after).toBe(false)
   })
 
-  it('snooze 到期（snoozedUntil <= 今天）自动回归主列表', () => {
-    const { store, a } = seed()
-    store.snooze(a.id, '2000-01-01') // 过去的日期 = 已到期
+  it('没有截止日期的任务：以今天为基准设上（1 天 = 明天）', () => {
+    const { store } = seed()
+    const noDue = store.addTodo({ title: '还没定日子', priority: 'low' })
+    expect(noDue.dueDate).toBeUndefined()
 
-    expect(store.snoozedCount).toBe(0)
-    expect(store.filteredTodos.some((t) => t.id === a.id)).toBe(true)
+    store.postpone(noDue.id, 1)
+
+    expect(store.todos.find((t) => t.id === noDue.id)?.dueDate).toBe(addDays(todayKey(), 1))
   })
 
-  it('snooze 到期自动回归：跨过后按新日期重算，但「时钟自己走」不会让缓存失效', () => {
-    // 用假时钟推进「今天」，真实等待在这里既慢又不可靠
-    vi.useFakeTimers()
-    const NOW = new Date(2026, 8, 15, 9, 0, 0) // 2026-09-15
-    vi.setSystemTime(NOW)
+  it('推后会影响「今日到期」口径：今天到期的任务推走后不再进今日聚焦', () => {
+    const { store } = seed()
+    // 造一条今天到期的任务（今日聚焦收「置顶 或 今日到期」）
+    const today = store.addTodo({ title: '今天到期', priority: 'high', dueDate: todayKey() })
+    expect(store.myDayTodos.some((t) => t.id === today.id)).toBe(true)
 
-    const store = useTodoStore()
-    const a = store.addTodo({ title: '交房租', priority: 'high' })
-    const b = store.addTodo({ title: '健身', priority: 'low' })
-    store.togglePinned(a.id) // 置顶 → 同时进「今日聚焦」
-    // 统计一律显式传 NOW：跨天会让「近 90 天」的日期键整体平移，
-    // 这里要断言的是「哪些任务计入」，不是「今天是几号」
-    const baseline = computeStatistics(store.visibleTodos, NOW)
+    store.postpone(today.id, 1)
 
-    store.snooze(a.id, '2026-09-16') // 藏到明天
-
-    // 藏起来期间：主列表与今日聚焦都看不到，撤销线索只剩「已隐藏」计数
-    expect(store.filteredTodos.map((t) => t.id)).toEqual([b.id])
-    expect(store.myDayTodos.some((t) => t.id === a.id)).toBe(false)
-    expect(store.snoozedCount).toBe(1)
-    // 但统计口径一动不动（snooze 只是「晚点做」，既不算完成也不算删除）
-    expect(computeStatistics(store.visibleTodos, NOW)).toEqual(baseline)
-    expect(store.todos.some((t) => t.id === a.id)).toBe(true)
-
-    // 跨到 snoozedUntil 当天
-    vi.setSystemTime(new Date(2026, 8, 16, 9, 0, 0))
-    // 「今天」是 store 里的响应式状态，由 App.vue 定时/回前台校准 —— 校准后
-    // 已到期的任务自动回归，**不需要**任何任务写入来触发重算（曾经需要，那是个坑）。
-    store.refreshToday()
-
-    expect(store.snoozedCount).toBe(0)
-    expect(store.filteredTodos.map((t) => t.id)).toContain(a.id)
-    expect(store.myDayTodos.some((t) => t.id === a.id)).toBe(true)
-    // 回归不改变统计口径（snooze 只是「晚点做」，既不算完成也不算删除）
-    expect(computeStatistics(store.visibleTodos, NOW)).toEqual(baseline)
+    /*
+      这是与旧 snooze 的本质差别：旧实现"不影响任何统计"（有专门用例守着），
+      新实现改的是 dueDate，所以今日聚焦/今日完成度这些按到期日算的口径会跟着变。
+    */
+    expect(store.todos.find((t) => t.id === today.id)?.dueDate).toBe(addDays(todayKey(), 1))
+    expect(store.myDayTodos.some((t) => t.id === today.id)).toBe(false)
   })
 
-  it('「已隐藏」视图可看到 snooze 中的任务并提前召回', () => {
-    const { store, a } = seed()
-    store.snooze(a.id, '2999-01-01')
+  it('批量推后', () => {
+    const { store } = seed()
+    const a = store.addTodo({ title: 'A', priority: 'high', dueDate: addDays(todayKey(), 1) })
+    const b = store.addTodo({ title: 'B', priority: 'low', dueDate: addDays(todayKey(), 10) })
 
-    store.setListView('snoozed')
-    expect(store.filteredTodos.map((t) => t.id)).toEqual([a.id])
+    store.bulkPostpone([a.id, b.id], 7)
 
-    store.unsnooze(a.id)
-    expect(store.snoozedCount).toBe(0)
-
-    store.setListView('main')
-    expect(store.filteredTodos.some((t) => t.id === a.id)).toBe(true)
+    expect(store.todos.find((t) => t.id === a.id)?.dueDate).toBe(addDays(todayKey(), 8))
+    expect(store.todos.find((t) => t.id === b.id)?.dueDate).toBe(addDays(todayKey(), 17))
+    // 批量动作会顺手退出多选
+    expect(store.selectedIds).toEqual([])
   })
 
-  it('批量召回', () => {
-    const { store, a, b } = seed()
-    store.snooze(a.id, '2999-01-01')
-    store.snooze(b.id, '2999-01-01')
-    expect(store.snoozedCount).toBe(2)
-
-    store.bulkUnsnooze([a.id, b.id])
-    expect(store.snoozedCount).toBe(0)
+  it('旧的隐藏机制已从 store 移除（没有「已隐藏」视图/计数/召回）', () => {
+    const { store } = seed()
+    // 这些接口不该再存在：留着会让"隐藏"语义悄悄复活
+    expect('snooze' in store).toBe(false)
+    expect('unsnooze' in store).toBe(false)
+    expect('bulkUnsnooze' in store).toBe(false)
+    expect('snoozedTodos' in store).toBe(false)
+    expect('snoozedCount' in store).toBe(false)
   })
 
   it('切换视图会重置手动排序与多选状态', () => {
@@ -343,20 +323,26 @@ describe('todoStore · 任务组织（6.1）', () => {
     expect(store.selectedIds).toEqual([])
   })
 
-  it('归档 / snooze / 标签都会随云同步推送（差异检测能看到新字段）', async () => {
-    const { store, a } = seed()
+  it('归档 / 推后 / 标签都会随云同步推送（差异检测能看到新字段）', async () => {
+    const { store } = seed()
     const tagStore = useTagStore()
     const tag = tagStore.addTag({ name: '工作', color: 'sky' })!
+    const a = store.addTodo({
+      title: '要同步的',
+      priority: 'medium',
+      dueDate: addDays(todayKey(), 2),
+    })
 
     // 未激活云同步时不应抛错，且本地状态要正确
     store.todos = store.todos.map((t) => (t.id === a.id ? { ...t, tags: [tag.id] } : t))
     store.archive(a.id)
-    store.snooze(a.id, '2999-01-01')
+    store.postpone(a.id, 1)
 
     const target = store.todos.find((t) => t.id === a.id)!
     expect(target.tags).toEqual([tag.id])
     expect(target.archived).toBe(true)
-    expect(target.snoozedUntil).toBe('2999-01-01')
+    // 推后走的是 dueDate —— 它本来就在同步指纹里，不需要额外字段
+    expect(target.dueDate).toBe(addDays(todayKey(), 3))
     expect(store.syncState).toBe('local')
   })
 })

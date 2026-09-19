@@ -44,7 +44,7 @@ describe('AI 拆解入口的显隐', () => {
 
     expect(wrapper.find('[data-testid="todo-ai-breakdown"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="todo-archive"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="todo-snooze"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="todo-postpone"]').exists()).toBe(true)
   })
 
   it('TodoList：未配置 Key（默认空存储）时入口不出现', async () => {
