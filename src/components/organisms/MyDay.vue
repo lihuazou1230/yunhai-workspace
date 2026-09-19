@@ -5,8 +5,11 @@
  * - 复用 TodoItem：完成/置顶/子任务
  */
 
+import { nextTick } from 'vue'
+
 import { useTagStore } from '@/stores/tagStore'
 import { useTodoStore } from '@/stores/todoStore'
+import { flipMove } from '@/utils/flipMove'
 import TodoItem from '@/components/molecules/TodoItem.vue'
 
 const store = useTodoStore()
@@ -21,8 +24,9 @@ function toggle(id: string) {
   store.toggleComplete(id)
 }
 
+/** 置顶：走 FLIP，让这一行从原位置滑到最前（而不是瞬间出现在上方） */
 function onTogglePin(id: string) {
-  store.togglePinned(id)
+  void flipMove(`[data-testid="todo-item-${id}"]`, () => store.togglePinned(id), nextTick)
 }
 
 function onArchive(id: string) {

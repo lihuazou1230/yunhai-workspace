@@ -42,6 +42,28 @@ describe('TodoItem · 图标按钮的 CSS 结构守卫', () => {
     expect(todoItemSource).toMatch(/name="pin"[\s\S]{0,60}size="h-5 w-5"/)
     expect(todoItemSource).toMatch(/name="more" size="h-5 w-5"/)
   })
+
+  it('置顶样式走标记类，不在模板里拼 Tailwind 状态类', () => {
+    /*
+      实测踩过两次，都是"拼 Tailwind 类"这条路本身不可靠：
+      1. `border-slate-200` 在产物里排在 `border-amber-300/70` 之后，
+         基础类的灰边会把状态色盖掉（胜负由产物顺序决定，与类在元素上的先后无关）；
+      2. `shadow-[var(--app-pinned-shadow)]` 没被生成出来，computed 是 none（静默失效）。
+      所以状态样式必须在 custom.css 的 `.item-surface--pinned` 里定义。
+    */
+    expect(todoItemSource).toContain("todo.pinned ? 'item-surface--pinned'")
+    expect(todoItemSource).not.toMatch(/todo\.pinned\s*\?[\s\S]{0,80}border-amber/)
+  })
+
+  it('置顶时不再叠加逾期红边（一张卡片只有一个描边结论）', () => {
+    // 三元表达式里 pinned 分支优先，overdue 只在未置顶时生效
+    expect(todoItemSource).toMatch(/todo\.pinned[\s\S]{0,80}: overdue/)
+  })
+
+  it('标题左侧不再渲染置顶图钉（置顶由整卡样式表达）', () => {
+    expect(todoItemSource).not.toContain('>📌<')
+    expect(todoItemSource).not.toMatch(/v-if="todo\.pinned"[\s\S]{0,60}📌/)
+  })
 })
 
 function makeTodo(partial: Partial<Todo> & { id: string; title: string }): Todo {

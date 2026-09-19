@@ -32,6 +32,33 @@ body {
 }
 
 /*
+  置顶的列表项：**半透明白底 + 轻微阴影 + 琥珀描边**，取代了原先标题左侧那个小 📌。
+  图钉要挤占标题宽度、还与右侧的置顶按钮重复表达同一件事；整卡换一个"浮起来"的质感
+  更安静，也更容易在任意屏幕上认出来。
+
+  为什么放在这里、用 `!important`，而不是在组件里拼 Tailwind 类（实测踩过两次）：
+  1. `border-slate-200` 在 Tailwind 的产物里排在 `border-amber-300/70` **之后**，
+     基础类的灰边会把状态色盖掉 —— 决定胜负的是产物顺序，不是类在元素上的先后；
+  2. `shadow-[var(--app-pinned-shadow)]`（任意值 + CSS 变量）没被生成出来，
+     computed 直接是 `none`，属于静默失效。
+  标记类 + 自定义 CSS 只有一处定义、优先级明确，不再和几十个基础工具类抢。
+*/
+.item-surface--pinned {
+  /* 半透明而非实色：透出页面底色与壁纸，配合下面的模糊才是毛玻璃浮片 */
+  background-color: rgb(255 255 255 / 0.75) !important;
+  border-color: rgb(252 211 77 / 0.7) !important;
+  box-shadow: var(--app-pinned-shadow) !important;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+html.dark .item-surface--pinned {
+  background-color: rgb(30 41 59 / 0.75) !important;
+  /* 琥珀环在深底上压暗一档：亮琥珀会变成刺眼的白圈，抢走内容注意力 */
+  border-color: rgb(251 191 36 / 0.28) !important;
+}
+
+/*
   深色强调卡（赚钱秒表 C 位）：深绿渐变 + 白色大数字，暗色模式下保持一致。
   渐变走垂直方向，卡片从上到下均匀压深（斜向渐变在窄卡上会显得一边亮一边暗）。
 */

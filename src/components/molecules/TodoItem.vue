@@ -382,10 +382,28 @@ function onPurge() {
 </script>
 
 <template>
+  <!--
+    卡片外框的两种状态优先级（一个卡片只能有一个描边结论）：
+    1. 置顶 → 琥珀描边 + 半透明白底 + 轻微阴影（毛玻璃浮片，取代了原先标题旁的 📌）
+    2. 逾期 → 玫瑰描边
+    置顶时**不再叠加**逾期红边：先画红再被琥珀盖掉，顺序看着像 bug
+    （之前截图里那块发粉就是两者叠加的残留）。
+    注释写在这里而不是 :class 数组里 —— 表达式内不能放块注释，Vue 的表达式解析器会报
+    "Unterminated comment"。
+  -->
   <li
     class="item-surface group relative flex items-start gap-3 border border-slate-200 bg-white px-4 py-3.5 transition-colors hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600"
     :class="[
-      overdue ? 'border-rose-300 dark:border-rose-700' : '',
+      /*
+        置顶样式走**自定义 CSS 的标记类**（见 custom.css 的 .item-surface--pinned），
+        而不是在这里拼 Tailwind 工具类。原因（实测踩过）：
+        - `border-slate-200` 在编译产物里排在 `border-amber-300/70` **之后**，
+          基础类的灰边会把状态色盖掉（顺序决定胜负，与类在元素上的先后无关）；
+        - `shadow-[var(--app-pinned-shadow)]` 这类任意值 + CSS 变量的写法没被生成出来，
+          computed 直接是 `none`（静默失效）。
+        改用带 `!important` 的单一标记类后，状态样式不再和基础工具类抢优先级。
+      */
+      todo.pinned ? 'item-surface--pinned' : overdue ? 'border-rose-300 dark:border-rose-700' : '',
       isDone ? 'opacity-[0.65]' : '',
       highlighted
         ? 'border-[var(--el-color-primary)] ring-2 ring-[var(--el-color-primary)] ring-offset-1 dark:ring-offset-slate-900'
@@ -395,6 +413,7 @@ function onPurge() {
       revealing ? 'anim-reveal-right' : '',
       entering ? 'anim-enter-left' : '',
     ]"
+    :data-pinned="todo.pinned ? 'true' : undefined"
     :data-highlighted="highlighted ? 'true' : undefined"
     :data-testid="`todo-item-${todo.id}`"
   >
@@ -474,7 +493,7 @@ function onPurge() {
 
     <!-- 中：内容列 -->
     <div class="min-w-0 flex-1">
-      <!-- 标题行（14px/500，已置顶时标题旁小 📌） -->
+      <!-- 标题行（14px/500）。置顶不再在这里放 📌：卡片本身的样式已经说明它被置顶了 -->
       <p
         class="flex items-center gap-1 truncate text-sm font-medium"
         :class="
@@ -483,7 +502,6 @@ function onPurge() {
             : 'text-slate-800 dark:text-slate-100'
         "
       >
-        <span v-if="todo.pinned" class="shrink-0 text-xs" title="已置顶到今日聚焦">📌</span>
         <span class="truncate">{{ todo.title }}</span>
       </p>
 

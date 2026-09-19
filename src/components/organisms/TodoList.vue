@@ -20,6 +20,7 @@ import { PRIORITY_ORDER } from '@/utils/priorityHelper'
 import { priorityLabel } from '@/utils/priorityHelper'
 import { resolveSortMove } from '@/utils/sortableMove'
 import { formatShortDate } from '@/utils/dateFormatter'
+import { flipMove } from '@/utils/flipMove'
 import SearchBar from '@/components/molecules/SearchBar.vue'
 import TodoItem from '@/components/molecules/TodoItem.vue'
 import BaseButton from '@/components/atoms/BaseButton.vue'
@@ -139,9 +140,15 @@ function onRemoveSubtask(todoId: string, subtaskId: string) {
   store.removeSubtask(todoId, subtaskId)
 }
 
-/** 置顶（今日聚焦） */
+/**
+ * 置顶（今日聚焦）。
+ *
+ * 走 FLIP：置顶会把这一行重排到列表最前，直接改 store 的话视觉上是"突然出现在上方"。
+ * `flipMove` 会先记下它当前的位置、等 DOM 更新后再从原位置补一段位移动画过去。
+ * 取消置顶时该行会往下走，同样适用（位置差为负，方向自然反过来）。
+ */
 function onTogglePin(id: string) {
-  store.togglePinned(id)
+  void flipMove(`[data-testid="todo-item-${id}"]`, () => store.togglePinned(id), nextTick)
 }
 
 /** 多选 */
